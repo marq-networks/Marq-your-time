@@ -89,6 +89,9 @@ body {
   border-radius: 12px;
   padding: 12px 16px;
 }
+.toggle {
+  accent-color: var(--accent);
+}
 .nav {
   position: sticky;
   top: 0;

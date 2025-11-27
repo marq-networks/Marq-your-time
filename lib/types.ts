@@ -1,5 +1,15 @@
 export type SubscriptionType = 'monthly' | 'yearly'
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
+export type UserStatus = 'active' | 'inactive' | 'suspended'
+export type Permission =
+  | 'manage_org'
+  | 'manage_users'
+  | 'manage_time'
+  | 'manage_screenshots'
+  | 'manage_salary'
+  | 'manage_fines'
+  | 'manage_reports'
+  | 'manage_settings'
 
 export interface Organization {
   id: string
@@ -34,4 +44,38 @@ export interface SaaSSettings {
   defaultSeatPrice: number
   defaultSeatLimit: number
   landingPageInviteEnabled: boolean
+}
+
+export interface Department {
+  id: string
+  orgId: string
+  name: string
+  createdAt: number
+}
+
+export interface Role {
+  id: string
+  orgId: string
+  name: string
+  permissions: Permission[]
+  createdAt: number
+}
+
+export interface User {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  passwordHash: string
+  roleId: string
+  orgId: string
+  departmentId?: string
+  positionTitle?: string
+  profileImage?: string
+  salary?: number
+  workingDays: string[]
+  workingHoursPerDay?: number
+  status: UserStatus
+  createdAt: number
+  updatedAt: number
 }

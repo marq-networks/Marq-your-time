@@ -67,7 +67,17 @@ export default function OrgDetail() {
         </Card>
       </div>
       <Card title="Members">
-        <div className="subtitle">Managed externally in this module</div>
+        <div className="grid">
+          {(invites||[]).filter((i:any)=>i.inviteStatus==='accepted').map((i:any)=>(
+            <div key={i.id} className="row" style={{justifyContent:'space-between'}}>
+              <div>{i.invitedEmail}</div>
+              <div className="badge">accepted</div>
+            </div>
+          ))}
+          {(!invites || invites.filter((i:any)=>i.inviteStatus==='accepted').length===0) && (
+            <div className="subtitle">No members yet</div>
+          )}
+        </div>
       </Card>
       <Card title="Pending Invitations">
         <div className="grid">

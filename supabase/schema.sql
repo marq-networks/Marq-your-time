@@ -43,3 +43,41 @@ begin
   update public.organizations set used_seats = used_seats + 1, updated_at = now() where id = org;
 end;$$;
 create extension if not exists "pgcrypto";
+
+-- Departments
+create table if not exists public.departments (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Roles
+create table if not exists public.roles (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  permissions jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- Users
+create table if not exists public.users (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  first_name text not null,
+  last_name text not null,
+  email text not null,
+  password_hash text not null,
+  role_id uuid references public.roles(id) on delete set null,
+  department_id uuid references public.departments(id) on delete set null,
+  position_title text,
+  profile_image text,
+  salary numeric,
+  working_days text[] not null default '{}',
+  working_hours_per_day numeric,
+  status text not null check (status in ('active','inactive','suspended')) default 'active',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (org_id, email)
+);
