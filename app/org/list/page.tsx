@@ -1,5 +1,6 @@
-import Card from '@components/Card'
-import Table from '@components/Table'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassTable from '@components/ui/GlassTable'
 import { headers } from 'next/headers'
 
 async function fetchOrgs() {
@@ -23,8 +24,10 @@ export default async function OrgList() {
     <a className="btn btn-primary" href={`/org/${o.id}`}>Open</a>
   ])
   return (
-    <Card title="Organization List">
-      <Table columns={columns} rows={rows} />
-    </Card>
+    <AppShell title="Organizations">
+      <GlassCard title="Organization List">
+        <GlassTable columns={columns} rows={rows} />
+      </GlassCard>
+    </AppShell>
   )
 }

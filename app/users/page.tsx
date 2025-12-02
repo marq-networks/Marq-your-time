@@ -1,8 +1,12 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
-import Card from '@components/Card'
-import Table from '@components/Table'
-import Modal from '@components/Modal'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassTable from '@components/ui/GlassTable'
+import GlassModal from '@components/ui/GlassModal'
+import GlassButton from '@components/ui/GlassButton'
+import GlassSelect from '@components/ui/GlassSelect'
+import usePermission from '@lib/hooks/usePermission'
 import Toast from '@components/Toast'
 
 type Org = { id: string, orgName: string }
@@ -21,6 +25,10 @@ export default function UsersPage() {
   const [editUser, setEditUser] = useState<User|undefined>(undefined)
   const [editReadOnly, setEditReadOnly] = useState<boolean>(false)
   const [openMenuId, setOpenMenuId] = useState<string>('')
+  const menuRef = useRef<HTMLDivElement|null>(null)
+  const [confirmSuspendId, setConfirmSuspendId] = useState<string>('')
+  const [confirmResetId, setConfirmResetId] = useState<string>('')
+  const canManageUsers = usePermission('manage_users').allowed
 
   const roleName = (id?: string) => roles.find(r=>r.id===id)?.name || '-'
   const deptName = (id?: string) => departments.find(d=>d.id===id)?.name || '-'
@@ -46,6 +54,15 @@ export default function UsersPage() {
 
   useEffect(() => { loadOrgs() }, [])
   useEffect(() => { if (orgId) loadData(orgId) }, [orgId])
+  useEffect(() => {
+    const closeOnOutside = (e: MouseEvent) => {
+      if (!openMenuId) return
+      const el = menuRef.current
+      if (el && !el.contains(e.target as Node)) setOpenMenuId('')
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    return () => document.removeEventListener('mousedown', closeOnOutside)
+  }, [openMenuId])
 
   const [form, setForm] = useState({ firstName:'', lastName:'', email:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'' })
   const emailOk = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email), [form.email])
@@ -107,38 +124,40 @@ export default function UsersPage() {
     deptName(u.departmentId),
     <span className="badge">{u.status}</span>,
     <div style={{position:'relative'}}>
-      <button className="btn" onClick={()=>setOpenMenuId(openMenuId===u.id?'':u.id)}>Actions ▾</button>
+      <GlassButton onClick={()=>setOpenMenuId(openMenuId===u.id?'':u.id)}>Actions ▾</GlassButton>
       {openMenuId===u.id && (
-        <div style={{position:'absolute',top:'110%',right:0,background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,boxShadow:'var(--shadow)',minWidth:180}}>
-          <button className="btn" style={{display:'block',width:'100%',textAlign:'left'}} onClick={()=>{ setEditUser(u); setEditReadOnly(true); setOpenMenuId('') }}>View</button>
-          <button className="btn" style={{display:'block',width:'100%',textAlign:'left'}} onClick={()=>{ setEditUser(u); setEditReadOnly(false); setOpenMenuId('') }}>Edit</button>
+        <div ref={menuRef} style={{position:'absolute',top:'110%',right:0,background:'var(--card)',border:'1px solid var(--border)',borderRadius:'var(--radius-large)',boxShadow:'var(--shadow)',minWidth:220,padding:8,zIndex:10}}>
+          <div className="subtitle" style={{padding:'6px 10px'}}>Quick Actions</div>
+          <button className="btn-glass" style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-start',width:'100%'}} onClick={()=>{ setEditUser(u); setEditReadOnly(true); setOpenMenuId('') }}>👁️ View</button>
+          {canManageUsers && <button className="btn-glass" style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-start',width:'100%'}} onClick={()=>{ setEditUser(u); setEditReadOnly(false); setOpenMenuId('') }}>✏️ Edit</button>}
+          <div style={{height:1,background:'var(--border)',margin:'6px 8px'}}></div>
           {u.status==='suspended' ? (
-            <button className="btn" style={{display:'block',width:'100%',textAlign:'left'}} onClick={()=>{ activate(u.id); setOpenMenuId('') }}>Activate</button>
+            <button className="btn-glass" style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-start',width:'100%'}} onClick={()=>{ activate(u.id); setOpenMenuId('') }}>✅ Activate</button>
           ) : (
-            <button className="btn" style={{display:'block',width:'100%',textAlign:'left'}} onClick={()=>{ suspend(u.id); setOpenMenuId('') }}>Suspend</button>
+            (canManageUsers ? <button className="btn-glass" style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-start',width:'100%'}} onClick={()=>{ setConfirmSuspendId(u.id); setOpenMenuId('') }}>⛔ Suspend</button> : null)
           )}
-          <button className="btn" style={{display:'block',width:'100%',textAlign:'left'}} onClick={()=>{ resetPassword(u.id); setOpenMenuId('') }}>Reset Password</button>
+          <button className="btn-glass" style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-start',width:'100%'}} onClick={()=>{ setConfirmResetId(u.id); setOpenMenuId('') }}>🔒 Reset Password</button>
         </div>
       )}
     </div>
   ])
 
   return (
-    <div className="grid">
-      <Card title="Users" right={<button className="btn btn-primary" onClick={()=>setAddOpen(true)}>Add User</button>}>
+    <AppShell title="Users">
+      <GlassCard title="Users" right={canManageUsers ? <GlassButton variant="primary" onClick={()=>setAddOpen(true)}>Add User</GlassButton> : undefined}>
         <div className="row" style={{marginBottom:12,gap:12}}>
           <div>
             <div className="label">Organization</div>
-            <select className="input" value={orgId} onChange={e=>setOrgId(e.target.value)}>
+            <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
               <option value="">Select org</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </select>
+            </GlassSelect>
           </div>
         </div>
-        <Table columns={columns} rows={rows} />
-      </Card>
+        <GlassTable columns={columns} rows={rows} />
+      </GlassCard>
 
-      <Modal open={addOpen} title="Create User" onClose={()=>setAddOpen(false)}>
+      <GlassModal open={addOpen} title="Create User" onClose={()=>setAddOpen(false)}>
         <div className="grid grid-2">
           <div>
             <div className="label">First name</div>
@@ -167,46 +186,50 @@ export default function UsersPage() {
           </div>
           <div>
             <div className="label">Department</div>
-            <select className="input" value={form.departmentId} onChange={e=>setForm({...form, departmentId:e.target.value})}>
+            <GlassSelect value={form.departmentId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setForm({...form, departmentId:e.target.value})}>
               <option value="">Select</option>
               {departments.map(d=> <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            </GlassSelect>
           </div>
           <div>
             <div className="label">Role</div>
-            <select className="input" value={form.roleId} onChange={e=>setForm({...form, roleId:e.target.value})}>
+            <GlassSelect value={form.roleId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setForm({...form, roleId:e.target.value})}>
               <option value="">Select</option>
               {roles.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+            </GlassSelect>
           </div>
         </div>
         <div className="row" style={{marginTop:12}}>
-          <button className="btn btn-primary" onClick={createUser}>Create User</button>
+          {canManageUsers && <GlassButton variant="primary" onClick={createUser}>Create User</GlassButton>}
         </div>
-      </Modal>
+      </GlassModal>
 
-      {editUser && (
-        <div style={{position:'fixed',top:0,right:0,bottom:0,width:460,background:'var(--bg-ash)',borderLeft:'1px solid var(--border)',boxShadow:'var(--shadow)'}}>
-          <div style={{padding:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <div className="title">Edit User</div>
-            <button className="btn" onClick={()=>setEditUser(undefined)}>Close</button>
-          </div>
-          <div style={{padding:16}}>
-            <div className="subtitle" style={{marginBottom:12}}>{editUser.email}</div>
-            <div className="grid">
+      <GlassModal open={!!editUser} title={editReadOnly ? 'View User' : 'Edit User'} onClose={()=>setEditUser(undefined)}>
+        {editUser && (
+          <div>
+            <div className="row" style={{alignItems:'center',gap:12,marginBottom:12}}>
+              <div style={{width:48,height:48,borderRadius:12,background:'#111',border:'1px solid var(--border)'}}>
+                {editUser.profileImage && <img src={editUser.profileImage} alt="" style={{width:'100%',height:'100%',borderRadius:12,objectFit:'cover'}} />}
+              </div>
+              <div>
+                <div className="title" style={{margin:0}}>{editUser.firstName} {editUser.lastName}</div>
+                <div className="subtitle" style={{marginTop:4}}>{editUser.email}</div>
+              </div>
+            </div>
+            <div className="grid grid-2">
               <div>
                 <div className="label">Department</div>
-                <select className="input" value={editUser.departmentId || ''} onChange={e=>setEditUser({...editUser, departmentId: e.target.value})} disabled={editReadOnly}>
+                <GlassSelect value={editUser.departmentId || ''} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setEditUser({...editUser, departmentId: e.target.value})} className={editReadOnly? 'disabled':''}>
                   <option value="">Select</option>
                   {departments.map(d=> <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                </GlassSelect>
               </div>
               <div>
                 <div className="label">Role</div>
-                <select className="input" value={editUser.roleId || ''} onChange={e=>setEditUser({...editUser, roleId: e.target.value})} disabled={editReadOnly}>
+                <GlassSelect value={editUser.roleId || ''} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setEditUser({...editUser, roleId: e.target.value})} className={editReadOnly? 'disabled':''}>
                   <option value="">Select</option>
                   {roles.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+                </GlassSelect>
               </div>
               <div>
                 <div className="label">Salary</div>
@@ -229,16 +252,36 @@ export default function UsersPage() {
                 </select>
               </div>
             </div>
-            {!editReadOnly && (
+            {!editReadOnly && canManageUsers && (
               <div className="row" style={{marginTop:12}}>
-                <button className="btn btn-primary" onClick={updateUser}>Save</button>
+                <GlassButton variant="primary" onClick={updateUser}>Save</GlassButton>
               </div>
             )}
           </div>
+        )}
+      </GlassModal>
+
+      <GlassModal open={!!confirmSuspendId} title="Suspend User" onClose={()=>setConfirmSuspendId('')}>
+        <div className="grid">
+          <div className="subtitle">Are you sure you want to suspend this user?</div>
+          <div className="row" style={{justifyContent:'flex-end',gap:8}}>
+            <button className="btn-glass" onClick={()=>setConfirmSuspendId('')}>Cancel</button>
+            <button className="btn-glass primary" onClick={async()=>{ await suspend(confirmSuspendId); setConfirmSuspendId('') }}>Confirm Suspend</button>
+          </div>
         </div>
-      )}
+      </GlassModal>
+
+      <GlassModal open={!!confirmResetId} title="Reset Password" onClose={()=>setConfirmResetId('')}>
+        <div className="grid">
+          <div className="subtitle">Send a password reset email to this user?</div>
+          <div className="row" style={{justifyContent:'flex-end',gap:8}}>
+            <button className="btn-glass" onClick={()=>setConfirmResetId('')}>Cancel</button>
+            <button className="btn-glass primary" onClick={()=>{ resetPassword(confirmResetId); setConfirmResetId('') }}>Send Reset Email</button>
+          </div>
+        </div>
+      </GlassModal>
 
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }

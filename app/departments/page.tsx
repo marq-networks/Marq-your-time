@@ -1,8 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
-import Card from '@components/Card'
-import Table from '@components/Table'
-import Modal from '@components/Modal'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassTable from '@components/ui/GlassTable'
+import GlassModal from '@components/ui/GlassModal'
+import GlassButton from '@components/ui/GlassButton'
+import GlassSelect from '@components/ui/GlassSelect'
 import Toast from '@components/Toast'
 
 type Org = { id: string, orgName: string }
@@ -14,6 +17,7 @@ export default function DepartmentsPage() {
   const [orgId, setOrgId] = useState('')
   const [departments, setDepartments] = useState<Department[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [dataSource, setDataSource] = useState<'supabase'|'memory'|''>('')
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -32,6 +36,7 @@ export default function DepartmentsPage() {
     ])
     const [d, u] = await Promise.all([dRes.json(), uRes.json()])
     setDepartments(d.items || [])
+    setDataSource((d.source as any) || '')
     setUsers(u.items || [])
   }
 
@@ -76,31 +81,34 @@ export default function DepartmentsPage() {
   ])
 
   return (
-    <div className="grid">
-      <Card title="Departments" right={<button className="btn btn-primary" onClick={()=>setCreateOpen(true)}>Add Department</button>}>
+    <AppShell title="Departments">
+      <GlassCard title="Departments" right={<div className="row" style={{gap:12,alignItems:'center'}}>
+        {dataSource && <span className="badge">{dataSource==='supabase' ? 'Supabase' : 'Memory'}</span>}
+        <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Add Department</GlassButton>
+      </div>}>
         <div className="row" style={{marginBottom:12,gap:12}}>
           <div>
             <div className="label">Organization</div>
-            <select className="input" value={orgId} onChange={e=>setOrgId(e.target.value)}>
+            <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
               <option value="">Select org</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </select>
+            </GlassSelect>
           </div>
         </div>
-        <Table columns={columns} rows={rows} />
-      </Card>
+        <GlassTable columns={columns} rows={rows} />
+      </GlassCard>
 
-      <Modal open={createOpen} title="Create Department" onClose={()=>setCreateOpen(false)}>
+      <GlassModal open={createOpen} title="Create Department" onClose={()=>setCreateOpen(false)}>
         <div>
           <div className="label">Name</div>
           <input className="input" value={newName} onChange={e=>setNewName(e.target.value)} />
         </div>
         <div className="row" style={{marginTop:12}}>
-          <button className="btn btn-primary" onClick={create}>Create</button>
+          <GlassButton variant="primary" onClick={create}>Create</GlassButton>
         </div>
-      </Modal>
+      </GlassModal>
 
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }

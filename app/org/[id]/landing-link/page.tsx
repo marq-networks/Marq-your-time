@@ -3,6 +3,7 @@ import { useState } from 'react'
 import Card from '@components/Card'
 import Toast from '@components/Toast'
 import { usePathname } from 'next/navigation'
+import AppShell from '@components/ui/AppShell'
 
 export default function LandingLink() {
   const id = usePathname().split('/')[2] || ''
@@ -17,7 +18,7 @@ export default function LandingLink() {
   }
 
   return (
-    <div className="grid">
+    <AppShell title="Invite Link Generator">
       <Card title="Invite Link Generator">
         <div className="grid grid-2">
           <div>
@@ -41,6 +42,6 @@ export default function LandingLink() {
         )}
       </Card>
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }

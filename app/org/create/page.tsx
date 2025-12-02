@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import Card from '@components/Card'
 import Toast from '@components/Toast'
+import AppShell from '@components/ui/AppShell'
 
 export default function CreateOrg() {
   const [form, setForm] = useState({ orgName:'', ownerName:'', ownerEmail:'', billingEmail:'', pricePerLogin:5, totalLicensedSeats:10, subscriptionType:'monthly' })
@@ -20,7 +21,7 @@ export default function CreateOrg() {
   const bind = (k: string) => ({ value: (form as any)[k], onChange: (e: any) => setForm({ ...form, [k]: e.target.value }) })
 
   return (
-    <div className="grid">
+    <AppShell title="Create Organization">
       <Card title="Create Organization">
         <div className="grid grid-2">
           <div>
@@ -61,6 +62,6 @@ export default function CreateOrg() {
         </div>
       </Card>
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }

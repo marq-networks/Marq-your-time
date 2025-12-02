@@ -1,9 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
-import Card from '@components/Card'
-import Table from '@components/Table'
-import Modal from '@components/Modal'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassTable from '@components/ui/GlassTable'
+import GlassModal from '@components/ui/GlassModal'
+import GlassButton from '@components/ui/GlassButton'
+import GlassSelect from '@components/ui/GlassSelect'
 import Toast from '@components/Toast'
+import usePermission from '@lib/hooks/usePermission'
 
 type Org = { id: string, orgName: string }
 type Role = { id: string, name: string, permissions: string[] }
@@ -69,27 +73,28 @@ export default function RolesPage() {
       ))}
     </div>,
     <div className="row" style={{gap:8}}>
-      <button className="btn" onClick={()=>update(r)}>Save</button>
-      <button className="btn" onClick={()=>del(r.id)}>Delete</button>
+      {usePermission('manage_settings').allowed && <button className="btn" onClick={()=>update(r)}>Save</button>}
+      {usePermission('manage_settings').allowed && <button className="btn" onClick={()=>del(r.id)}>Delete</button>}
     </div>
   ])
 
+  const canManageRoles = usePermission('manage_users').allowed && usePermission('manage_settings').allowed
   return (
-    <div className="grid">
-      <Card title="Roles & Permissions" right={<button className="btn btn-primary" onClick={()=>setCreateOpen(true)}>Add Role</button>}>
+    <AppShell title="Roles & Permissions">
+      <GlassCard title="Roles & Permissions" right={canManageRoles ? <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Add Role</GlassButton> : undefined}>
         <div className="row" style={{marginBottom:12,gap:12}}>
           <div>
             <div className="label">Organization</div>
-            <select className="input" value={orgId} onChange={e=>setOrgId(e.target.value)}>
+            <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
               <option value="">Select org</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </select>
+            </GlassSelect>
           </div>
         </div>
-        <Table columns={columns} rows={rows} />
-      </Card>
+        <GlassTable columns={columns} rows={rows} />
+      </GlassCard>
 
-      <Modal open={createOpen} title="Add Role" onClose={()=>setCreateOpen(false)}>
+      <GlassModal open={createOpen} title="Add Role" onClose={()=>setCreateOpen(false)}>
         <div>
           <div className="label">Name</div>
           <input className="input" value={newRole.name} onChange={e=>setNewRole({...newRole, name: e.target.value})} />
@@ -103,12 +108,11 @@ export default function RolesPage() {
           ))}
         </div>
         <div className="row" style={{marginTop:12}}>
-          <button className="btn btn-primary" onClick={create}>Create</button>
+          {canManageRoles && <GlassButton variant="primary" onClick={create}>Create</GlassButton>}
         </div>
-      </Modal>
+      </GlassModal>
 
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }
-

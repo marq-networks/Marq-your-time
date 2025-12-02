@@ -5,7 +5,10 @@ function isEmail(s: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) }
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const required = ['firstName','lastName','email','orgId','roleId','departmentId','salary','workingDays','workingHoursPerDay']
+  const actor = req.headers.get('x-user-id') || ''
+  const allowed = actor ? await checkPermission(actor, 'manage_users') : false
+  if (!allowed) return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You do not have permission to perform this action.' }, { status: 403 })
+  const required = ['firstName','lastName','email','orgId']
   for (const k of required) if (body[k] === undefined || body[k] === '' || (k==='workingDays' && !Array.isArray(body[k]))) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   if (!isEmail(body.email)) return NextResponse.json({ error: 'INVALID_EMAIL' }, { status: 400 })
   const res = await createUser({
@@ -13,15 +16,15 @@ export async function POST(req: NextRequest) {
     lastName: body.lastName,
     email: body.email,
     passwordHash: body.passwordHash ?? '',
-    roleId: body.roleId,
+    roleId: body.roleId ?? undefined,
     orgId: body.orgId,
-    departmentId: body.departmentId,
+    departmentId: body.departmentId ?? undefined,
     positionTitle: body.positionTitle,
     profileImage: body.profileImage,
-    salary: Number(body.salary),
-    workingDays: body.workingDays,
-    workingHoursPerDay: Number(body.workingHoursPerDay),
-    status: 'active'
+    salary: body.salary !== undefined ? Number(body.salary) : undefined,
+    workingDays: Array.isArray(body.workingDays) ? body.workingDays : ['Mon','Tue','Wed','Thu','Fri'],
+    workingHoursPerDay: body.workingHoursPerDay !== undefined ? Number(body.workingHoursPerDay) : 8,
+    status: (body.status as any) || 'active'
   })
   if (typeof res === 'string') {
     const bad = ['INVALID_EMAIL','MISSING_FIELDS','ROLE_NOT_FOUND','DEPARTMENT_NOT_FOUND','ORG_MISMATCH_ROLE','ORG_MISMATCH_DEPARTMENT']
@@ -30,3 +33,4 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ user: res })
 }
+import { checkPermission } from '@lib/permissions'

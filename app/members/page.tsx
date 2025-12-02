@@ -1,14 +1,16 @@
-import Card from '@components/Card'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassButton from '@components/ui/GlassButton'
 
 export default function MembersPage() {
   return (
-    <div className="grid">
-      <Card title="Members">
+    <AppShell title="Members">
+      <GlassCard title="Members">
         <div className="subtitle">This module manages invitations via Organizations.</div>
         <div className="row" style={{marginTop:12,gap:12}}>
-          <a className="btn btn-primary" href="/org/list">Go to Organizations</a>
+          <GlassButton variant="primary" href="/org/list">Go to Organizations</GlassButton>
         </div>
-      </Card>
-    </div>
+      </GlassCard>
+    </AppShell>
   )
 }

@@ -1,6 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
-import Card from '@components/Card'
+import AppShell from '@components/ui/AppShell'
+import GlassCard from '@components/ui/GlassCard'
+import GlassButton from '@components/ui/GlassButton'
+import usePermission from '@lib/hooks/usePermission'
 import Toast from '@components/Toast'
 
 export default function SettingsPage() {
@@ -21,9 +24,10 @@ export default function SettingsPage() {
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
+  const canSettings = usePermission('manage_settings').allowed
   return (
-    <div className="grid">
-      <Card title="SaaS Settings">
+    <AppShell title="Settings">
+      <GlassCard title="SaaS Settings">
         <div className="grid grid-2">
           <div>
             <div className="label">Default seat price</div>
@@ -39,10 +43,10 @@ export default function SettingsPage() {
           </div>
         </div>
         <div className="row" style={{marginTop:12}}>
-          <button className="btn btn-primary" onClick={save}>Save</button>
+          {canSettings && <GlassButton variant="primary" onClick={save}>Save</GlassButton>}
         </div>
-      </Card>
+      </GlassCard>
       <Toast message={toast.m} type={toast.t} />
-    </div>
+    </AppShell>
   )
 }

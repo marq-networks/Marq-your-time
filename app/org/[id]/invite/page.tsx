@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Card from '@components/Card'
 import Toast from '@components/Toast'
 import { usePathname } from 'next/navigation'
+import AppShell from '@components/ui/AppShell'
 
 export default function InviteUserPage() {
   const path = usePathname()
@@ -19,6 +20,7 @@ export default function InviteUserPage() {
   }
 
   return (
+    <AppShell title="Invite User">
     <Card title="Invite User">
       <div className="grid">
         <div>
@@ -42,5 +44,6 @@ export default function InviteUserPage() {
       </div>
       <Toast message={toast.m} type={toast.t} />
     </Card>
+    </AppShell>
   )
 }
