@@ -261,3 +261,25 @@ export interface MemberAdjustment {
   createdBy: string
   createdAt: number
 }
+
+export type NotificationType = 'system' | 'attendance' | 'payroll' | 'device' | 'agent' | 'billing'
+export interface NotificationItem {
+  id: string
+  orgId: string
+  memberId?: string
+  type: NotificationType
+  title: string
+  message: string
+  meta?: any
+  isRead: boolean
+  createdAt: number
+}
+
+export interface NotificationPreferences {
+  id: string
+  memberId: string
+  emailEnabled: boolean
+  inappEnabled: boolean
+  createdAt: number
+  updatedAt: number
+}

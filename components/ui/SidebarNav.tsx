@@ -16,6 +16,7 @@ const items = [
   { href: '/time/logs', label: 'Time Logs' },
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
+  { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },
   { href: '/billing', label: 'Billing' },
   { href: '/settings', label: 'Settings' },

@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment } from './types'
+import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -25,6 +25,8 @@ const payrollPeriods: PayrollPeriod[] = []
 const payrollLines: MemberPayrollLine[] = []
 const fines: MemberFine[] = []
 const adjustments: MemberAdjustment[] = []
+const notifications: NotificationItem[] = []
+const notificationPrefs: NotificationPreferences[] = []
 
 function dateISO(d: Date) {
   return d.toISOString().slice(0,10)
@@ -148,6 +150,116 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
 
 export async function recalculateDailySummary(memberId: string, orgId: string, date: string) {
   return recomputeDaily(memberId, orgId, date)
+}
+
+export async function publishNotification(input: { orgId: string, memberId?: string | null, type: NotificationItem['type'], title: string, message: string, meta?: any }) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload: any = { org_id: input.orgId, member_id: input.memberId ?? null, type: input.type, title: input.title, message: input.message, meta: input.meta ?? null, is_read: false, created_at: now }
+    const { data, error } = await sb.from('notifications').insert(payload).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapNotificationFromRow(data)
+  }
+  const base: NotificationItem = { id: newId(), orgId: input.orgId, memberId: input.memberId || undefined, type: input.type, title: input.title, message: input.message, meta: input.meta, isRead: false, createdAt: now.getTime() }
+  notifications.push(base)
+  return base
+}
+
+function mapNotificationFromRow(row: any): NotificationItem {
+  return { id: row.id, orgId: row.org_id, memberId: row.member_id ?? undefined, type: row.type, title: row.title, message: row.message, meta: row.meta ?? undefined, isRead: !!row.is_read, createdAt: new Date(row.created_at).getTime() }
+}
+
+export async function listNotifications(params: { orgId?: string, memberId?: string, limit?: number, cursor?: string }) {
+  const limit = Math.max(1, Math.min(200, params.limit || 50))
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(limit)
+    if (params.orgId) q = q.eq('org_id', params.orgId)
+    if (params.memberId) q = q.eq('member_id', params.memberId)
+    if (params.cursor) q = q.lt('created_at', new Date(params.cursor))
+    const { data } = await q
+    const items = (data || []).map(mapNotificationFromRow)
+    const nextCursor = items.length ? new Date(items[items.length-1].createdAt).toISOString() : null
+    return { items, nextCursor }
+  }
+  let arr = notifications.slice().sort((a,b)=>b.createdAt - a.createdAt)
+  if (params.orgId) arr = arr.filter(n => n.orgId === params.orgId)
+  if (params.memberId) arr = arr.filter(n => n.memberId === params.memberId)
+  if (params.cursor) arr = arr.filter(n => n.createdAt < new Date(params.cursor as string).getTime())
+  const items = arr.slice(0, limit)
+  const nextCursor = items.length ? new Date(items[items.length-1].createdAt).toISOString() : null
+  return { items, nextCursor }
+}
+
+export async function markNotificationRead(notificationId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('notifications').update({ is_read: true }).eq('id', notificationId).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapNotificationFromRow(data)
+  }
+  const n = notifications.find(nn => nn.id === notificationId)
+  if (!n) return 'NOT_FOUND'
+  n.isRead = true
+  return n
+}
+
+export async function markAllNotificationsRead(memberId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    await sb.from('notifications').update({ is_read: true }).eq('member_id', memberId)
+    return 'OK'
+  }
+  notifications.forEach(n => { if (n.memberId === memberId) n.isRead = true })
+  return 'OK'
+}
+
+export async function getNotificationPreferences(memberId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('notification_preferences').select('*').eq('member_id', memberId).limit(1).maybeSingle()
+    if (data) return mapPrefFromRow(data)
+    const now = new Date()
+    const { data: created } = await sb.from('notification_preferences').insert({ member_id: memberId, email_enabled: true, inapp_enabled: true, created_at: now, updated_at: now }).select('*').single()
+    return mapPrefFromRow(created)
+  }
+  const existing = notificationPrefs.find(p => p.memberId === memberId)
+  if (existing) return existing
+  const nowMs = Date.now()
+  const base: NotificationPreferences = { id: newId(), memberId, emailEnabled: true, inappEnabled: true, createdAt: nowMs, updatedAt: nowMs }
+  notificationPrefs.push(base)
+  return base
+}
+
+export async function updateNotificationPreferences(memberId: string, patch: { emailEnabled?: boolean, inappEnabled?: boolean }) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: before } = await sb.from('notification_preferences').select('*').eq('member_id', memberId).limit(1).maybeSingle()
+    const now = new Date()
+    if (before) {
+      const { data } = await sb.from('notification_preferences').update({ email_enabled: patch.emailEnabled ?? before.email_enabled, inapp_enabled: patch.inappEnabled ?? before.inapp_enabled, updated_at: now }).eq('id', before.id).select('*').single()
+      return mapPrefFromRow(data)
+    } else {
+      const { data } = await sb.from('notification_preferences').insert({ member_id: memberId, email_enabled: patch.emailEnabled ?? true, inapp_enabled: patch.inappEnabled ?? true, created_at: now, updated_at: now }).select('*').single()
+      return mapPrefFromRow(data)
+    }
+  }
+  const existing = notificationPrefs.find(p => p.memberId === memberId)
+  const nowMs = Date.now()
+  if (existing) {
+    if (patch.emailEnabled !== undefined) existing.emailEnabled = patch.emailEnabled
+    if (patch.inappEnabled !== undefined) existing.inappEnabled = patch.inappEnabled
+    existing.updatedAt = nowMs
+    return existing
+  }
+  const base: NotificationPreferences = { id: newId(), memberId, emailEnabled: patch.emailEnabled ?? true, inappEnabled: patch.inappEnabled ?? true, createdAt: nowMs, updatedAt: nowMs }
+  notificationPrefs.push(base)
+  return base
+}
+
+function mapPrefFromRow(row: any): NotificationPreferences {
+  return { id: row.id, memberId: row.member_id, emailEnabled: !!row.email_enabled, inappEnabled: !!row.inapp_enabled, createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime() }
 }
 
 async function ensureDemoSeed() {

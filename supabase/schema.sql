@@ -258,6 +258,32 @@ create table if not exists public.billing_line_items (
 
 create index if not exists idx_billing_line_items_invoice on public.billing_line_items(invoice_id);
 
+-- Notifications (Module 11)
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  member_id uuid references public.users(id) on delete set null,
+  type text not null check (type in ('system','attendance','payroll','device','agent','billing')),
+  title text not null,
+  message text not null,
+  meta jsonb,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_notifications_org on public.notifications(org_id);
+create index if not exists idx_notifications_member on public.notifications(member_id);
+create index if not exists idx_notifications_created on public.notifications(created_at);
+
+create table if not exists public.notification_preferences (
+  id uuid primary key default gen_random_uuid(),
+  member_id uuid not null references public.users(id) on delete cascade,
+  email_enabled boolean not null default true,
+  inapp_enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (member_id)
+);
+
 create table if not exists public.billing_settings (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
