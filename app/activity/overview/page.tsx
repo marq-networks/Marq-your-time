@@ -36,7 +36,7 @@ export default function ActivityOverviewPage() {
   return (
     <AppShell title="Activity Overview">
       <GlassCard title="Filters">
-        <div className="grid grid-4">
+        <div className="grid grid-1">
           <div>
             <div className="label">Organization</div>
             <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
@@ -65,7 +65,7 @@ export default function ActivityOverviewPage() {
         </div>
       </GlassCard>
 
-      <div className="grid grid-3">
+      <div className="grid grid-1 mt-4">
         <GlassCard title="Total Tracked">
           <div className="title">{formatHM(totals.tracked||0)}</div>
           <div className="subtitle">Active minutes</div>
@@ -81,10 +81,9 @@ export default function ActivityOverviewPage() {
         </GlassCard>
       </div>
 
-      <GlassCard title="Per-member Activity">
+      <GlassCard title="Per-member Activity mt-5">
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>
   )
 }
-

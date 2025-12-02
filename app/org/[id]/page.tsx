@@ -148,8 +148,19 @@ export default function OrgDetail() {
       <Modal open={open} title="Invite User" onClose={()=>setOpen(false)}>
         <div className="grid">
           <div>
-            <div className="label">Photo URL</div>
-            <input className="input" value={inviteForm.profileImage} onChange={e=>setInviteForm({...inviteForm,profileImage:e.target.value})} />
+            <div className="label">Profile photo</div>
+            <div className="row" style={{gap:12}}>
+              <div style={{width:48,height:48,borderRadius:12,background:'#111',border:'1px solid var(--border)'}}>
+                {inviteForm.profileImage && <img src={inviteForm.profileImage} alt="" style={{width:'100%',height:'100%',borderRadius:12,objectFit:'cover'}} />}
+              </div>
+              <input type="file" accept="image/*" onChange={(e)=>{
+                const f = e.target.files?.[0]
+                if (!f) return
+                const reader = new FileReader()
+                reader.onload = () => setInviteForm({...inviteForm, profileImage: String(reader.result || '')})
+                reader.readAsDataURL(f)
+              }} />
+            </div>
           </div>
           <div className="grid grid-2">
             <div>

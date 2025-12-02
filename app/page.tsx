@@ -4,7 +4,7 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import usePermission from '@lib/hooks/usePermission'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export default function Page() {
   const canOrg = usePermission('manage_org').allowed
@@ -57,11 +57,6 @@ export default function Page() {
     const res = await fetch('/api/time/break/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const _ = await res.json(); loadSummary(memberId, orgId)
   }
-  const status = useMemo(()=>{
-    if (summary.break) return { label: 'On Break', color: '#ff3b3b' }
-    if (summary.session) return { label: 'Working', color: 'var(--green)' }
-    return { label: 'Checked Out', color: '#ff3b3b' }
-  }, [summary])
   return (
     <AppShell title="Dashboard">
       <div className="grid grid-3">
@@ -88,13 +83,7 @@ export default function Page() {
               </GlassSelect>
             </div>
           </div>
-          <div className="row" style={{alignItems:'center',gap:16,marginBottom:12}}>
-            <div style={{width:64,height:64,borderRadius:'50%',background:status.color,border:'2px solid var(--border)',boxShadow:'0 0 12px rgba(0,0,0,0.25)'}}></div>
-            <div>
-              <div className="title" style={{margin:0}}>{status.label}</div>
-              <div className="subtitle" style={{marginTop:4}}>{summary.session ? 'Session active' : 'No active session'}{summary.break ? ' • Break active' : ''}</div>
-            </div>
-          </div>
+          
           <div className="grid grid-3" style={{marginBottom:12}}>
             <div>
               <div className="subtitle">Worked</div>

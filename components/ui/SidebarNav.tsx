@@ -15,9 +15,11 @@ const items = [
   { href: '/my/earnings', label: 'My Earnings' },
   { href: '/time/logs', label: 'Time Logs' },
   { href: '/activity/overview', label: 'Activity Overview' },
+  { href: '/analytics', label: 'Analytics' },
   { href: '/payroll', label: 'Payroll' },
   { href: '/billing', label: 'Billing' },
   { href: '/settings', label: 'Settings' },
+  { href: '/hq', label: 'hq' },
 ]
 
 export default function SidebarNav() {
@@ -40,6 +42,7 @@ export default function SidebarNav() {
           if (i.label === 'My Earnings') return true
           if (i.label === 'Time Logs') return canReports || usePermission('manage_time').allowed
           if (i.label === 'Activity Overview') return canReports
+          if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports
           if (i.label === 'Billing') return canReports
           if (i.label === 'Dashboard') return true

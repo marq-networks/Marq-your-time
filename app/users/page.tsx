@@ -64,7 +64,7 @@ export default function UsersPage() {
     return () => document.removeEventListener('mousedown', closeOnOutside)
   }, [openMenuId])
 
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'' })
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' })
   const emailOk = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email), [form.email])
 
   const createUser = async () => {
@@ -77,7 +77,7 @@ export default function UsersPage() {
     }
     const res = await fetch('/api/user/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) })
     const data = await res.json()
-    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'' }); loadData(orgId) }
+    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' }); loadData(orgId) }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
@@ -117,7 +117,9 @@ export default function UsersPage() {
 
   const columns = ['Photo','Name','Email','Role','Department','Status','Actions']
   const rows = users.map(u => [
-    <div key={u.id} style={{width:28,height:28,borderRadius:8,background:'#111',border:'1px solid var(--border)'}}></div>,
+    <div key={u.id} style={{width:28,height:28,borderRadius:8,background:'#111',border:'1px solid var(--border)',overflow:'hidden'}}>
+      {u.profileImage && <img src={u.profileImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+    </div>,
     `${u.firstName} ${u.lastName}`,
     u.email,
     roleName(u.roleId),
@@ -159,6 +161,21 @@ export default function UsersPage() {
 
       <GlassModal open={addOpen} title="Create User" onClose={()=>setAddOpen(false)}>
         <div className="grid grid-2">
+          <div>
+            <div className="label">Profile photo</div>
+            <div className="row" style={{gap:12}}>
+              <div style={{width:48,height:48,borderRadius:12,background:'#111',border:'1px solid var(--border)'}}>
+                {form.profileImage && <img src={form.profileImage} alt="" style={{width:'100%',height:'100%',borderRadius:12,objectFit:'cover'}} />}
+              </div>
+              <input type="file" accept="image/*" onChange={async (e)=>{
+                const f = e.target.files?.[0]
+                if (!f) return
+                const reader = new FileReader()
+                reader.onload = () => setForm({...form, profileImage: String(reader.result || '')})
+                reader.readAsDataURL(f)
+              }} />
+            </div>
+          </div>
           <div>
             <div className="label">First name</div>
             <input className="input" value={form.firstName} onChange={e=>setForm({...form, firstName:e.target.value})} />
