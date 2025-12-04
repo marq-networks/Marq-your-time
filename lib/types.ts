@@ -50,7 +50,10 @@ export interface Department {
   id: string
   orgId: string
   name: string
+  description?: string
+  parentId?: string
   createdAt: number
+  updatedAt?: number
 }
 
 export interface Role {
@@ -70,6 +73,8 @@ export interface User {
   roleId: string
   orgId: string
   departmentId?: string
+  managerId?: string
+  memberRoleId?: string
   positionTitle?: string
   profileImage?: string
   salary?: number
@@ -78,6 +83,14 @@ export interface User {
   status: UserStatus
   createdAt: number
   updatedAt: number
+}
+
+export interface MemberRole {
+  id: string
+  orgId: string
+  name: string
+  level: number
+  createdAt: number
 }
 
 export type TimeSessionStatus = 'open' | 'closed' | 'cancelled'

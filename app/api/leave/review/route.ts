@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
 import { reviewRequest as memReviewRequest } from '@lib/memory/leave'
+import { queueWebhookEvent } from '@lib/webhooks/queue'
 
 export async function POST(req: NextRequest) {
   const role = (req.headers.get('x-role') || '').toLowerCase()
@@ -16,9 +17,11 @@ export async function POST(req: NextRequest) {
   if (!sb) {
     const item = memReviewRequest(request_id, status, note, reviewed_by || undefined)
     if (!item) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
+    try { const ev = status==='approved'?'leave.request_approved':'leave.request_rejected'; await queueWebhookEvent(String(item.org_id), ev, { id: item.id, org_id: String(item.org_id), member_id: String(item.member_id), status }) } catch {}
     return NextResponse.json({ item })
   }
   const { data, error } = await sb.from('leave_requests').update({ status, review_note: note, reviewed_by, reviewed_at }).eq('id', request_id).select('*').single()
   if (error) return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+  try { const ev = status==='approved'?'leave.request_approved':'leave.request_rejected'; await queueWebhookEvent(String(data.org_id), ev, { id: data.id, org_id: String(data.org_id), member_id: String(data.member_id), status }) } catch {}
   return NextResponse.json({ item: data })
 }

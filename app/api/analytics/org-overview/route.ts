@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
-import { listUsers, listDepartments, getOrganization } from '@lib/db'
+import { listUsers, listDepartments, getOrganization, listTeamMemberIds } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -14,7 +14,13 @@ export async function GET(req: NextRequest) {
   const users = await listUsers(orgId)
   const departments = await listDepartments(orgId)
   const org = await getOrganization(orgId)
-  const allowedMemberIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : users.map(u => u.id)
+  let allowedMemberIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : users.map(u => u.id)
+  const role = (req.headers.get('x-role') || '').toLowerCase()
+  const actor = req.headers.get('x-user-id') || ''
+  if (role === 'manager' && actor) {
+    const team = await listTeamMemberIds(orgId, actor)
+    allowedMemberIds = allowedMemberIds.filter(id => team.includes(id))
+  }
 
   let totalScheduledMinutes = 0
   let totalWorkedMinutes = 0
@@ -127,4 +133,3 @@ export async function GET(req: NextRequest) {
     }
   })
 }
-

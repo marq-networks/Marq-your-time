@@ -18,12 +18,15 @@ const items = [
   { href: '/leave/approvals', label: 'Leave Approvals' },
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
+  { href: '/reports', label: 'Reports' },
   { href: '/analytics/insights', label: 'Insights' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },
   { href: '/billing', label: 'Billing' },
   { href: '/billing/plans', label: 'Billing Plans' },
   { href: '/settings', label: 'Settings' },
+  { href: '/integrations/api', label: 'Integrations API' },
+  { href: '/integrations/api-docs', label: 'API Docs' },
   { href: '/devices/offline-sync', label: 'Offline Sync' },
   { href: '/hq', label: 'hq' },
   { href: '/hq/billing-overview', label: 'HQ Billing' },
@@ -44,6 +47,8 @@ export default function SidebarNav() {
           if (i.label === 'Users') return canUsers
           if (i.label === 'Roles') return canUsers && canSettings
           if (i.label === 'Settings') return canSettings
+          if (i.label === 'Integrations API') return canSettings
+          if (i.label === 'API Docs') return canSettings
           if (i.label === 'Members') return true
           if (i.label === 'My Day') return true
           if (i.label === 'My Activity') return true

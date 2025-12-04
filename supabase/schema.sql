@@ -53,6 +53,10 @@ create table if not exists public.departments (
 );
 alter table if not exists public.departments
   add constraint departments_org_name_unique unique (org_id, name);
+alter table public.departments add column if not exists description text;
+alter table public.departments add column if not exists parent_id uuid references public.departments(id) on delete set null;
+alter table public.departments add column if not exists updated_at timestamptz not null default now();
+create index if not exists idx_departments_parent on public.departments(parent_id);
 
 -- Roles
 create table if not exists public.roles (
@@ -62,6 +66,15 @@ create table if not exists public.roles (
   permissions jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
+
+create table if not exists public.member_roles (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  level integer not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_member_roles_org on public.member_roles(org_id);
 
 -- Users
 create table if not exists public.users (
@@ -83,6 +96,10 @@ create table if not exists public.users (
   updated_at timestamptz not null default now(),
   unique (org_id, email)
 );
+alter table public.users add column if not exists manager_id uuid references public.users(id) on delete set null;
+alter table public.users add column if not exists member_role_id uuid references public.member_roles(id) on delete set null;
+create index if not exists idx_users_manager on public.users(manager_id);
+create index if not exists idx_users_member_role on public.users(member_role_id);
 
 -- Permission Audit Log
 create table if not exists public.permission_audit_logs (

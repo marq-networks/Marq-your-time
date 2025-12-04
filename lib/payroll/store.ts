@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
-import { publishNotification, getOrganization, listUsers, generatePayrollLines, listPayrollLines } from '@lib/db'
+import { publishNotification, getOrganization, listUsers, listTeamMemberIds, generatePayrollLines, listPayrollLines } from '@lib/db'
 import { sendMail } from '@lib/mailer'
+import { queueWebhookEvent } from '@lib/webhooks/queue'
 
 export type PeriodStatusV12 = 'pending' | 'processing' | 'approved' | 'completed'
 export interface PayrollPeriodV12 {
@@ -88,6 +89,7 @@ export async function setPeriodStatus(id: string, status: PeriodStatusV12, byUse
     if (status === 'approved') { patch.approved_at = now; patch.approved_by = byUserId ?? null }
     const { data, error } = await sb.from('payroll_periods_v12').update(patch).eq('id', id).select('*').single()
     if (error) return 'DB_ERROR'
+    if (status === 'approved' && data?.org_id) { try { await queueWebhookEvent(String(data.org_id), 'payroll.period_approved', { payroll_period_id: id, org_id: String(data.org_id), approved_by: byUserId ?? null, approved_at: patch.approved_at }) } catch {} }
     return data as PayrollPeriodV12
   }
   const p = memPeriods.find(x => x.id === id)
@@ -95,6 +97,7 @@ export async function setPeriodStatus(id: string, status: PeriodStatusV12, byUse
   p.status = status
   if (status === 'processing') p.generated_at = now.toISOString()
   if (status === 'approved') { p.approved_at = now.toISOString(); p.approved_by = byUserId ?? null }
+  if (status === 'approved') { try { await queueWebhookEvent(p.org_id, 'payroll.period_approved', { payroll_period_id: id, org_id: p.org_id, approved_by: byUserId ?? null, approved_at: p.approved_at }) } catch {} }
   return p
 }
 
@@ -153,6 +156,34 @@ export async function approveAll(payroll_period_id: string, approver_id: string,
   const rows = memRows.filter(r => r.payroll_period_id === payroll_period_id)
   for (const r of rows) { r.approved = true; r.approved_at = now.toISOString() }
   await setPeriodStatus(payroll_period_id, 'approved', approver_id)
+  for (const r of rows) await publishNotification({ orgId: org_id, memberId: r.member_id, type: 'payroll', title: 'Payslip available', message: 'Your payslip is available.' })
+  const users = await listUsers(org_id)
+  const emailMap = new Map(users.map(u => [u.id, u.email]))
+  for (const r of rows) {
+    const to = emailMap.get(r.member_id)
+    if (to) await sendMail(to, 'Payslip available', `<div>Your payslip is available for review.</div>`)
+  }
+  return { approved: rows.length }
+}
+
+export async function approveForTeam(payroll_period_id: string, approver_id: string, org_id: string, memberIds: string[]) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    if (!memberIds || memberIds.length === 0) return { approved: 0 }
+    const { data: rows } = await sb.from('member_payroll').select('id, member_id').eq('payroll_period_id', payroll_period_id).in('member_id', memberIds)
+    for (const r of (rows || []) as any[]) await sb.from('member_payroll').update({ approved: true, approved_at: now }).eq('id', r.id)
+    for (const r of (rows || []) as any[]) await publishNotification({ orgId: org_id, memberId: r.member_id, type: 'payroll', title: 'Payslip available', message: 'Your payslip is available.' })
+    const users = await listUsers(org_id)
+    const emailMap = new Map(users.map(u => [u.id, u.email]))
+    for (const r of (rows || []) as any[]) {
+      const to = emailMap.get((r as any).member_id)
+      if (to) await sendMail(to, 'Payslip available', `<div>Your payslip is available for review.</div>`)
+    }
+    return { approved: (rows || []).length }
+  }
+  const rows = memRows.filter(r => r.payroll_period_id === payroll_period_id && memberIds.includes(r.member_id))
+  for (const r of rows) { r.approved = true; r.approved_at = now.toISOString() }
   for (const r of rows) await publishNotification({ orgId: org_id, memberId: r.member_id, type: 'payroll', title: 'Payslip available', message: 'Your payslip is available.' })
   const users = await listUsers(org_id)
   const emailMap = new Map(users.map(u => [u.id, u.email]))

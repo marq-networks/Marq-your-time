@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences } from './types'
+import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -8,6 +8,7 @@ const invites: OrganizationInvite[] = []
 const roles: Role[] = []
 const departments: Department[] = []
 const users: User[] = []
+const memberRoles: MemberRole[] = []
 const permAudit: any[] = []
 let settings: SaaSSettings = { id: 'saas', defaultSeatPrice: 5, defaultSeatLimit: 50, landingPageInviteEnabled: true }
 
@@ -314,12 +315,15 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
-    return mapTimeSessionFromRow(data)
+    const out = mapTimeSessionFromRow(data)
+    try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: out.id, started_at: new Date(out.startTime).toISOString() }) } catch {}
+    return out
   }
   const hasOpen = timeSessions.some(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open')
   if (hasOpen) return 'SESSION_ALREADY_OPEN'
   const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)
+  try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: sess.id, started_at: new Date(sess.startTime).toISOString() }) } catch {}
   return sess
 }
 
@@ -340,7 +344,11 @@ export async function stopWorkSession(params: { memberId: string, orgId: string 
     }
     if (total > 16 * 60) await sb.from('time_anomalies').insert({ member_id: params.memberId, org_id: params.orgId, date: today, type: 'too_long', details: `Session ${openRow.id} lasted ${total} minutes`, resolved: false, created_at: now, updated_at: now })
     await recomputeDaily(params.memberId, params.orgId, today)
-    return mapTimeSessionFromRow(data)
+    const out = mapTimeSessionFromRow(data)
+    try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_out', { member_id: params.memberId, org_id: params.orgId, session_id: out.id, ended_at: new Date(out.endTime || Date.now()).toISOString(), duration_minutes: out.totalMinutes || total }) } catch {}
+    const { count: openCount } = await sb.from('time_sessions').select('*', { count: 'exact', head: true }).eq('member_id', params.memberId).eq('org_id', params.orgId).eq('date', today).eq('status','open')
+    if ((openCount || 0) === 0) { try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'time.daily_closed', { member_id: params.memberId, org_id: params.orgId, date: today }) } catch {} }
+    return out
   }
   const open = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
   if (!open) return 'NO_OPEN_SESSION'
@@ -352,6 +360,9 @@ export async function stopWorkSession(params: { memberId: string, orgId: string 
   for (const b of brs) { b.endTime = now.getTime(); b.totalMinutes = minutesBetween(b.startTime, b.endTime); b.updatedAt = now.getTime() }
   if ((open.totalMinutes || 0) > 16 * 60) anomalies.push({ id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, type: 'too_long', details: `Session ${open.id} lasted ${open.totalMinutes} minutes`, resolved: false, createdAt: now.getTime(), updatedAt: now.getTime() })
   await recomputeDaily(params.memberId, params.orgId, today)
+  try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_out', { member_id: params.memberId, org_id: params.orgId, session_id: open.id, ended_at: new Date(open.endTime!).toISOString(), duration_minutes: open.totalMinutes }) } catch {}
+  const hasOpen = timeSessions.some(s => s.memberId === params.memberId && s.orgId === params.orgId && s.date === today && s.status === 'open')
+  if (!hasOpen) { try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'time.daily_closed', { member_id: params.memberId, org_id: params.orgId, date: today }) } catch {} }
   return open
 }
 
@@ -1180,13 +1191,14 @@ export async function listDepartments(orgId: string) {
   return departments.filter(d => d.orgId === orgId)
 }
 
-export async function createDepartment(input: { orgId: string, name: string }) {
+export async function createDepartment(input: { orgId: string, name: string, description?: string, parentId?: string }) {
   if (isSupabaseConfigured()) {
     const org = await getOrganization(input.orgId)
     if (!org) return 'ORG_NOT_FOUND'
     const sb = supabaseServer()
     const now = new Date()
-    const { data: insData, error: insErr } = await sb.from('departments').insert({ org_id: input.orgId, name: input.name, created_at: now }).select()
+    const payload: any = { org_id: input.orgId, name: input.name, description: input.description ?? null, parent_id: input.parentId ?? null, created_at: now, updated_at: now }
+    const { data: insData, error: insErr } = await sb.from('departments').insert(payload).select()
     if (!insErr) {
       if (Array.isArray(insData) && insData.length > 0) return mapDepartmentFromRow(insData[0])
       const { data: fetched } = await sb.from('departments').select('*').eq('org_id', input.orgId).eq('name', input.name).order('created_at', { ascending: false }).limit(1).maybeSingle()
@@ -1217,21 +1229,30 @@ export async function createDepartment(input: { orgId: string, name: string }) {
   if (!org) return 'ORG_NOT_FOUND'
   const id = newId()
   const now = Date.now()
-  const dep: Department = { id, orgId: input.orgId, name: input.name, createdAt: now }
+  const dep: Department = { id, orgId: input.orgId, name: input.name, description: input.description, parentId: input.parentId, createdAt: now, updatedAt: now }
   departments.push(dep)
   return dep
 }
 
-export async function updateDepartment(id: string, patch: { name: string }) {
+export async function updateDepartment(id: string, patch: { name?: string, description?: string, parentId?: string }) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
-    const { data, error } = await sb.from('departments').update({ name: patch.name }).eq('id', id).select('*').single()
+    const now = new Date()
+    const update: any = {}
+    if (patch.name !== undefined) update.name = patch.name
+    if (patch.description !== undefined) update.description = patch.description ?? null
+    if (patch.parentId !== undefined) update.parent_id = patch.parentId ?? null
+    update.updated_at = now
+    const { data, error } = await sb.from('departments').update(update).eq('id', id).select('*').single()
     if (error) return 'DB_ERROR'
     return mapDepartmentFromRow(data)
   }
   const d = departments.find(x => x.id === id)
   if (!d) return undefined
-  d.name = patch.name
+  if (patch.name !== undefined) d.name = patch.name
+  if (patch.description !== undefined) d.description = patch.description
+  if (patch.parentId !== undefined) d.parentId = patch.parentId
+  d.updatedAt = Date.now()
   return d
 }
 
@@ -1388,6 +1409,87 @@ export async function listUsers(orgId: string) {
   return users.filter(u => u.orgId === orgId)
 }
 
+export async function listMemberRoles(orgId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('member_roles').select('*').eq('org_id', orgId).order('level', { ascending: true })
+    if (error) return []
+    return (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, name: r.name, level: Number(r.level || 0), createdAt: new Date(r.created_at).getTime() }))
+  }
+  return memberRoles.filter(r => r.orgId === orgId).sort((a,b)=> a.level - b.level)
+}
+
+export async function createMemberRole(input: { orgId: string, name: string, level: number }) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const now = new Date()
+    const { data, error } = await sb.from('member_roles').insert({ org_id: input.orgId, name: input.name, level: input.level, created_at: now }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, orgId: data.org_id, name: data.name, level: Number(data.level || 0), createdAt: new Date(data.created_at).getTime() } as MemberRole
+  }
+  const id = newId()
+  const now = Date.now()
+  const r: MemberRole = { id, orgId: input.orgId, name: input.name, level: input.level, createdAt: now }
+  memberRoles.push(r)
+  return r
+}
+
+export async function updateMemberRole(id: string, patch: { name?: string, level?: number }) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const upd: any = {}
+    if (patch.name !== undefined) upd.name = patch.name
+    if (patch.level !== undefined) upd.level = patch.level
+    const { data, error } = await sb.from('member_roles').update(upd).eq('id', id).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, orgId: data.org_id, name: data.name, level: Number(data.level || 0), createdAt: new Date(data.created_at).getTime() } as MemberRole
+  }
+  const r = memberRoles.find(x => x.id === id)
+  if (!r) return undefined
+  if (patch.name !== undefined) r.name = patch.name
+  if (patch.level !== undefined) r.level = patch.level
+  return r
+}
+
+export async function deleteMemberRole(id: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: roleRow } = await sb.from('member_roles').select('*').eq('id', id).maybeSingle()
+    if (!roleRow) return 'ROLE_NOT_FOUND'
+    const { count } = await sb.from('users').select('*', { count: 'exact', head: true }).eq('role_id', id)
+    if ((count ?? 0) > 0) return 'ROLE_IN_USE'
+    const { error } = await sb.from('member_roles').delete().eq('id', id)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  const used = users.some(u => u.roleId === id)
+  if (used) return 'ROLE_IN_USE'
+  const idx = memberRoles.findIndex(x => x.id === id)
+  if (idx < 0) return 'ROLE_NOT_FOUND'
+  memberRoles.splice(idx, 1)
+  return 'OK'
+}
+
+export async function listTeamMemberIds(orgId: string, managerId: string) {
+  const members = await listUsers(orgId)
+  const children = new Map<string, string[]>()
+  for (const u of members) {
+    const mgr = u.managerId || ''
+    if (!mgr) continue
+    const arr = children.get(mgr) || []
+    arr.push(u.id)
+    children.set(mgr, arr)
+  }
+  const out: Set<string> = new Set()
+  const stack: string[] = [managerId]
+  while (stack.length) {
+    const cur = stack.pop() as string
+    const subs = children.get(cur) || []
+    for (const s of subs) if (!out.has(s)) { out.add(s); stack.push(s) }
+  }
+  return Array.from(out.values())
+}
+
 export async function getUser(id: string) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -1398,7 +1500,7 @@ export async function getUser(id: string) {
   return users.find(u => u.id === id)
 }
 
-export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|'status'> & { status?: User['status'] }) {
+export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|'status'> & { status?: User['status'], autoAssignAdminManager?: boolean }) {
   const org = await getOrganization(input.orgId)
   if (!org) return 'ORG_NOT_FOUND'
   if (isSupabaseConfigured()) {
@@ -1415,6 +1517,31 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
     }
     const { count } = await sb.from('users').select('*', { count: 'exact', head: true }).eq('org_id', input.orgId).eq('email', input.email)
     if ((count ?? 0) > 0) return 'EMAIL_ALREADY_EXISTS'
+    // Defaults: member role, department, optional manager
+    let member_role_id = (input as any).memberRoleId || null
+    if (!member_role_id) {
+      const { data: mr } = await sb.from('member_roles').select('*').eq('org_id', input.orgId).order('level', { ascending: true }).limit(1)
+      member_role_id = (mr && mr[0]?.id) || null
+    }
+    let department_id = input.departmentId || null
+    if (!department_id) {
+      const { data: dep } = await sb.from('departments').select('*').eq('org_id', input.orgId).eq('name','Ungrouped').limit(1)
+      if (dep && dep[0]) department_id = dep[0].id
+      else {
+        const nowU = new Date()
+        const { data: created } = await sb.from('departments').insert({ org_id: input.orgId, name: 'Ungrouped', description: 'Auto-created default group', created_at: nowU, updated_at: nowU }).select('*').single()
+        department_id = created?.id || null
+      }
+    }
+    let manager_id = (input as any).managerId || null
+    if (!manager_id && input.autoAssignAdminManager) {
+      const { data: rAll } = await sb.from('roles').select('*').eq('org_id', input.orgId)
+      const adminRoleIds = (rAll||[]).filter((r:any)=> Array.isArray(r.permissions) && r.permissions.includes('manage_users')).map((r:any)=> r.id)
+      if (adminRoleIds.length) {
+        const { data: admins } = await sb.from('users').select('*').eq('org_id', input.orgId).in('role_id', adminRoleIds).order('created_at', { ascending: true }).limit(1)
+        manager_id = admins && admins[0]?.id || null
+      }
+    }
     const now = new Date()
     const payload = {
       org_id: input.orgId,
@@ -1423,7 +1550,9 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
       email: input.email,
       password_hash: input.passwordHash,
       role_id: input.roleId || null,
-      department_id: input.departmentId || null,
+      department_id,
+      manager_id,
+      member_role_id,
       position_title: input.positionTitle ?? null,
       profile_image: input.profileImage ?? null,
       salary: input.salary ?? null,
@@ -1440,6 +1569,28 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
   if (users.some(u => u.orgId === input.orgId && u.email === input.email)) return 'EMAIL_ALREADY_EXISTS'
   const id = newId()
   const now = Date.now()
+  // Defaults for memory mode
+  let memberRoleId = (input as any).memberRoleId || undefined
+  if (!memberRoleId) {
+    const rolesForOrg = memberRoles.filter(r => r.orgId === input.orgId).sort((a,b)=> a.level - b.level)
+    memberRoleId = rolesForOrg[0]?.id
+  }
+  let departmentId = input.departmentId || undefined
+  if (!departmentId) {
+    let dep = departments.find(d => d.orgId === input.orgId && d.name === 'Ungrouped')
+    if (!dep) {
+      const newDep = { id: newId(), orgId: input.orgId, name: 'Ungrouped', description: 'Auto-created default group', createdAt: now, updatedAt: now } as Department
+      departments.push(newDep)
+      dep = newDep
+    }
+    departmentId = dep!.id
+  }
+  let managerId = (input as any).managerId || undefined
+  if (!managerId && input.autoAssignAdminManager) {
+    const adminIds = roles.filter(r => r.permissions.includes('manage_users') && r.orgId === input.orgId).map(r => r.id)
+    const adminUser = users.find(u => u.orgId === input.orgId && adminIds.includes(u.roleId))
+    managerId = adminUser?.id
+  }
   const user: User = {
     id,
     firstName: input.firstName,
@@ -1448,7 +1599,9 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
     passwordHash: input.passwordHash,
     roleId: input.roleId,
     orgId: input.orgId,
-    departmentId: input.departmentId,
+    departmentId,
+    managerId,
+    memberRoleId,
     positionTitle: input.positionTitle,
     profileImage: input.profileImage,
     salary: input.salary,
@@ -1462,7 +1615,7 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
   return user
 }
 
-export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'>>) {
+export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'managerId'|'memberRoleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'>>) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: row, error: gErr } = await sb.from('users').select('*').eq('id', id).single()
@@ -1477,10 +1630,25 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       if (dErr || !dRow) return 'DEPARTMENT_NOT_FOUND'
       if (dRow.org_id !== row.org_id) return 'ORG_MISMATCH_DEPARTMENT'
     }
+    if (patch.managerId !== undefined) {
+      if (patch.managerId === id) return 'INVALID_MANAGER_SELF'
+      if (patch.managerId) {
+        const { data: mRow, error: mErr } = await sb.from('users').select('id, org_id').eq('id', patch.managerId).single()
+        if (mErr || !mRow) return 'MANAGER_NOT_FOUND'
+        if (mRow.org_id !== row.org_id) return 'ORG_MISMATCH_MANAGER'
+      }
+    }
+    if (patch.memberRoleId !== undefined && patch.memberRoleId) {
+      const { data: mrRow, error: mrErr } = await sb.from('member_roles').select('id, org_id').eq('id', patch.memberRoleId).single()
+      if (mrErr || !mrRow) return 'MEMBER_ROLE_NOT_FOUND'
+      if (mrRow.org_id !== row.org_id) return 'ORG_MISMATCH_MEMBER_ROLE'
+    }
     const now = new Date()
     const { data, error } = await sb.from('users').update({
       department_id: patch.departmentId ?? row.department_id ?? null,
       role_id: patch.roleId ?? row.role_id ?? null,
+      manager_id: patch.managerId !== undefined ? (patch.managerId || null) : (row.manager_id ?? null),
+      member_role_id: patch.memberRoleId !== undefined ? (patch.memberRoleId || null) : (row.member_role_id ?? null),
       salary: patch.salary ?? row.salary ?? null,
       working_days: patch.workingDays ?? row.working_days,
       working_hours_per_day: patch.workingHoursPerDay ?? row.working_hours_per_day ?? null,
@@ -1509,6 +1677,8 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
   const prev = { ...u }
   if (patch.departmentId !== undefined) u.departmentId = patch.departmentId
   if (patch.roleId !== undefined) u.roleId = patch.roleId
+  if (patch.managerId !== undefined) u.managerId = patch.managerId
+  if (patch.memberRoleId !== undefined) u.memberRoleId = patch.memberRoleId
   if (patch.salary !== undefined) u.salary = patch.salary
   if (patch.workingDays !== undefined) u.workingDays = patch.workingDays
   if (patch.workingHoursPerDay !== undefined) u.workingHoursPerDay = patch.workingHoursPerDay
@@ -1535,7 +1705,7 @@ export async function activateUser(id: string) {
 }
 
 function mapDepartmentFromRow(row: any): Department {
-  return { id: row.id, orgId: row.org_id, name: row.name, createdAt: new Date(row.created_at).getTime() }
+  return { id: row.id, orgId: row.org_id, name: row.name, description: row.description ?? undefined, parentId: row.parent_id ?? undefined, createdAt: new Date(row.created_at).getTime(), updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : undefined }
 }
 
 function mapRoleFromRow(row: any): Role {
@@ -1552,6 +1722,8 @@ function mapUserFromRow(row: any): User {
     roleId: row.role_id ?? undefined,
     orgId: row.org_id,
     departmentId: row.department_id ?? undefined,
+    managerId: row.manager_id ?? undefined,
+    memberRoleId: row.member_role_id ?? undefined,
     positionTitle: row.position_title ?? undefined,
     profileImage: row.profile_image ?? undefined,
     salary: row.salary === null ? undefined : Number(row.salary),
