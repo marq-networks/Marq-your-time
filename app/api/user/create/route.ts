@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createUser } from '@lib/db'
+import { createUser, getOrganization } from '@lib/db'
+import { canConsumeSeat } from '@lib/rules'
 
 function isEmail(s: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) }
 
@@ -11,6 +12,12 @@ export async function POST(req: NextRequest) {
   const required = ['firstName','lastName','email','orgId']
   for (const k of required) if (body[k] === undefined || body[k] === '' || (k==='workingDays' && !Array.isArray(body[k]))) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   if (!isEmail(body.email)) return NextResponse.json({ error: 'INVALID_EMAIL' }, { status: 400 })
+  const org = await getOrganization(body.orgId)
+  if (!org) return NextResponse.json({ error: 'ORG_NOT_FOUND' }, { status: 404 })
+  const desiredStatus = (body.status as any) || 'active'
+  if (desiredStatus === 'active' && !canConsumeSeat(org)) {
+    return NextResponse.json({ requires_seat_upgrade: true })
+  }
   const res = await createUser({
     firstName: body.firstName,
     lastName: body.lastName,

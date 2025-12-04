@@ -283,3 +283,40 @@ export interface NotificationPreferences {
   createdAt: number
   updatedAt: number
 }
+
+export type TimesheetRequestStatus = 'pending' | 'approved' | 'rejected'
+export interface TimesheetChangeRequest {
+  id: string
+  orgId: string
+  memberId: string
+  requestedBy: string
+  status: TimesheetRequestStatus
+  reason: string
+  createdAt: number
+  reviewedAt?: number
+  reviewedBy?: string
+}
+
+export interface TimesheetChangeItem {
+  id: string
+  changeRequestId: string
+  targetDate: string
+  originalStart?: number
+  originalEnd?: number
+  originalMinutes?: number
+  newStart?: number
+  newEnd?: number
+  newMinutes?: number
+  note?: string
+}
+
+export type TimesheetAuditAction = 'request' | 'approve' | 'reject' | 'apply'
+export interface TimesheetAuditLog {
+  id: string
+  orgId: string
+  memberId: string
+  actorId: string
+  actionType: TimesheetAuditAction
+  details: any
+  createdAt: number
+}

@@ -14,13 +14,20 @@ const items = [
   { href: '/my/activity', label: 'My Activity' },
   { href: '/my/earnings', label: 'My Earnings' },
   { href: '/time/logs', label: 'Time Logs' },
+  { href: '/leave', label: 'Leave' },
+  { href: '/leave/approvals', label: 'Leave Approvals' },
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
+  { href: '/analytics/insights', label: 'Insights' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },
   { href: '/billing', label: 'Billing' },
+  { href: '/billing/plans', label: 'Billing Plans' },
   { href: '/settings', label: 'Settings' },
+  { href: '/devices/offline-sync', label: 'Offline Sync' },
   { href: '/hq', label: 'hq' },
+  { href: '/hq/billing-overview', label: 'HQ Billing' },
+  { href: '/hq/agent-versions', label: 'Agent Versions' },
 ]
 
 export default function SidebarNav() {
@@ -42,10 +49,13 @@ export default function SidebarNav() {
           if (i.label === 'My Activity') return true
           if (i.label === 'My Earnings') return true
           if (i.label === 'Time Logs') return canReports || usePermission('manage_time').allowed
+          if (i.label === 'Leave') return true
+          if (i.label === 'Leave Approvals') return canUsers
           if (i.label === 'Activity Overview') return canReports
           if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports
           if (i.label === 'Billing') return canReports
+          if (i.label === 'Offline Sync') return canReports
           if (i.label === 'Dashboard') return true
           if (i.label === 'Departments') return canUsers
           if (i.label === 'Reports') return canReports

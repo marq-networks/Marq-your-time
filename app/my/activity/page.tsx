@@ -23,10 +23,12 @@ export default function MyActivityPage() {
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'demo-user' } }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]); if(!memberId && d.items?.length) setMemberId(d.items[0].id) }
   const load = async (mid: string, oid: string) => { const res = await fetch(`/api/activity/today?member_id=${mid}&org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setData(d) }
+  const [insights, setInsights] = useState<any[]>([])
+  const loadInsights = async (mid: string, oid: string) => { const qs = new URLSearchParams({ org_id: oid, member_id: mid, limit: '5' }); const res = await fetch(`/api/insights/list?${qs.toString()}`, { cache:'no-store', headers:{ 'x-user-id': mid } }); const d = await res.json(); setInsights(d.insights||d.items||[]) }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) loadMembers(orgId) }, [orgId])
-  useEffect(()=>{ if(orgId && memberId) load(memberId, orgId) }, [orgId, memberId])
+  useEffect(()=>{ if(orgId && memberId) { load(memberId, orgId); loadInsights(memberId, orgId) } }, [orgId, memberId])
 
   const privacyLines = [ `Activity tracking: ${data.settings.allowActivityTracking? 'On':'Off'}`, `Screenshots: ${data.settings.allowScreenshots? 'On':'Off'}` ]
 
@@ -96,6 +98,18 @@ export default function MyActivityPage() {
         </GlassCard>
       )}
 
+      <GlassCard title="Recent Insights">
+        <div className="grid grid-1">
+          {insights.length === 0 ? <div className="subtitle">No recent insights</div> : insights.map(it => (
+            <div key={it.id} className="row" style={{gap:8,alignItems:'center'}}>
+              <span className="badge">{it.insight_type}</span>
+              <span className="badge">{it.severity}</span>
+              <span className="subtitle">{it.summary}</span>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+
       <GlassModal open={!!shot} title="Screenshot" onClose={()=>setShot(undefined)}>
         {shot && (
           <div>
@@ -107,4 +121,3 @@ export default function MyActivityPage() {
     </AppShell>
   )
 }
-

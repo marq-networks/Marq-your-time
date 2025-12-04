@@ -488,6 +488,98 @@ export async function listDailyLogs(input: { orgId: string, date: string, member
   return { summaries, sessions, breaks }
 }
 
+export async function createTimesheetChangeRequest(input: { orgId: string, memberId: string, requestedBy: string, reason: string, items: Array<{ targetDate: string, originalStart?: number, originalEnd?: number, originalMinutes?: number, newStart?: number, newEnd?: number, newMinutes?: number, note?: string }> }) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: req, error: reqErr } = await sb.from('timesheet_change_requests').insert({ org_id: input.orgId, member_id: input.memberId, requested_by: input.requestedBy, status: 'pending', reason: input.reason, created_at: now, reviewed_at: null, reviewed_by: null }).select('*').single()
+    if (reqErr) return 'DB_ERROR'
+    const rows = (input.items || []).map(i => ({ change_request_id: req.id, target_date: i.targetDate, original_start: i.originalStart ? new Date(i.originalStart) : null, original_end: i.originalEnd ? new Date(i.originalEnd) : null, original_minutes: i.originalMinutes ?? null, new_start: i.newStart ? new Date(i.newStart) : null, new_end: i.newEnd ? new Date(i.newEnd) : null, new_minutes: i.newMinutes ?? null, note: i.note ?? null }))
+    const { error: itemErr } = await sb.from('timesheet_change_items').insert(rows)
+    if (itemErr) return 'DB_ERROR'
+    await sb.from('timesheet_audit_log').insert({ org_id: input.orgId, member_id: input.memberId, actor_id: input.requestedBy, action_type: 'request', details: { request_id: req.id, reason: input.reason, items: input.items }, created_at: now })
+    return { id: req.id }
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
+export async function listTimesheetChangeRequests(params: { orgId: string, status?: 'pending'|'approved'|'rejected', memberId?: string }) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('timesheet_change_requests').select('*').eq('org_id', params.orgId).order('created_at', { ascending: false })
+    if (params.status) q = q.eq('status', params.status)
+    if (params.memberId) q = q.eq('member_id', params.memberId)
+    const { data } = await q
+    return (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, memberId: r.member_id, requestedBy: r.requested_by, status: r.status, reason: r.reason, createdAt: new Date(r.created_at).getTime(), reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).getTime() : undefined, reviewedBy: r.reviewed_by ?? undefined }))
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
+export async function listMyTimesheetChangeRequests(memberId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('timesheet_change_requests').select('*').eq('requested_by', memberId).order('created_at', { ascending: false })
+    return (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, memberId: r.member_id, requestedBy: r.requested_by, status: r.status, reason: r.reason, createdAt: new Date(r.created_at).getTime(), reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).getTime() : undefined, reviewedBy: r.reviewed_by ?? undefined }))
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
+export async function reviewTimesheetChangeRequest(input: { changeRequestId: string, decision: 'approve'|'reject', reviewNote?: string, actorUserId: string }) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: row } = await sb.from('timesheet_change_requests').select('*').eq('id', input.changeRequestId).single()
+    if (!row) return 'NOT_FOUND'
+    const status = input.decision === 'approve' ? 'approved' : 'rejected'
+    const { data: updated, error } = await sb.from('timesheet_change_requests').update({ status, reviewed_at: now, reviewed_by: input.actorUserId }).eq('id', input.changeRequestId).select('*').single()
+    if (error) return 'DB_ERROR'
+    await sb.from('timesheet_audit_log').insert({ org_id: updated.org_id, member_id: updated.member_id, actor_id: input.actorUserId, action_type: input.decision === 'approve' ? 'approve' : 'reject', details: { request_id: input.changeRequestId, note: input.reviewNote || '' }, created_at: now })
+    if (input.decision === 'approve') {
+      const applyRes = await applyTimesheetCorrections(input.changeRequestId, input.actorUserId)
+      if (applyRes !== 'OK') return applyRes
+    }
+    return 'OK'
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
+export async function applyTimesheetCorrections(changeRequestId: string, actorUserId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: req } = await sb.from('timesheet_change_requests').select('*').eq('id', changeRequestId).single()
+    if (!req) return 'NOT_FOUND'
+    const { data: items } = await sb.from('timesheet_change_items').select('*').eq('change_request_id', changeRequestId)
+    for (const it of (items || []) as any[]) {
+      const day = it.target_date
+      const { data: closed } = await sb.from('time_sessions').select('*').eq('member_id', req.member_id).eq('org_id', req.org_id).eq('date', day).eq('status', 'closed')
+      for (const s of (closed || []) as any[]) {
+        await sb.from('time_sessions').update({ status: 'cancelled', total_minutes: 0, cancel_reason: 'correction_applied', updated_at: new Date() }).eq('id', s.id)
+      }
+      const start = it.new_start ? new Date(it.new_start) : (it.original_start ? new Date(it.original_start) : new Date(day + 'T09:00:00'))
+      const end = it.new_end ? new Date(it.new_end) : (it.original_end ? new Date(it.original_end) : new Date(start.getTime() + ((it.new_minutes ?? it.original_minutes ?? 0) * 60000)))
+      const total = it.new_minutes ?? (end.getTime() - start.getTime()) / 60000
+      const now = new Date()
+      const payload = { member_id: req.member_id, org_id: req.org_id, date: day, start_time: start, end_time: end, source: 'correction', status: 'closed', total_minutes: Math.round(total), created_at: now, updated_at: now }
+      await sb.from('time_sessions').insert(payload)
+      await recomputeDaily(req.member_id, req.org_id, day)
+      await sb.from('timesheet_audit_log').insert({ org_id: req.org_id, member_id: req.member_id, actor_id: actorUserId, action_type: 'apply', details: { request_id: changeRequestId, date: day, applied_minutes: Math.round(total) }, created_at: new Date() })
+    }
+    return 'OK'
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
+export async function listTimesheetAudit(memberId: string, date?: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('timesheet_audit_log').select('*').eq('member_id', memberId)
+    const { data } = await q
+    const arr = (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, memberId: r.member_id, actorId: r.actor_id, actionType: r.action_type, details: r.details, createdAt: new Date(r.created_at).getTime() }))
+    return date ? arr.filter(a => String(a.details?.date || a.details?.items?.[0]?.targetDate || '') === date) : arr
+  }
+  return 'SUPABASE_REQUIRED'
+}
+
 function formatHM(mins: number) {
   const m = Math.max(0, Math.round(mins))
   const h = Math.floor(m / 60)

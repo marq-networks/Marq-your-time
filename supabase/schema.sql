@@ -363,3 +363,45 @@ create table if not exists public.employees (
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_employees_user on public.employees(user_id);
+create table if not exists public.timesheet_change_requests (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  member_id uuid not null references public.users(id) on delete cascade,
+  requested_by uuid not null references public.users(id) on delete cascade,
+  status text not null check (status in ('pending','approved','rejected')) default 'pending',
+  reason text not null,
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references public.users(id) on delete set null
+);
+create index if not exists idx_timesheet_change_requests_org on public.timesheet_change_requests(org_id);
+create index if not exists idx_timesheet_change_requests_member on public.timesheet_change_requests(member_id);
+create index if not exists idx_timesheet_change_requests_status on public.timesheet_change_requests(status);
+
+create table if not exists public.timesheet_change_items (
+  id uuid primary key default gen_random_uuid(),
+  change_request_id uuid not null references public.timesheet_change_requests(id) on delete cascade,
+  target_date date not null,
+  original_start timestamptz,
+  original_end timestamptz,
+  original_minutes integer,
+  new_start timestamptz,
+  new_end timestamptz,
+  new_minutes integer,
+  note text
+);
+create index if not exists idx_timesheet_change_items_request on public.timesheet_change_items(change_request_id);
+create index if not exists idx_timesheet_change_items_date on public.timesheet_change_items(target_date);
+
+create table if not exists public.timesheet_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  member_id uuid not null references public.users(id) on delete cascade,
+  actor_id uuid not null references public.users(id) on delete cascade,
+  action_type text not null check (action_type in ('request','approve','reject','apply')),
+  details jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_timesheet_audit_org on public.timesheet_audit_log(org_id);
+create index if not exists idx_timesheet_audit_member on public.timesheet_audit_log(member_id);
+create index if not exists idx_timesheet_audit_created on public.timesheet_audit_log(created_at);

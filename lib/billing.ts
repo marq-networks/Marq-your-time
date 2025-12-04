@@ -130,3 +130,62 @@ export async function saveBillingSettings(input: { orgId: string, billingEmail: 
   return { ok: true }
 }
 
+// Revenue utilities (MRR/ARR) based on active subscriptions
+export async function computeMRR() {
+  const sb = isSupabaseConfigured() ? supabaseServer() : null
+  if (!sb) return 0
+  const { data: subs } = await sb.from('org_subscriptions').select('*').eq('status', 'active')
+  if (!subs || subs.length === 0) return 0
+  const planIds = Array.from(new Set(subs.map((s:any)=> s.plan_id)))
+  const { data: plans } = await sb.from('billing_plans').select('*').in('id', planIds)
+  const planMap = new Map((plans||[]).map((p:any)=> [p.id, p]))
+  return (subs||[]).reduce((sum:number, s:any)=> {
+    const plan = planMap.get(s.plan_id)
+    const pps = plan ? Number(plan.price_per_seat || 0) : 0
+    return sum + pps * Number(s.seats || 0)
+  }, 0)
+}
+
+export async function computeARR() {
+  const mrr = await computeMRR()
+  return mrr * 12
+}
+
+export async function listOrgRevenueBreakdown() {
+  const sb = isSupabaseConfigured() ? supabaseServer() : null
+  if (!sb) return { orgs: [] as any[] }
+  const { data: subs } = await sb.from('org_subscriptions').select('*').in('status', ['active','trial','past_due'])
+  const orgIds = Array.from(new Set((subs||[]).map((s:any)=> s.org_id)))
+  const planIds = Array.from(new Set((subs||[]).map((s:any)=> s.plan_id)))
+  const { data: orgs } = await sb.from('organizations').select('id,org_name,total_licensed_seats,used_seats')
+  const { data: plans } = await sb.from('billing_plans').select('id,code,price_per_seat,currency')
+  const orgMap = new Map((orgs||[]).map((o:any)=> [o.id, o]))
+  const planMap = new Map((plans||[]).map((p:any)=> [p.id, p]))
+  const items = (subs||[]).map((s:any)=> {
+    const org = orgMap.get(s.org_id)
+    const plan = planMap.get(s.plan_id)
+    const mrr = plan ? Number(plan.price_per_seat||0) * Number(s.seats||0) : 0
+    return {
+      org_id: s.org_id,
+      org_name: org?.org_name || '',
+      plan_code: plan?.code || 'legacy',
+      seats: Number(s.seats || 0),
+      mrr,
+      arr: mrr * 12,
+      status: s.status,
+      currency: plan?.currency || 'USD',
+      used_seats: org?.used_seats ?? 0,
+      total_seats: org?.total_licensed_seats ?? 0
+    }
+  })
+  return { orgs: items }
+}
+
+export async function computeSeatUtilization() {
+  const sb = isSupabaseConfigured() ? supabaseServer() : null
+  if (!sb) return 0
+  const { data: orgs } = await sb.from('organizations').select('used_seats,total_licensed_seats')
+  const totals = (orgs||[]).reduce((acc:any, o:any)=> { acc.used += Number(o.used_seats||0); acc.total += Number(o.total_licensed_seats||0); return acc }, { used:0, total:0 })
+  if (!totals.total) return 0
+  return Math.round((totals.used / totals.total) * 100)
+}
