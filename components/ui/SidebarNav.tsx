@@ -19,6 +19,8 @@ const items = [
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/reports', label: 'Reports' },
+  { href: '/engagement/surveys', label: 'Engagement Surveys' },
+  { href: '/engagement/my', label: 'My Engagement' },
   { href: '/analytics/insights', label: 'Insights' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },

@@ -136,6 +136,7 @@ export interface DailyTimeSummary {
   extraMinutes: number
   shortMinutes: number
   status: DailyStatus
+  isHoliday?: boolean
   createdAt: number
   updatedAt: number
 }
@@ -275,6 +276,23 @@ export interface MemberAdjustment {
   createdAt: number
 }
 
+export interface HolidayCalendar {
+  id: string
+  orgId: string
+  name: string
+  countryCode?: string
+  createdAt: number
+}
+
+export interface Holiday {
+  id: string
+  calendarId: string
+  date: string
+  name: string
+  isFullDay: boolean
+  createdAt: number
+}
+
 export type NotificationType = 'system' | 'attendance' | 'payroll' | 'device' | 'agent' | 'billing'
 export interface NotificationItem {
   id: string
@@ -298,6 +316,36 @@ export interface NotificationPreferences {
 }
 
 export type TimesheetRequestStatus = 'pending' | 'approved' | 'rejected'
+export interface Survey {
+  id: string
+  orgId: string
+  title: string
+  description?: string
+  isAnonymous: boolean
+  createdBy: string
+  createdAt: number
+  closesAt?: number
+}
+
+export type SurveyQuestionType = 'scale' | 'text' | 'mcq'
+export interface SurveyQuestion {
+  id: string
+  surveyId: string
+  questionType: SurveyQuestionType
+  questionText: string
+  options?: string[]
+}
+
+export interface SurveyResponse {
+  id: string
+  surveyId: string
+  questionId: string
+  memberId?: string
+  orgId: string
+  answerText?: string
+  answerNumeric?: number
+  createdAt: number
+}
 export interface TimesheetChangeRequest {
   id: string
   orgId: string
@@ -332,4 +380,79 @@ export interface TimesheetAuditLog {
   actionType: TimesheetAuditAction
   details: any
   createdAt: number
+}
+
+export interface Shift {
+  id: string
+  orgId: string
+  name: string
+  startTime: string
+  endTime: string
+  isOvernight: boolean
+  graceMinutes: number
+  breakMinutes: number
+  createdAt: number
+}
+
+export interface ShiftAssignment {
+  id: string
+  memberId: string
+  shiftId: string
+  effectiveFrom: string
+  effectiveTo?: string
+  createdAt: number
+}
+
+export type MFAType = 'email_otp' | 'totp'
+export interface MFASettings {
+  id: string
+  userId: string
+  mfaType: MFAType
+  secret?: string
+  isEnabled: boolean
+  createdAt: number
+}
+
+export interface OrgSecurityPolicy {
+  id: string
+  orgId: string
+  requireMfa: boolean
+  sessionTimeoutMinutes?: number
+  allowedIpRanges?: string[]
+  createdAt: number
+  ssoProvider?: 'saml' | 'oidc' | string
+  ssoMetadataUrl?: string
+  ssoClientId?: string
+}
+
+export interface TrustedDevice {
+  id: string
+  userId: string
+  deviceLabel?: string
+  lastIp?: string
+  lastUsedAt?: number
+  createdAt: number
+}
+
+export type AssetCategory = 'laptop' | 'monitor' | 'phone' | 'license' | 'other'
+export type AssetStatus = 'in_use' | 'in_stock' | 'retired' | 'lost'
+export interface Asset {
+  id: string
+  orgId: string
+  assetTag: string
+  category: AssetCategory
+  model?: string
+  serialNumber?: string
+  purchaseDate?: string
+  warrantyEnd?: string
+  status: AssetStatus
+  createdAt: number
+}
+
+export interface AssetAssignment {
+  id: string
+  assetId: string
+  memberId?: string
+  assignedAt: number
+  returnedAt?: number
 }

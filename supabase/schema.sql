@@ -422,3 +422,36 @@ create table if not exists public.timesheet_audit_log (
 create index if not exists idx_timesheet_audit_org on public.timesheet_audit_log(org_id);
 create index if not exists idx_timesheet_audit_member on public.timesheet_audit_log(member_id);
 create index if not exists idx_timesheet_audit_created on public.timesheet_audit_log(created_at);
+
+-- Security: MFA settings
+create table if not exists public.mfa_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  mfa_type text not null check (mfa_type in ('email_otp','totp')),
+  secret text,
+  is_enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (user_id)
+);
+
+-- Security: Organization-level security policies
+create table if not exists public.org_security_policies (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  require_mfa boolean not null default false,
+  session_timeout_minutes int default 60,
+  allowed_ip_ranges text[],
+  created_at timestamptz not null default now(),
+  unique (org_id)
+);
+
+-- Security: Trusted devices
+create table if not exists public.trusted_devices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  device_label text,
+  last_ip text,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_trusted_devices_user on public.trusted_devices(user_id);

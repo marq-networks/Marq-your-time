@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole } from './types'
+import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -28,6 +28,15 @@ const fines: MemberFine[] = []
 const adjustments: MemberAdjustment[] = []
 const notifications: NotificationItem[] = []
 const notificationPrefs: NotificationPreferences[] = []
+const shiftsMem: import('./types').Shift[] = []
+const shiftAssignmentsMem: import('./types').ShiftAssignment[] = []
+const surveysMem: Survey[] = []
+const surveyQuestionsMem: SurveyQuestion[] = []
+const surveyResponsesMem: SurveyResponse[] = []
+const holidayCalendarsMem: HolidayCalendar[] = []
+const holidaysMem: Holiday[] = []
+const assetsMem: import('./types').Asset[] = []
+const assetAssignmentsMem: import('./types').AssetAssignment[] = []
 
 function dateISO(d: Date) {
   return d.toISOString().slice(0,10)
@@ -45,6 +54,11 @@ function weekdayFromISO(date: string) {
 async function computeScheduledMinutes(memberId: string, orgId: string, date: string) {
   const u = await getUser(memberId)
   if (!u || u.orgId !== orgId) return 0
+  const assigned = await getAssignedShiftFor(memberId, orgId, date)
+  if (assigned) {
+    const m = minutesBetweenShift(assigned.startTime, assigned.endTime, assigned.isOvernight) - (assigned.breakMinutes || 0)
+    return Math.max(0, m)
+  }
   const wd = weekdayFromISO(date)
   const days = Array.isArray(u.workingDays) ? u.workingDays : []
   if (!days.includes(wd)) return 0
@@ -75,13 +89,17 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
     const unpaidBreak = (brRows || []).filter((r: any) => !r.is_paid).reduce((s: number, r: any) => s + Number(r.total_minutes || 0), 0)
     const scheduled = await computeScheduledMinutes(memberId, orgId, date)
     const workedMinusUnpaid = Math.max(0, worked - unpaidBreak)
+    const shiftForDay = await getAssignedShiftFor(memberId, orgId, date)
+    const workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDay?.breakMinutes || 0))
     let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'normal'
     let extra = 0
     let short = 0
-    if (scheduled === 0) status = workedMinusUnpaid > 0 ? 'normal' : 'unconfigured'
-    else if (workedMinusUnpaid === 0) status = 'absent'
-    else if (workedMinusUnpaid > scheduled) { status = 'extra'; extra = workedMinusUnpaid - scheduled }
-    else if (workedMinusUnpaid < scheduled) { status = 'short'; short = scheduled - workedMinusUnpaid }
+    if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
+    else if (workedAfterFixedBreak === 0) status = 'absent'
+    else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
+    else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+    const holiday = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
+    if (holiday && status === 'absent') status = 'unconfigured'
     const now = new Date()
     const payload = {
       member_id: memberId,
@@ -89,19 +107,20 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
       date,
       work_pattern_id: null,
       scheduled_minutes: scheduled,
-      worked_minutes: workedMinusUnpaid,
+      worked_minutes: workedAfterFixedBreak,
       paid_break_minutes: paidBreak,
       unpaid_break_minutes: unpaidBreak,
       extra_minutes: extra,
       short_minutes: short,
       status,
+      is_holiday: holiday,
       updated_at: now,
       created_at: now
     }
     const { data: existing } = await sb.from('daily_time_summaries').select('id').eq('member_id', memberId).eq('org_id', orgId).eq('date', date).limit(1).maybeSingle()
     if (existing?.id) await sb.from('daily_time_summaries').update(payload).eq('id', existing.id)
     else await sb.from('daily_time_summaries').insert(payload)
-    return { scheduled, worked: workedMinusUnpaid, paidBreak, unpaidBreak, extra, short, status }
+    return { scheduled, worked: workedAfterFixedBreak, paidBreak, unpaidBreak, extra, short, status }
   }
   const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.date === date && s.status === 'closed')
   const sorted = [...sessions].sort((a, b) => a.startTime - b.startTime)
@@ -119,13 +138,17 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
   const unpaidBreak = breaks.filter(b => !b.isPaid).reduce((sum, b) => sum + (b.totalMinutes || 0), 0)
   const scheduled = await computeScheduledMinutes(memberId, orgId, date)
   const workedMinusUnpaid = Math.max(0, worked - unpaidBreak)
+  const shiftForDayMem = await getAssignedShiftFor(memberId, orgId, date)
+  const workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDayMem?.breakMinutes || 0))
   let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'normal'
   let extra = 0
   let short = 0
-  if (scheduled === 0) status = workedMinusUnpaid > 0 ? 'normal' : 'unconfigured'
-  else if (workedMinusUnpaid === 0) status = 'absent'
-  else if (workedMinusUnpaid > scheduled) { status = 'extra'; extra = workedMinusUnpaid - scheduled }
-  else if (workedMinusUnpaid < scheduled) { status = 'short'; short = scheduled - workedMinusUnpaid }
+  if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
+  else if (workedAfterFixedBreak === 0) status = 'absent'
+  else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
+  else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+  const holidayMem = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
+  if (holidayMem && status === 'absent') status = 'unconfigured'
   const existing = dailySummaries.find(d => d.memberId === memberId && d.orgId === orgId && d.date === date)
   const nowMs = Date.now()
   const base: DailyTimeSummary = {
@@ -135,22 +158,309 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
     date,
     workPatternId: undefined,
     scheduledMinutes: scheduled,
-    workedMinutes: workedMinusUnpaid,
+    workedMinutes: workedAfterFixedBreak,
     paidBreakMinutes: paidBreak,
     unpaidBreakMinutes: unpaidBreak,
     extraMinutes: extra,
     shortMinutes: short,
     status,
+    isHoliday: holidayMem,
     createdAt: existing?.createdAt || nowMs,
     updatedAt: nowMs
   }
   if (existing) Object.assign(existing, base)
   else dailySummaries.push(base)
-  return { scheduled, worked: workedMinusUnpaid, paidBreak, unpaidBreak, extra, short, status }
+  return { scheduled, worked: workedAfterFixedBreak, paidBreak, unpaidBreak, extra, short, status }
 }
 
 export async function recalculateDailySummary(memberId: string, orgId: string, date: string) {
-  return recomputeDaily(memberId, orgId, date)
+  const res = await recomputeDaily(memberId, orgId, date)
+  await applyShiftRulesToDay(memberId, date)
+  return res
+}
+
+export async function createHolidayCalendar(input: { orgId: string, name: string, countryCode?: string }): Promise<HolidayCalendar | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('holiday_calendars').insert({ org_id: input.orgId, name: input.name, country_code: input.countryCode ?? null, created_at: now }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, orgId: data.org_id, name: data.name, countryCode: data.country_code ?? undefined, createdAt: new Date(data.created_at).getTime() }
+  }
+  const cal: HolidayCalendar = { id: newId(), orgId: input.orgId, name: input.name, countryCode: input.countryCode, createdAt: now.getTime() }
+  holidayCalendarsMem.push(cal)
+  return cal
+}
+
+export async function listHolidayCalendars(orgId: string): Promise<HolidayCalendar[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('holiday_calendars').select('*').eq('org_id', orgId).order('created_at', { ascending: false })
+    return (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, name: r.name, countryCode: r.country_code ?? undefined, createdAt: new Date(r.created_at).getTime() }))
+  }
+  return holidayCalendarsMem.filter(c => c.orgId === orgId)
+}
+
+export async function addHoliday(input: { calendarId: string, date: string, name: string, isFullDay?: boolean }): Promise<Holiday | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('holidays').insert({ calendar_id: input.calendarId, date: input.date, name: input.name, is_full_day: !!input.isFullDay, created_at: now }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, calendarId: data.calendar_id, date: data.date, name: data.name, isFullDay: !!data.is_full_day, createdAt: new Date(data.created_at).getTime() }
+  }
+  const h: Holiday = { id: newId(), calendarId: input.calendarId, date: input.date, name: input.name, isFullDay: !!input.isFullDay, createdAt: now.getTime() }
+  holidaysMem.push(h)
+  return h
+}
+
+export async function listHolidays(calendarId: string): Promise<Holiday[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('holidays').select('*').eq('calendar_id', calendarId).order('date', { ascending: true })
+    return (data || []).map((r: any) => ({ id: r.id, calendarId: r.calendar_id, date: r.date, name: r.name, isFullDay: !!r.is_full_day, createdAt: new Date(r.created_at).getTime() }))
+  }
+  return holidaysMem.filter(h => h.calendarId === calendarId).sort((a,b)=> a.date.localeCompare(b.date))
+}
+
+const activeHolidayByOrgMem = new Map<string, string>()
+
+export async function setActiveHolidayCalendar(orgId: string, calendarId: string): Promise<'OK'|'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const key = `org_active_holiday_calendar:${orgId}`
+    const now = new Date()
+    const { data: existing } = await sb.from('platform_settings').select('*').eq('key', key).limit(1).maybeSingle()
+    if (existing?.id) {
+      const { error } = await sb.from('platform_settings').update({ value_json: { calendar_id: calendarId }, updated_at: now }).eq('id', existing.id)
+      if (error) return 'DB_ERROR'
+    } else {
+      const { error } = await sb.from('platform_settings').insert({ key, value_json: { calendar_id: calendarId }, created_at: now, updated_at: now })
+      if (error) return 'DB_ERROR'
+    }
+    return 'OK'
+  }
+  activeHolidayByOrgMem.set(orgId, calendarId)
+  return 'OK'
+}
+
+export async function getActiveHolidayCalendar(orgId: string): Promise<string | undefined> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const key = `org_active_holiday_calendar:${orgId}`
+    const { data } = await sb.from('platform_settings').select('*').eq('key', key).limit(1).maybeSingle()
+    const calId = data?.value_json?.calendar_id || undefined
+    return calId || undefined
+  }
+  return activeHolidayByOrgMem.get(orgId)
+}
+
+export async function isOrgHoliday(orgId: string, date: Date): Promise<boolean> {
+  const iso = date.toISOString().slice(0,10)
+  const active = await getActiveHolidayCalendar(orgId)
+  if (!active) return false
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { count } = await sb.from('holidays').select('*', { count: 'exact', head: true }).eq('calendar_id', active).eq('date', iso)
+    return (count || 0) > 0
+  }
+  return holidaysMem.some(h => h.calendarId === active && h.date === iso)
+}
+
+function minutesBetweenShift(start: string, end: string, isOvernight: boolean) {
+  const base = new Date('1970-01-01T00:00:00Z')
+  const sParts = start.split(':').map(Number)
+  const eParts = end.split(':').map(Number)
+  const s = new Date(base)
+  s.setUTCHours(sParts[0] || 0, sParts[1] || 0, 0, 0)
+  const e = new Date(base)
+  e.setUTCHours(eParts[0] || 0, eParts[1] || 0, 0, 0)
+  let diff = (e.getTime() - s.getTime()) / 60000
+  if (isOvernight && diff <= 0) diff = ((24*60) - ((sParts[0]||0)*60 + (sParts[1]||0))) + ((eParts[0]||0)*60 + (eParts[1]||0))
+  return Math.max(0, Math.round(diff))
+}
+
+async function getAssignedShiftFor(memberId: string, orgId: string, date: string) {
+  const u = await getUser(memberId)
+  if (!u || u.orgId !== orgId) return undefined
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: asg } = await sb.from('shift_assignments').select('*, shifts(*)').eq('member_id', memberId).lte('effective_from', date).or(`effective_to.is.null,effective_to.gte.${date}`)
+    const row = (asg || []).find((r:any)=> r.shifts && r.shifts.org_id === orgId)
+    if (!row || !row.shifts) return undefined
+    const s = row.shifts
+    return { id: s.id, orgId: s.org_id, name: s.name, startTime: s.start_time, endTime: s.end_time, isOvernight: !!s.is_overnight, graceMinutes: Number(s.grace_minutes||0), breakMinutes: Number(s.break_minutes||0), createdAt: new Date(s.created_at).getTime() } as import('./types').Shift
+  }
+  const found = shiftAssignmentsMem.find(a => a.memberId === memberId && a.effectiveFrom <= date && (!a.effectiveTo || a.effectiveTo >= date))
+  if (!found) return undefined
+  const s = shiftsMem.find(ss => ss.id === found.shiftId)
+  return s
+}
+
+export async function createShift(input: { orgId: string, name: string, startTime: string, endTime: string, isOvernight?: boolean, graceMinutes?: number, breakMinutes?: number }) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = { org_id: input.orgId, name: input.name, start_time: input.startTime, end_time: input.endTime, is_overnight: !!input.isOvernight, grace_minutes: input.graceMinutes ?? 0, break_minutes: input.breakMinutes ?? 0, created_at: now }
+    const { data, error } = await sb.from('shifts').insert(payload).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, orgId: data.org_id, name: data.name, startTime: data.start_time, endTime: data.end_time, isOvernight: !!data.is_overnight, graceMinutes: Number(data.grace_minutes||0), breakMinutes: Number(data.break_minutes||0), createdAt: new Date(data.created_at).getTime() } as import('./types').Shift
+  }
+  const id = newId()
+  const s: import('./types').Shift = { id, orgId: input.orgId, name: input.name, startTime: input.startTime, endTime: input.endTime, isOvernight: !!input.isOvernight, graceMinutes: input.graceMinutes ?? 0, breakMinutes: input.breakMinutes ?? 0, createdAt: now.getTime() }
+  shiftsMem.push(s)
+  return s
+}
+
+export async function listShifts(orgId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('shifts').select('*').eq('org_id', orgId).order('created_at', { ascending: false })
+    return (data || []).map((r:any)=> ({ id: r.id, orgId: r.org_id, name: r.name, startTime: r.start_time, endTime: r.end_time, isOvernight: !!r.is_overnight, graceMinutes: Number(r.grace_minutes||0), breakMinutes: Number(r.break_minutes||0), createdAt: new Date(r.created_at).getTime() })) as import('./types').Shift[]
+  }
+  return shiftsMem.filter(s => s.orgId === orgId)
+}
+
+export async function assignShift(input: { memberId: string, shiftId: string, effectiveFrom: string, effectiveTo?: string }) {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = { member_id: input.memberId, shift_id: input.shiftId, effective_from: input.effectiveFrom, effective_to: input.effectiveTo ?? null, created_at: now }
+    const { data, error } = await sb.from('shift_assignments').insert(payload).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, memberId: data.member_id, shiftId: data.shift_id, effectiveFrom: data.effective_from, effectiveTo: data.effective_to ?? undefined, createdAt: new Date(data.created_at).getTime() } as import('./types').ShiftAssignment
+  }
+  const a: import('./types').ShiftAssignment = { id: newId(), memberId: input.memberId, shiftId: input.shiftId, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo, createdAt: now.getTime() }
+  shiftAssignmentsMem.push(a)
+  return a
+}
+
+export async function unassignShift(id: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { error } = await sb.from('shift_assignments').delete().eq('id', id)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  const idx = shiftAssignmentsMem.findIndex(a => a.id === id)
+  if (idx < 0) return 'NOT_FOUND'
+  shiftAssignmentsMem.splice(idx, 1)
+  return 'OK'
+}
+
+export async function listShiftAssignments(params: { orgId?: string, memberId?: string }) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('shift_assignments').select('*, shifts(*)')
+    if (params.memberId) q = q.eq('member_id', params.memberId)
+    const { data } = await q
+    const rows = (data || []).filter((r:any)=> !params.orgId || (r.shifts && r.shifts.org_id === params.orgId))
+    return rows.map((r:any)=> ({ id: r.id, memberId: r.member_id, shiftId: r.shift_id, effectiveFrom: r.effective_from, effectiveTo: r.effective_to ?? undefined, createdAt: new Date(r.created_at).getTime() })) as import('./types').ShiftAssignment[]
+  }
+  let arr = shiftAssignmentsMem.slice()
+  if (params.memberId) arr = arr.filter(a => a.memberId === params.memberId)
+  if (params.orgId) {
+    const members = await listUsers(params.orgId)
+    const set = new Set(members.map(m => m.id))
+    arr = arr.filter(a => set.has(a.memberId))
+  }
+  return arr
+}
+
+export async function applyShiftRulesToDay(memberId: string, date: string) {
+  const u = await getUser(memberId)
+  if (!u) return
+  const orgId = u.orgId
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: leaves } = await sb.from('leave_requests').select('id').eq('org_id', orgId).eq('member_id', memberId).eq('status','approved').lte('start_date', date).gte('end_date', date)
+    if ((leaves||[]).length) return
+  } else {
+    try {
+      const { listRequests: memList } = await import('./memory/leave')
+      const approved = memList({ org_id: orgId, status: 'approved', member_id: memberId, start_date: date, end_date: date })
+      if ((approved||[]).length) return
+    } catch {}
+  }
+  const shift = await getAssignedShiftFor(memberId, orgId, date)
+  if (!shift) return
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sessRows } = await sb.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).eq('date', date)
+    const sessions = (sessRows || []).filter((r:any)=> r.status === 'closed')
+    const firstStart = sessions.length ? new Date(sessions.map((r:any)=> r.start_time).sort()[0]).getTime() : 0
+    const lastEnd = sessions.length ? new Date((sessions.map((r:any)=> r.end_time || r.start_time).filter(Boolean).sort().slice(-1)[0]) as any).getTime() : 0
+    const dayStart = new Date(date + 'T00:00:00Z')
+    const sStart = new Date(dayStart)
+    const sEnd = new Date(dayStart)
+    const [sh, sm] = shift.startTime.split(':').map(Number)
+    const [eh, em] = shift.endTime.split(':').map(Number)
+    sStart.setUTCHours(sh||0, sm||0, 0, 0)
+    sEnd.setUTCHours(eh||0, em||0, 0, 0)
+    if (shift.isOvernight && sEnd <= sStart) sEnd.setUTCDate(sEnd.getUTCDate()+1)
+    const graceMs = (shift.graceMinutes||0) * 60000
+    if (!firstStart) {
+      const { count } = await sb.from('time_anomalies').select('*', { count:'exact', head:true }).eq('member_id', memberId).eq('org_id', orgId).eq('date', date).eq('type','absent')
+      if ((count||0)===0) await sb.from('time_anomalies').insert({ member_id: memberId, org_id: orgId, date, type:'absent', details:'No check-in for scheduled shift', resolved:false, created_at:new Date(), updated_at:new Date() })
+      return
+    }
+    if (firstStart > sStart.getTime() + graceMs) await sb.from('time_anomalies').insert({ member_id: memberId, org_id: orgId, date, type:'late', details:`Check-in at ${new Date(firstStart).toISOString()} after shift start`, resolved:false, created_at:new Date(), updated_at:new Date() })
+    if (lastEnd && lastEnd < sEnd.getTime()) await sb.from('time_anomalies').insert({ member_id: memberId, org_id: orgId, date, type:'early_leave', details:`Check-out before shift end`, resolved:false, created_at:new Date(), updated_at:new Date() })
+    if (lastEnd && lastEnd > sEnd.getTime()) await sb.from('time_anomalies').insert({ member_id: memberId, org_id: orgId, date, type:'overtime', details:`Worked beyond shift end`, resolved:false, created_at:new Date(), updated_at:new Date() })
+    return
+  }
+  const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.date === date && s.status === 'closed')
+  const firstStart = sessions.length ? Math.min(...sessions.map(s=> s.startTime)) : 0
+  const lastEnd = sessions.length ? Math.max(...sessions.map(s=> s.endTime || s.startTime)) : 0
+  const dayStart = new Date(date + 'T00:00:00Z').getTime()
+  const sStart = dayStart + ((Number(shift.startTime.split(':')[0])||0)*3600000) + ((Number(shift.startTime.split(':')[1])||0)*60000)
+  let sEnd = dayStart + ((Number(shift.endTime.split(':')[0])||0)*3600000) + ((Number(shift.endTime.split(':')[1])||0)*60000)
+  if (shift.isOvernight && sEnd <= sStart) sEnd += 24*3600000
+  const graceMs = (shift.graceMinutes||0) * 60000
+  if (!firstStart) { anomalies.push({ id: newId(), memberId, orgId, date, type:'absent', details:'No check-in for scheduled shift', resolved:false, createdAt: Date.now(), updatedAt: Date.now() }); return }
+  if (firstStart > sStart + graceMs) anomalies.push({ id: newId(), memberId, orgId, date, type:'late', details:'Check-in after shift start', resolved:false, createdAt: Date.now(), updatedAt: Date.now() })
+  if (lastEnd && lastEnd < sEnd) anomalies.push({ id: newId(), memberId, orgId, date, type:'early_leave', details:'Check-out before shift end', resolved:false, createdAt: Date.now(), updatedAt: Date.now() })
+  if (lastEnd && lastEnd > sEnd) anomalies.push({ id: newId(), memberId, orgId, date, type:'overtime', details:'Worked beyond shift end', resolved:false, createdAt: Date.now(), updatedAt: Date.now() })
+}
+
+export async function calculateComplianceScore(memberId: string, date: string) {
+  const u = await getUser(memberId)
+  if (!u) return 0
+  const orgId = u.orgId
+  const shift = await getAssignedShiftFor(memberId, orgId, date)
+  if (!shift) return 100
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sessRows } = await sb.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).eq('date', date)
+    const sessions = (sessRows || []).filter((r:any)=> r.status === 'closed')
+    if (!sessions.length) return 0
+    const firstStart = new Date(sessions.map((r:any)=> r.start_time).sort()[0]).getTime()
+    const lastEnd = new Date((sessions.map((r:any)=> r.end_time || r.start_time).filter(Boolean).sort().slice(-1)[0]) as any).getTime()
+    const dayStart = new Date(date + 'T00:00:00Z')
+    const sStart = new Date(dayStart)
+    const sEnd = new Date(dayStart)
+    const [sh, sm] = shift.startTime.split(':').map(Number)
+    const [eh, em] = shift.endTime.split(':').map(Number)
+    sStart.setUTCHours(sh||0, sm||0, 0, 0)
+    sEnd.setUTCHours(eh||0, em||0, 0, 0)
+    if (shift.isOvernight && sEnd <= sStart) sEnd.setUTCDate(sEnd.getUTCDate()+1)
+    let score = 100
+    if (firstStart > sStart.getTime() + (shift.graceMinutes||0)*60000) score -= 20
+    if (lastEnd < sEnd.getTime()) score -= 20
+    return Math.max(0, score)
+  }
+  const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.date === date && s.status === 'closed')
+  if (!sessions.length) return 0
+  const firstStart = Math.min(...sessions.map(s=> s.startTime))
+  const lastEnd = Math.max(...sessions.map(s=> s.endTime || s.startTime))
+  const dayStart = new Date(date + 'T00:00:00Z').getTime()
+  const sStart = dayStart + ((Number(shift.startTime.split(':')[0])||0)*3600000) + ((Number(shift.startTime.split(':')[1])||0)*60000)
+  let sEnd = dayStart + ((Number(shift.endTime.split(':')[0])||0)*3600000) + ((Number(shift.endTime.split(':')[1])||0)*60000)
+  if (shift.isOvernight && sEnd <= sStart) sEnd += 24*3600000
+  let score = 100
+  if (firstStart > sStart + (shift.graceMinutes||0)*60000) score -= 20
+  if (lastEnd < sEnd) score -= 20
+  return Math.max(0, score)
 }
 
 export async function publishNotification(input: { orgId: string, memberId?: string | null, type: NotificationItem['type'], title: string, message: string, meta?: any }) {
@@ -644,6 +954,7 @@ function mapDailySummaryFromRow(row: any): DailyTimeSummary {
     extraMinutes: Number(row.extra_minutes || 0),
     shortMinutes: Number(row.short_minutes || 0),
     status: row.status,
+    isHoliday: !!row.is_holiday,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime()
   }
@@ -1130,6 +1441,127 @@ export async function generateLandingLink(orgId: string, priceOverride?: number,
   const urlBase = baseUrl || process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const url = `${urlBase.replace(/\/$/,'')}/invite/${orgId}/${token}`
   return { url, orgConfig: { pricePerLogin: priceOverride ?? org.pricePerLogin, totalLicensedSeats: org.totalLicensedSeats }, prefillEmail }
+}
+
+export async function createAsset(input: { orgId: string, assetTag: string, category: import('./types').AssetCategory, model?: string, serialNumber?: string, purchaseDate?: string, warrantyEnd?: string, status: import('./types').AssetStatus }): Promise<import('./types').Asset | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = { org_id: input.orgId, asset_tag: input.assetTag, category: input.category, model: input.model ?? null, serial_number: input.serialNumber ?? null, purchase_date: input.purchaseDate ?? null, warranty_end: input.warrantyEnd ?? null, status: input.status, created_at: now }
+    const { data, error } = await sb.from('assets').insert(payload).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, orgId: data.org_id, assetTag: data.asset_tag, category: data.category, model: data.model ?? undefined, serialNumber: data.serial_number ?? undefined, purchaseDate: data.purchase_date ?? undefined, warrantyEnd: data.warranty_end ?? undefined, status: data.status, createdAt: new Date(data.created_at).getTime() }
+  }
+  const a: import('./types').Asset = { id: newId(), orgId: input.orgId, assetTag: input.assetTag, category: input.category, model: input.model, serialNumber: input.serialNumber, purchaseDate: input.purchaseDate, warrantyEnd: input.warrantyEnd, status: input.status, createdAt: now.getTime() }
+  assetsMem.push(a)
+  return a
+}
+
+export async function listAssets(params: { orgId: string, status?: import('./types').AssetStatus, category?: import('./types').AssetCategory }): Promise<import('./types').Asset[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('assets').select('*').eq('org_id', params.orgId).order('created_at', { ascending: false })
+    if (params.status) q = q.eq('status', params.status)
+    if (params.category) q = q.eq('category', params.category)
+    const { data } = await q
+    return (data || []).map((r: any) => ({ id: r.id, orgId: r.org_id, assetTag: r.asset_tag, category: r.category, model: r.model ?? undefined, serialNumber: r.serial_number ?? undefined, purchaseDate: r.purchase_date ?? undefined, warrantyEnd: r.warranty_end ?? undefined, status: r.status, createdAt: new Date(r.created_at).getTime() }))
+  }
+  let arr = assetsMem.filter(a => a.orgId === params.orgId)
+  if (params.status) arr = arr.filter(a => a.status === params.status)
+  if (params.category) arr = arr.filter(a => a.category === params.category)
+  return arr
+}
+
+export async function listAssetsWithActiveAssignment(params: { orgId: string, status?: import('./types').AssetStatus, category?: import('./types').AssetCategory }): Promise<Array<{ asset: import('./types').Asset, assignedTo?: string, assignedAt?: number }>> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('assets').select('*, asset_assignments(*)').eq('org_id', params.orgId).order('created_at', { ascending: false })
+    if (params.status) q = q.eq('status', params.status)
+    if (params.category) q = q.eq('category', params.category)
+    const { data } = await q
+    return (data || []).map((r: any) => {
+      const asset = { id: r.id, orgId: r.org_id, assetTag: r.asset_tag, category: r.category, model: r.model ?? undefined, serialNumber: r.serial_number ?? undefined, purchaseDate: r.purchase_date ?? undefined, warrantyEnd: r.warranty_end ?? undefined, status: r.status, createdAt: new Date(r.created_at).getTime() }
+      const assignments = Array.isArray(r.asset_assignments) ? r.asset_assignments : []
+      const active = assignments.find((a: any) => !a.returned_at)
+      return { asset, assignedTo: active?.member_id || undefined, assignedAt: active?.assigned_at ? new Date(active.assigned_at).getTime() : undefined }
+    })
+  }
+  let arr = assetsMem.filter(a => a.orgId === params.orgId)
+  if (params.status) arr = arr.filter(a => a.status === params.status)
+  if (params.category) arr = arr.filter(a => a.category === params.category)
+  return arr.map(a => {
+    const active = assetAssignmentsMem.find(x => x.assetId === a.id && !x.returnedAt)
+    return { asset: a, assignedTo: active?.memberId, assignedAt: active?.assignedAt }
+  })
+}
+
+export async function assignAssetToMember(input: { assetId: string, memberId: string }): Promise<import('./types').AssetAssignment | 'NOT_FOUND' | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: asset } = await sb.from('assets').select('*').eq('id', input.assetId).limit(1).maybeSingle()
+    if (!asset) return 'NOT_FOUND'
+    const { data: active } = await sb.from('asset_assignments').select('*').eq('asset_id', input.assetId).is('returned_at', null).limit(1).maybeSingle()
+    if (active) {
+      const { error: retErr } = await sb.from('asset_assignments').update({ returned_at: now }).eq('id', active.id)
+      if (retErr) return 'DB_ERROR'
+    }
+    const { error: updErr } = await sb.from('assets').update({ status: 'in_use' }).eq('id', input.assetId)
+    if (updErr) return 'DB_ERROR'
+    const { data, error } = await sb.from('asset_assignments').insert({ asset_id: input.assetId, member_id: input.memberId, assigned_at: now, returned_at: null }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return { id: data.id, assetId: data.asset_id, memberId: data.member_id ?? undefined, assignedAt: new Date(data.assigned_at).getTime(), returnedAt: data.returned_at ? new Date(data.returned_at).getTime() : undefined }
+  }
+  const found = assetsMem.find(a => a.id === input.assetId)
+  if (!found) return 'NOT_FOUND'
+  found.status = 'in_use'
+  const assignment: import('./types').AssetAssignment = { id: newId(), assetId: input.assetId, memberId: input.memberId, assignedAt: now.getTime() }
+  assetAssignmentsMem.push(assignment)
+  return assignment
+}
+
+export async function returnAsset(input: { assignmentId?: string, assetId?: string }): Promise<'OK' | 'NOT_FOUND' | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let active: any = null
+    if (input.assignmentId) {
+      const { data } = await sb.from('asset_assignments').select('*').eq('id', input.assignmentId).limit(1).maybeSingle()
+      active = data || null
+    } else if (input.assetId) {
+      const { data } = await sb.from('asset_assignments').select('*').eq('asset_id', input.assetId).is('returned_at', null).limit(1).maybeSingle()
+      active = data || null
+    }
+    if (!active) return 'NOT_FOUND'
+    const { error: updAssignErr } = await sb.from('asset_assignments').update({ returned_at: now }).eq('id', active.id)
+    if (updAssignErr) return 'DB_ERROR'
+    const { error: updAssetErr } = await sb.from('assets').update({ status: 'in_stock' }).eq('id', active.asset_id)
+    if (updAssetErr) return 'DB_ERROR'
+    return 'OK'
+  }
+  let idx = -1
+  if (input.assignmentId) idx = assetAssignmentsMem.findIndex(a => a.id === input.assignmentId)
+  else if (input.assetId) idx = assetAssignmentsMem.findIndex(a => a.assetId === input.assetId && !a.returnedAt)
+  if (idx < 0) return 'NOT_FOUND'
+  assetAssignmentsMem[idx].returnedAt = now.getTime()
+  const asset = assetsMem.find(a => a.id === assetAssignmentsMem[idx].assetId)
+  if (asset) asset.status = 'in_stock'
+  return 'OK'
+}
+
+export async function listMemberAssets(memberId: string): Promise<Array<{ assignment: import('./types').AssetAssignment, asset: import('./types').Asset }>> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('asset_assignments').select('*, assets(*)').eq('member_id', memberId).is('returned_at', null)
+    const rows = (data || []).filter((r: any) => !!r.assets)
+    return rows.map((r: any) => ({
+      assignment: { id: r.id, assetId: r.asset_id, memberId: r.member_id ?? undefined, assignedAt: new Date(r.assigned_at).getTime(), returnedAt: r.returned_at ? new Date(r.returned_at).getTime() : undefined },
+      asset: { id: r.assets.id, orgId: r.assets.org_id, assetTag: r.assets.asset_tag, category: r.assets.category, model: r.assets.model ?? undefined, serialNumber: r.assets.serial_number ?? undefined, purchaseDate: r.assets.purchase_date ?? undefined, warrantyEnd: r.assets.warranty_end ?? undefined, status: r.assets.status, createdAt: new Date(r.assets.created_at).getTime() }
+    }))
+  }
+  const actives = assetAssignmentsMem.filter(a => a.memberId === memberId && !a.returnedAt)
+  const rows = actives.map(a => ({ assignment: a, asset: assetsMem.find(x => x.id === a.assetId)! })).filter(x => !!x.asset)
+  return rows
 }
 
 function mapOrgFromRow(row: any): Organization {
@@ -1986,9 +2418,9 @@ function aggregateDaily(items: DailyTimeSummary[]) {
   const totalScheduledMinutes = items.reduce((s, r) => s + r.scheduledMinutes, 0)
   const totalWorkedMinutes = items.reduce((s, r) => s + r.workedMinutes, 0)
   const totalExtraMinutes = items.reduce((s, r) => s + r.extraMinutes, 0)
-  const totalShortMinutes = items.reduce((s, r) => s + r.shortMinutes, 0)
+  const totalShortMinutes = items.filter(r => !r.isHoliday).reduce((s, r) => s + r.shortMinutes, 0)
   const daysPresent = items.filter(r => r.workedMinutes > 0).length
-  const daysAbsent = items.filter(r => r.scheduledMinutes > 0 && r.workedMinutes === 0).length
+  const daysAbsent = items.filter(r => (r.scheduledMinutes > 0 && r.workedMinutes === 0 && !r.isHoliday)).length
   return { totalScheduledMinutes, totalWorkedMinutes, totalExtraMinutes, totalShortMinutes, daysPresent, daysAbsent }
 }
 
@@ -2060,4 +2492,159 @@ function toRow(line: MemberPayrollLine) {
     created_at: new Date(line.createdAt),
     updated_at: new Date(line.updatedAt)
   }
+}
+
+function mapSurveyFromRow(row: any): Survey {
+  return { id: row.id, orgId: row.org_id, title: row.title, description: row.description || undefined, isAnonymous: !!row.is_anonymous, createdBy: row.created_by, createdAt: new Date(row.created_at).getTime(), closesAt: row.closes_at ? new Date(row.closes_at).getTime() : undefined }
+}
+
+function mapSurveyQuestionFromRow(row: any): SurveyQuestion {
+  return { id: row.id, surveyId: row.survey_id, questionType: row.question_type, questionText: row.question_text, options: Array.isArray(row.options) ? row.options : undefined }
+}
+
+function mapSurveyResponseFromRow(row: any): SurveyResponse {
+  return { id: row.id, surveyId: row.survey_id, questionId: row.question_id, memberId: row.member_id || undefined, orgId: row.org_id, answerText: row.answer_text || undefined, answerNumeric: row.answer_numeric !== null && row.answer_numeric !== undefined ? Number(row.answer_numeric) : undefined, createdAt: new Date(row.created_at).getTime() }
+}
+
+export async function createSurvey(input: { orgId: string, title: string, description?: string, isAnonymous?: boolean, createdBy: string, closesAt?: string, questions: { questionType: 'scale'|'text'|'mcq', questionText: string, options?: string[] }[] }): Promise<{ survey: Survey, questions: SurveyQuestion[] } | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sRow, error: sErr } = await sb.from('surveys').insert({ org_id: input.orgId, title: input.title, description: input.description ?? null, is_anonymous: input.isAnonymous ?? true, created_by: input.createdBy, created_at: now, closes_at: input.closesAt ?? null }).select('*').single()
+    if (sErr) return 'DB_ERROR'
+    const survey = mapSurveyFromRow(sRow)
+    const qPayloads = input.questions.map(q => ({ survey_id: survey.id, question_type: q.questionType, question_text: q.questionText, options: q.options ?? null }))
+    const { data: qRows, error: qErr } = await sb.from('survey_questions').insert(qPayloads).select('*')
+    if (qErr) return 'DB_ERROR'
+    const questions = (qRows || []).map(mapSurveyQuestionFromRow)
+    return { survey, questions }
+  }
+  const survey: Survey = { id: newId(), orgId: input.orgId, title: input.title, description: input.description, isAnonymous: input.isAnonymous ?? true, createdBy: input.createdBy, createdAt: now.getTime(), closesAt: input.closesAt ? new Date(input.closesAt).getTime() : undefined }
+  surveysMem.push(survey)
+  const questions: SurveyQuestion[] = input.questions.map(q => ({ id: newId(), surveyId: survey.id, questionType: q.questionType, questionText: q.questionText, options: q.options }))
+  surveyQuestionsMem.push(...questions)
+  return { survey, questions }
+}
+
+export async function listSurveys(orgId: string): Promise<Survey[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('surveys').select('*').eq('org_id', orgId).order('created_at', { ascending: false })
+    return (data || []).map(mapSurveyFromRow)
+  }
+  return surveysMem.filter(s => s.orgId === orgId).sort((a,b)=> b.createdAt - a.createdAt)
+}
+
+export async function getSurveyDetail(surveyId: string): Promise<{ survey: Survey, questions: SurveyQuestion[] } | undefined> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sRow } = await sb.from('surveys').select('*').eq('id', surveyId).limit(1).maybeSingle()
+    if (!sRow) return undefined
+    const survey = mapSurveyFromRow(sRow)
+    const { data: qRows } = await sb.from('survey_questions').select('*').eq('survey_id', surveyId)
+    const questions = (qRows || []).map(mapSurveyQuestionFromRow)
+    return { survey, questions }
+  }
+  const survey = surveysMem.find(s => s.id === surveyId)
+  if (!survey) return undefined
+  const questions = surveyQuestionsMem.filter(q => q.surveyId === surveyId)
+  return { survey, questions }
+}
+
+export async function submitSurveyResponses(input: { surveyId: string, orgId: string, memberId: string, answers: { questionId: string, answerText?: string, answerNumeric?: number }[] }): Promise<'OK'|'DB_ERROR'|'SURVEY_NOT_FOUND'|'ORG_MISMATCH'> {
+  const s = await getSurveyDetail(input.surveyId)
+  if (!s) return 'SURVEY_NOT_FOUND'
+  if (s.survey.orgId !== input.orgId) return 'ORG_MISMATCH'
+  const now = new Date()
+  const memberIdToStore = s.survey.isAnonymous ? undefined : input.memberId
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payloads = input.answers.map(a => ({ survey_id: input.surveyId, question_id: a.questionId, member_id: memberIdToStore ?? null, org_id: input.orgId, answer_text: a.answerText ?? null, answer_numeric: a.answerNumeric ?? null, created_at: now }))
+    const { error } = await sb.from('survey_responses').insert(payloads)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  for (const a of input.answers) surveyResponsesMem.push({ id: newId(), surveyId: input.surveyId, questionId: a.questionId, memberId: memberIdToStore, orgId: input.orgId, answerText: a.answerText, answerNumeric: a.answerNumeric, createdAt: now.getTime() })
+  return 'OK'
+}
+
+export async function getSurveyResults(input: { surveyId: string, groupBy?: 'department'|'role' }): Promise<any> {
+  const detail = await getSurveyDetail(input.surveyId)
+  if (!detail) return { error: 'SURVEY_NOT_FOUND' }
+  const orgId = detail.survey.orgId
+  const questions = detail.questions
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: rows } = await sb.from('survey_responses').select('*').eq('survey_id', input.surveyId)
+    const responses = (rows || []).map(mapSurveyResponseFromRow)
+    const users = await listUsers(orgId)
+    const depMap = new Map(users.map(u => [u.id, u.departmentId || '']))
+    const roleMap = new Map(users.map(u => [u.id, u.roleId || '']))
+    return aggregateSurvey(questions, responses, input.groupBy, depMap, roleMap)
+  }
+  const responses = surveyResponsesMem.filter(r => r.surveyId === input.surveyId)
+  const users = await listUsers(orgId)
+  const depMap = new Map(users.map(u => [u.id, u.departmentId || '']))
+  const roleMap = new Map(users.map(u => [u.id, u.roleId || '']))
+  return aggregateSurvey(questions, responses, input.groupBy, depMap, roleMap)
+}
+
+function aggregateSurvey(questions: SurveyQuestion[], responses: SurveyResponse[], groupBy: 'department'|'role'|undefined, depMap: Map<string,string>, roleMap: Map<string,string>) {
+  const byQ = new Map<string, SurveyResponse[]>(questions.map(q => [q.id, []]))
+  for (const r of responses) {
+    const arr = byQ.get(r.questionId)
+    if (arr) arr.push(r)
+  }
+  function statsFor(q: SurveyQuestion, arr: SurveyResponse[]) {
+    if (q.questionType === 'scale') {
+      const nums = arr.map(a => Number(a.answerNumeric || 0)).filter(n => !isNaN(n))
+      const count = nums.length
+      const avg = count ? nums.reduce((s, n) => s + n, 0) / count : 0
+      return { count, avg }
+    }
+    if (q.questionType === 'mcq') {
+      const dist: Record<string, number> = {}
+      const opts = Array.isArray(q.options) ? q.options : []
+      for (const o of opts) dist[o] = 0
+      for (const a of arr) {
+        const t = (a.answerText || '').trim()
+        if (t) dist[t] = (dist[t] || 0) + 1
+      }
+      const count = arr.length
+      return { count, distribution: dist }
+    }
+    const texts = arr.map(a => a.answerText || '').filter(Boolean)
+    const count = texts.length
+    return { count, texts }
+  }
+  const base = questions.map(q => ({ questionId: q.id, questionType: q.questionType, ...statsFor(q, byQ.get(q.id) || []) }))
+  if (!groupBy) return { questions: base }
+  const groups = new Map<string, SurveyResponse[]>()
+  for (const r of responses) {
+    const key = groupBy === 'department' ? depMap.get(String(r.memberId)) || '' : roleMap.get(String(r.memberId)) || ''
+    const k = key || 'unknown'
+    const arr = groups.get(k) || []
+    arr.push(r)
+    groups.set(k, arr)
+  }
+  const outGroups: { group_id: string, question_stats: any[] }[] = []
+  for (const [gid, arr] of groups.entries()) {
+    const byQ2 = new Map<string, SurveyResponse[]>(questions.map(q => [q.id, []]))
+    for (const r of arr) {
+      const a = byQ2.get(r.questionId)
+      if (a) a.push(r)
+    }
+    const stats = questions.map(q => ({ questionId: q.id, questionType: q.questionType, ...statsFor(q, byQ2.get(q.id) || []) }))
+    outGroups.push({ group_id: gid, question_stats: stats })
+  }
+  return { questions: base, groups: outGroups }
+}
+
+export async function listSurveyResponses(surveyId: string): Promise<SurveyResponse[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('survey_responses').select('*').eq('survey_id', surveyId)
+    return (data || []).map(mapSurveyResponseFromRow)
+  }
+  return surveyResponsesMem.filter(r => r.surveyId === surveyId)
 }

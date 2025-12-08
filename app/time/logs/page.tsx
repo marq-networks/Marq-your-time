@@ -69,7 +69,7 @@ export default function TimeLogsPage() {
     formatHM(it.workedMinutes || 0),
     formatHM(it.extraMinutes || 0),
     formatHM(it.shortMinutes || 0),
-    <span className="badge">{it.status}</span>,
+    <span className="badge">{it.isHoliday ? 'Holiday' : it.status}</span>,
     <GlassButton onClick={()=>openDetail(it.memberId)}>View day</GlassButton>
   ])
 
@@ -157,4 +157,3 @@ export default function TimeLogsPage() {
     </AppShell>
   )
 }
-
