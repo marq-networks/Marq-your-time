@@ -64,6 +64,7 @@ export default function Page() {
           <div className="row" style={{gap:12, flexWrap:'wrap'}}>
             {canOrg && <GlassButton variant="primary" href="/org/create">Create Organization</GlassButton>}
             <GlassButton href="/org/list">View Organizations</GlassButton>
+            <GlassButton onClick={() => { try { document.cookie = 'current_org_id=; Max-Age=0; path=/'; } catch(_){}; window.location.href = '/auth/login' }}>Logout</GlassButton>
           </div>
         </GlassCard>
         <GlassCard title="Today's Hours">

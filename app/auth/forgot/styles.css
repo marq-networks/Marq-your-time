@@ -1,0 +1,14 @@
+.forgot-center { width: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.forgot-card { width: 420px; max-width: 90%; }
+.forgot-header { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.forgot-logo { width: 44px; height: 44px; border-radius: 12px; background: var(--color-accent); box-shadow: 0 12px 32px rgba(0,0,0,0.18); }
+.forgot-title { font-weight: 700; letter-spacing: 0.6px; }
+.forgot-sub { font-size: 14px; color: var(--color-text-secondary); }
+.forgot-footer { margin-top: 12px; text-align: center; font-size: 13px; color: var(--color-text-secondary); }
+.forgot-link { color: var(--color-text-primary); text-decoration: none; }
+.forgot-form { display: flex; flex-direction: column; gap: 16px; }
+.input { box-shadow: inset 0 0 12px rgba(255,255,255,0.35); }
+.btn-spinner { width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.25); border-top-color: rgba(0,0,0,0.8); border-radius: 50%; display: inline-block; margin-right: 8px; animation: spin 700ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 520px) { .forgot-card { max-width: 90%; } }
+

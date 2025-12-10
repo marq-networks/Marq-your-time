@@ -51,8 +51,17 @@ create table if not exists public.departments (
   name text not null,
   created_at timestamptz not null default now()
 );
-alter table if not exists public.departments
-  add constraint departments_org_name_unique unique (org_id, name);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'departments_org_name_unique'
+  ) then
+    alter table public.departments
+      add constraint departments_org_name_unique unique (org_id, name);
+  end if;
+end $$;
 alter table public.departments add column if not exists description text;
 alter table public.departments add column if not exists parent_id uuid references public.departments(id) on delete set null;
 alter table public.departments add column if not exists updated_at timestamptz not null default now();
@@ -455,3 +464,33 @@ create table if not exists public.trusted_devices (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_trusted_devices_user on public.trusted_devices(user_id);
+
+-- GDPR & Privacy: Data Retention Policies
+create table if not exists public.data_retention_policies (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  category text not null,
+  retention_days int not null,
+  hard_delete boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_data_retention_policies_org on public.data_retention_policies(org_id);
+create index if not exists idx_data_retention_policies_category on public.data_retention_policies(category);
+
+-- GDPR & Privacy: Privacy Requests
+create table if not exists public.privacy_requests (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid references public.users(id) on delete set null,
+  subject_type text not null,
+  subject_id uuid not null,
+  request_type text not null,
+  status text not null,
+  created_at timestamptz not null default now(),
+  processed_at timestamptz,
+  processed_by uuid references public.users(id) on delete set null,
+  notes text
+);
+create index if not exists idx_privacy_requests_org on public.privacy_requests(org_id);
+create index if not exists idx_privacy_requests_subject on public.privacy_requests(subject_id);
+create index if not exists idx_privacy_requests_status on public.privacy_requests(status);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
+import { logAuditEvent } from '@lib/db'
 import crypto from 'crypto'
 
 function allowed(role: string) { return ['admin','owner','integration_manager','super_admin'].includes(role) }
@@ -34,12 +35,14 @@ export async function POST(req: NextRequest) {
     const secret = crypto.randomBytes(32).toString('hex')
     const { data, error } = await sb.from('webhooks').insert({ org_id, name, target_url, secret, events, is_active: true, created_at: new Date(), created_by }).select('*').single()
     if (error) return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+    try { const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-ip') || undefined; const ua = req.headers.get('user-agent') || undefined; await logAuditEvent({ orgId: org_id, actorUserId: created_by || undefined, actorIp: ip || undefined, actorUserAgent: ua, eventType: 'webhook.created', entityType: 'webhook', entityId: String(data.id), metadata: { name, events } }) } catch {}
     return NextResponse.json({ item: { id: data.id, name: data.name, target_url: data.target_url, events: data.events, is_active: data.is_active, created_at: data.created_at }, secret })
   } else if (action === 'toggle') {
     const id = body.id || ''
     const is_active = !!body.is_active
     if (!id) return NextResponse.json({ error: 'MISSING_ID' }, { status: 400 })
     const { data } = await sb.from('webhooks').update({ is_active }).eq('id', id).select('*').single()
+    try { const orgId = String(data.org_id); const actor = req.headers.get('x-user-id') || undefined; const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-ip') || undefined; const ua = req.headers.get('user-agent') || undefined; await logAuditEvent({ orgId, actorUserId: actor, actorIp: ip || undefined, actorUserAgent: ua, eventType: is_active ? 'webhook.enabled' : 'webhook.disabled', entityType: 'webhook', entityId: id, metadata: { is_active } }) } catch {}
     return NextResponse.json({ item: { id: data.id, is_active: data.is_active } })
   }
   return NextResponse.json({ error: 'INVALID_ACTION' }, { status: 400 })

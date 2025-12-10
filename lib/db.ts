@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday } from './types'
+import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -28,6 +28,8 @@ const fines: MemberFine[] = []
 const adjustments: MemberAdjustment[] = []
 const notifications: NotificationItem[] = []
 const notificationPrefs: NotificationPreferences[] = []
+const eventPrefsV2: import('./types').EventNotificationPreference[] = []
+const digestRowsMem: { id: string, userId: string, frequency: 'daily'|'weekly', createdAt: number }[] = []
 const shiftsMem: import('./types').Shift[] = []
 const shiftAssignmentsMem: import('./types').ShiftAssignment[] = []
 const surveysMem: Survey[] = []
@@ -37,6 +39,14 @@ const holidayCalendarsMem: HolidayCalendar[] = []
 const holidaysMem: Holiday[] = []
 const assetsMem: import('./types').Asset[] = []
 const assetAssignmentsMem: import('./types').AssetAssignment[] = []
+const retentionPoliciesMem: DataRetentionPolicy[] = []
+const privacyRequestsMem: PrivacyRequest[] = []
+const auditLogsMem: import('./types').AuditLog[] = []
+const orgMembershipsMem: OrgMembership[] = []
+const superAdminsMem = new Set<string>()
+const supportTicketsMem: SupportTicket[] = []
+const supportCommentsMem: SupportComment[] = []
+const aiInsightSnapshotsMem: import('./types').AIInsightSnapshot[] = []
 
 function dateISO(d: Date) {
   return d.toISOString().slice(0,10)
@@ -177,6 +187,82 @@ export async function recalculateDailySummary(memberId: string, orgId: string, d
   const res = await recomputeDaily(memberId, orgId, date)
   await applyShiftRulesToDay(memberId, date)
   return res
+}
+
+function mapAuditLogRow(row: any): import('./types').AuditLog {
+  return {
+    id: String(row.id),
+    orgId: String(row.org_id),
+    actorUserId: row.actor_user_id ? String(row.actor_user_id) : undefined,
+    actorIp: row.actor_ip ?? undefined,
+    actorUserAgent: row.actor_user_agent ?? undefined,
+    eventType: String(row.event_type),
+    entityType: row.entity_type ?? undefined,
+    entityId: row.entity_id ? String(row.entity_id) : undefined,
+    metadata: row.metadata ?? undefined,
+    createdAt: new Date(row.created_at).getTime()
+  }
+}
+
+export async function logAuditEvent(input: { orgId: string, actorUserId?: string, actorIp?: string, actorUserAgent?: string, eventType: string, entityType?: string, entityId?: string, metadata?: any }): Promise<'OK'|'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = {
+      org_id: input.orgId,
+      actor_user_id: input.actorUserId ?? null,
+      actor_ip: input.actorIp ?? null,
+      actor_user_agent: input.actorUserAgent ?? null,
+      event_type: input.eventType,
+      entity_type: input.entityType ?? null,
+      entity_id: input.entityId ?? null,
+      metadata: input.metadata ?? null,
+      created_at: now
+    }
+    const { error } = await sb.from('audit_logs').insert(payload)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  const base: import('./types').AuditLog = {
+    id: newId(),
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    actorIp: input.actorIp,
+    actorUserAgent: input.actorUserAgent,
+    eventType: input.eventType,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    metadata: input.metadata,
+    createdAt: now.getTime()
+  }
+  auditLogsMem.push(base)
+  return 'OK'
+}
+
+export async function listAuditLogs(params: { orgId: string, eventType?: string, actorUserId?: string, dateStart?: string, dateEnd?: string, limit?: number, cursor?: string }): Promise<{ items: import('./types').AuditLog[], nextCursor: string | null }> {
+  const limit = Math.max(1, Math.min(200, params.limit || 50))
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('audit_logs').select('*').eq('org_id', params.orgId).order('created_at', { ascending: false }).limit(limit)
+    if (params.eventType) q = q.eq('event_type', params.eventType)
+    if (params.actorUserId) q = q.eq('actor_user_id', params.actorUserId)
+    if (params.dateStart) q = q.gte('created_at', new Date(params.dateStart))
+    if (params.dateEnd) q = q.lte('created_at', new Date(params.dateEnd))
+    if (params.cursor) q = q.lt('created_at', new Date(params.cursor))
+    const { data } = await q
+    const items = (data || []).map(mapAuditLogRow)
+    const nextCursor = items.length ? new Date(items[items.length-1].createdAt).toISOString() : null
+    return { items, nextCursor }
+  }
+  let arr = auditLogsMem.filter(l => l.orgId === params.orgId).slice().sort((a,b)=> b.createdAt - a.createdAt)
+  if (params.eventType) arr = arr.filter(l => l.eventType === params.eventType)
+  if (params.actorUserId) arr = arr.filter(l => l.actorUserId === params.actorUserId)
+  if (params.dateStart) arr = arr.filter(l => l.createdAt >= new Date(params.dateStart as string).getTime())
+  if (params.dateEnd) arr = arr.filter(l => l.createdAt <= new Date(params.dateEnd as string).getTime())
+  if (params.cursor) arr = arr.filter(l => l.createdAt < new Date(params.cursor as string).getTime())
+  const items = arr.slice(0, limit)
+  const nextCursor = items.length ? new Date(items[items.length-1].createdAt).toISOString() : null
+  return { items, nextCursor }
 }
 
 export async function createHolidayCalendar(input: { orgId: string, name: string, countryCode?: string }): Promise<HolidayCalendar | 'DB_ERROR'> {
@@ -571,6 +657,283 @@ export async function updateNotificationPreferences(memberId: string, patch: { e
 
 function mapPrefFromRow(row: any): NotificationPreferences {
   return { id: row.id, memberId: row.member_id, emailEnabled: !!row.email_enabled, inappEnabled: !!row.inapp_enabled, createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime() }
+}
+
+function mapEventPrefRow(row: any): import('./types').EventNotificationPreference {
+  return { id: String(row.id), userId: String(row.user_id), eventType: String(row.event_type), channel: String(row.channel) as any, enabled: !!row.enabled, createdAt: new Date(row.created_at).getTime() }
+}
+
+export async function listEventNotificationPreferences(userId: string): Promise<import('./types').EventNotificationPreference[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('notification_event_preferences').select('*').eq('user_id', userId).order('created_at', { ascending: false })
+    return (data || []).map(mapEventPrefRow)
+  }
+  return eventPrefsV2.filter(p => p.userId === userId).slice().sort((a,b)=>b.createdAt - a.createdAt)
+}
+
+export async function upsertEventNotificationPreferences(userId: string, items: { eventType: string, channel: 'in_app'|'email', enabled: boolean }[]): Promise<import('./types').EventNotificationPreference[]> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = items.map(i => ({ user_id: userId, event_type: i.eventType, channel: i.channel, enabled: !!i.enabled, created_at: now }))
+    const { data } = await sb.from('notification_event_preferences').upsert(payload, { onConflict: 'user_id,event_type,channel' }).select('*')
+    return (data || []).map(mapEventPrefRow)
+  }
+  for (const i of items) {
+    const existingIdx = eventPrefsV2.findIndex(p => p.userId === userId && p.eventType === i.eventType && p.channel === i.channel)
+    if (existingIdx >= 0) eventPrefsV2.splice(existingIdx, 1)
+    eventPrefsV2.push({ id: newId(), userId, eventType: i.eventType, channel: i.channel, enabled: !!i.enabled, createdAt: now.getTime() })
+  }
+  return eventPrefsV2.filter(p => p.userId === userId)
+}
+
+export async function shouldSendForEvent(userId: string, eventType: string, channel: 'in_app'|'email'): Promise<boolean> {
+  const prefs = await listEventNotificationPreferences(userId)
+  const row = prefs.find(p => p.eventType === eventType && p.channel === channel)
+  if (row) return !!row.enabled
+  if (channel === 'email') {
+    const base = await getNotificationPreferences(userId)
+    return !!base.emailEnabled
+  }
+  if (channel === 'in_app') {
+    const base = await getNotificationPreferences(userId)
+    return !!base.inappEnabled
+  }
+  return true
+}
+
+export async function getDigestFrequency(userId: string): Promise<import('./types').DigestFrequency> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('notification_digests').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1)
+    const row = (data || [])[0]
+    if (!row) return 'none'
+    return String(row.frequency) as any
+  }
+  const rows = digestRowsMem.filter(r => r.userId === userId).sort((a,b)=>b.createdAt - a.createdAt)
+  return rows[0]?.frequency ? (rows[0].frequency as any) : 'none'
+}
+
+export async function updateDigestFrequency(userId: string, frequency: import('./types').DigestFrequency): Promise<import('./types').DigestFrequency> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    if (frequency === 'none') {
+      await sb.from('notification_digests').delete().eq('user_id', userId)
+      return 'none'
+    }
+    const now = new Date()
+    const { data } = await sb.from('notification_digests').insert({ user_id: userId, frequency, created_at: now }).select('*').single()
+    return String(data.frequency) as any
+  }
+  if (frequency === 'none') {
+    for (let i = digestRowsMem.length - 1; i >= 0; i--) { if (digestRowsMem[i].userId === userId) digestRowsMem.splice(i, 1) }
+    return 'none'
+  }
+  digestRowsMem.push({ id: newId(), userId, frequency: frequency === 'daily' ? 'daily' : 'weekly', createdAt: Date.now() })
+  return frequency
+}
+
+export async function listDigestUsers(frequency: 'daily'|'weekly'): Promise<string[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('notification_digests').select('user_id').eq('frequency', frequency)
+    return (data || []).map((r:any)=> String(r.user_id))
+  }
+  return digestRowsMem.filter(r => r.frequency === frequency).map(r => r.userId)
+}
+
+export async function listNotificationsForUserBetween(userId: string, startISO: string, endISO: string): Promise<NotificationItem[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('notifications').select('*').eq('member_id', userId).gte('created_at', new Date(startISO)).lte('created_at', new Date(endISO)).order('created_at', { ascending: false })
+    return (data || []).map(mapNotificationFromRow)
+  }
+  const startMs = new Date(startISO).getTime()
+  const endMs = new Date(endISO).getTime()
+  return notifications.filter(n => n.memberId === userId && n.createdAt >= startMs && n.createdAt <= endMs).slice().sort((a,b)=>b.createdAt - a.createdAt)
+}
+
+function mapSupportTicketFromRow(row: any): SupportTicket {
+  return {
+    id: String(row.id),
+    orgId: String(row.org_id),
+    createdByUserId: String(row.created_by_user_id),
+    category: String(row.category),
+    title: String(row.title),
+    description: row.description ?? undefined,
+    status: String(row.status),
+    priority: String(row.priority),
+    assignedToUserId: row.assigned_to_user_id ? String(row.assigned_to_user_id) : undefined,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime()
+  }
+}
+
+function mapSupportCommentFromRow(row: any): SupportComment {
+  return {
+    id: String(row.id),
+    ticketId: String(row.ticket_id),
+    userId: String(row.user_id),
+    body: String(row.body),
+    createdAt: new Date(row.created_at).getTime()
+  }
+}
+
+function mapAIInsightSnapshotFromRow(row: any): import('./types').AIInsightSnapshot {
+  return {
+    id: String(row.id),
+    orgId: String(row.org_id),
+    targetType: String(row.target_type) as any,
+    targetId: row.target_id ? String(row.target_id) : undefined,
+    snapshotDate: String(row.snapshot_date),
+    summary: row.summary ?? undefined,
+    metadata: row.metadata ?? undefined,
+    createdAt: new Date(row.created_at).getTime()
+  }
+}
+
+export async function createAIInsightSnapshot(input: { orgId: string, targetType: 'org'|'department'|'member', targetId?: string, snapshotDate: string, summary?: string, metadata?: any }): Promise<import('./types').AIInsightSnapshot | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const payload = {
+      org_id: input.orgId,
+      target_type: input.targetType,
+      target_id: input.targetId ?? null,
+      snapshot_date: input.snapshotDate,
+      summary: input.summary ?? null,
+      metadata: input.metadata ?? null,
+      created_at: now
+    }
+    const { data, error } = await sb.from('ai_insight_snapshots').insert(payload).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapAIInsightSnapshotFromRow(data)
+  }
+  const base: import('./types').AIInsightSnapshot = {
+    id: newId(),
+    orgId: input.orgId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    snapshotDate: input.snapshotDate,
+    summary: input.summary,
+    metadata: input.metadata,
+    createdAt: now.getTime()
+  }
+  aiInsightSnapshotsMem.push(base)
+  return base
+}
+
+export async function listAIInsightSnapshots(params: { orgId: string, targetType?: 'org'|'department'|'member', targetId?: string, periodStart?: string, periodEnd?: string, limit?: number }): Promise<import('./types').AIInsightSnapshot[]> {
+  const limit = Math.max(1, Math.min(500, params.limit || 200))
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('ai_insight_snapshots').select('*').eq('org_id', params.orgId).order('snapshot_date', { ascending: false }).limit(limit)
+    if (params.targetType) q = q.eq('target_type', params.targetType)
+    if (params.targetId) q = q.eq('target_id', params.targetId)
+    if (params.periodStart) q = q.gte('snapshot_date', params.periodStart)
+    if (params.periodEnd) q = q.lte('snapshot_date', params.periodEnd)
+    const { data } = await q
+    return (data || []).map(mapAIInsightSnapshotFromRow)
+  }
+  let arr = aiInsightSnapshotsMem.filter(s => s.orgId === params.orgId)
+  if (params.targetType) arr = arr.filter(s => s.targetType === params.targetType)
+  if (params.targetId) arr = arr.filter(s => s.targetId === params.targetId)
+  if (params.periodStart) arr = arr.filter(s => s.snapshotDate >= params.periodStart!)
+  if (params.periodEnd) arr = arr.filter(s => s.snapshotDate <= params.periodEnd!)
+  return arr.slice().sort((a,b)=> b.snapshotDate.localeCompare(a.snapshotDate)).slice(0, limit)
+}
+
+export async function createSupportTicket(input: { orgId: string, createdByUserId: string, category: string, title: string, description?: string, priority?: string }): Promise<SupportTicket | 'DB_ERROR'> {
+  const now = new Date()
+  const priority = (input.priority || 'normal')
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('support_tickets').insert({ org_id: input.orgId, created_by_user_id: input.createdByUserId, category: input.category, title: input.title, description: input.description ?? null, status: 'open', priority, created_at: now, updated_at: now, assigned_to_user_id: null }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapSupportTicketFromRow(data)
+  }
+  const base: SupportTicket = { id: newId(), orgId: input.orgId, createdByUserId: input.createdByUserId, category: input.category, title: input.title, description: input.description, status: 'open', priority, assignedToUserId: undefined, createdAt: now.getTime(), updatedAt: now.getTime() }
+  supportTicketsMem.push(base)
+  return base
+}
+
+export async function listMySupportTickets(userId: string): Promise<SupportTicket[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('support_tickets').select('*').eq('created_by_user_id', userId).order('created_at', { ascending: false })
+    return (data || []).map(mapSupportTicketFromRow)
+  }
+  return supportTicketsMem.filter(t => t.createdByUserId === userId).slice().sort((a,b)=> b.createdAt - a.createdAt)
+}
+
+export async function listSupportTickets(params: { orgId: string, status?: string, category?: string }): Promise<SupportTicket[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('support_tickets').select('*').eq('org_id', params.orgId).order('created_at', { ascending: false })
+    if (params.status) q = q.eq('status', params.status)
+    if (params.category) q = q.eq('category', params.category)
+    const { data } = await q
+    return (data || []).map(mapSupportTicketFromRow)
+  }
+  let arr = supportTicketsMem.filter(t => t.orgId === params.orgId)
+  if (params.status) arr = arr.filter(t => String(t.status) === params.status)
+  if (params.category) arr = arr.filter(t => String(t.category) === params.category)
+  return arr.slice().sort((a,b)=> b.createdAt - a.createdAt)
+}
+
+export async function updateSupportTicket(id: string, patch: { status?: string, priority?: string, assignedToUserId?: string }): Promise<SupportTicket | 'DB_ERROR' | 'NOT_FOUND'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: before } = await sb.from('support_tickets').select('*').eq('id', id).limit(1).maybeSingle()
+    if (!before) return 'NOT_FOUND'
+    const payload = {
+      status: patch.status ?? before.status,
+      priority: patch.priority ?? before.priority,
+      assigned_to_user_id: patch.assignedToUserId ?? before.assigned_to_user_id,
+      updated_at: now
+    }
+    const { data, error } = await sb.from('support_tickets').update(payload).eq('id', id).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapSupportTicketFromRow(data)
+  }
+  const t = supportTicketsMem.find(x => x.id === id)
+  if (!t) return 'NOT_FOUND'
+  if (patch.status !== undefined) t.status = patch.status as any
+  if (patch.priority !== undefined) t.priority = patch.priority as any
+  if (patch.assignedToUserId !== undefined) t.assignedToUserId = patch.assignedToUserId
+  t.updatedAt = now.getTime()
+  return t
+}
+
+export async function addSupportComment(input: { ticketId: string, userId: string, body: string }): Promise<SupportComment | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('support_comments').insert({ ticket_id: input.ticketId, user_id: input.userId, body: input.body, created_at: now }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapSupportCommentFromRow(data)
+  }
+  const c: SupportComment = { id: newId(), ticketId: input.ticketId, userId: input.userId, body: input.body, createdAt: now.getTime() }
+  supportCommentsMem.push(c)
+  return c
+}
+
+export async function getSupportTicketDetail(id: string): Promise<{ ticket: SupportTicket, comments: SupportComment[] } | 'NOT_FOUND'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: t } = await sb.from('support_tickets').select('*').eq('id', id).limit(1).maybeSingle()
+    if (!t) return 'NOT_FOUND'
+    const ticket = mapSupportTicketFromRow(t)
+    const { data: rows } = await sb.from('support_comments').select('*').eq('ticket_id', id).order('created_at', { ascending: true })
+    const comments = (rows || []).map(mapSupportCommentFromRow)
+    return { ticket, comments }
+  }
+  const ticket = supportTicketsMem.find(t => t.id === id)
+  if (!ticket) return 'NOT_FOUND'
+  const comments = supportCommentsMem.filter(c => c.ticketId === id).slice().sort((a,b)=> a.createdAt - b.createdAt)
+  return { ticket, comments }
 }
 
 async function ensureDemoSeed() {
@@ -997,6 +1360,56 @@ export async function listOrganizations() {
   }
   await ensureDemoSeed()
   return organizations
+}
+
+export async function listUserOrganizations(userId: string): Promise<Organization[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('org_memberships').select('org_id').eq('user_id', userId)
+    const orgIds = (data || []).map((r: any) => String(r.org_id))
+    if (!orgIds.length) {
+      const { data: u } = await sb.from('users').select('org_id').eq('id', userId).limit(1).maybeSingle()
+      if (u?.org_id) orgIds.push(String(u.org_id))
+    }
+    const out: Organization[] = []
+    for (const id of orgIds) {
+      const o = await getOrganization(id)
+      if (o) out.push(o)
+    }
+    return out
+  }
+  const direct = users.find(u => u.id === userId)?.orgId
+  const ids = new Set<string>(orgMembershipsMem.filter(m => m.userId === userId).map(m => m.orgId))
+  if (direct) ids.add(direct)
+  return Array.from(ids.values()).map(id => organizations.find(o => o.id === id)).filter((o): o is Organization => !!o)
+}
+
+export async function addOrgMembership(userId: string, orgId: string, role: OrgMembership['role']): Promise<'OK'|'DB_ERROR'|'ORG_NOT_FOUND'|'USER_NOT_FOUND'|'DUPLICATE'> {
+  const org = await getOrganization(orgId)
+  if (!org) return 'ORG_NOT_FOUND'
+  const user = await getUser(userId)
+  if (!user) return 'USER_NOT_FOUND'
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('org_id', orgId)
+    if ((count || 0) > 0) return 'DUPLICATE'
+    const now = new Date()
+    const { error } = await sb.from('org_memberships').insert({ user_id: userId, org_id: orgId, role, created_at: now })
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  if (orgMembershipsMem.some(m => m.userId === userId && m.orgId === orgId)) return 'DUPLICATE'
+  orgMembershipsMem.push({ id: newId(), userId, orgId, role, createdAt: Date.now() })
+  return 'OK'
+}
+
+export async function isSuperAdmin(userId: string): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('users').select('is_super_admin').eq('id', userId).limit(1).maybeSingle()
+    return !!(data && data.is_super_admin)
+  }
+  return superAdminsMem.has(userId)
 }
 
 export async function getOrganization(id: string) {
@@ -2647,4 +3060,212 @@ export async function listSurveyResponses(surveyId: string): Promise<SurveyRespo
     return (data || []).map(mapSurveyResponseFromRow)
   }
   return surveyResponsesMem.filter(r => r.surveyId === surveyId)
+}
+
+function mapRetentionFromRow(row: any): DataRetentionPolicy {
+  return { id: String(row.id), orgId: String(row.org_id), category: String(row.category), retentionDays: Number(row.retention_days || 0), hardDelete: !!row.hard_delete, createdAt: new Date(row.created_at).getTime() }
+}
+
+function mapPrivacyRequestFromRow(row: any): PrivacyRequest {
+  return {
+    id: String(row.id),
+    orgId: String(row.org_id),
+    userId: row.user_id ? String(row.user_id) : undefined,
+    subjectType: String(row.subject_type),
+    subjectId: String(row.subject_id),
+    requestType: String(row.request_type) as any,
+    status: String(row.status) as any,
+    createdAt: new Date(row.created_at).getTime(),
+    processedAt: row.processed_at ? new Date(row.processed_at).getTime() : undefined,
+    processedBy: row.processed_by ? String(row.processed_by) : undefined,
+    notes: row.notes ?? undefined
+  }
+}
+
+export async function listRetentionPolicies(orgId: string): Promise<DataRetentionPolicy[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('data_retention_policies').select('*').eq('org_id', orgId).order('created_at', { ascending: true })
+    return (data || []).map(mapRetentionFromRow)
+  }
+  return retentionPoliciesMem.filter(p => p.orgId === orgId)
+}
+
+export async function upsertRetentionPolicies(orgId: string, items: { category: string, retentionDays: number, hardDelete: boolean }[]): Promise<DataRetentionPolicy[] | 'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: existing } = await sb.from('data_retention_policies').select('*').eq('org_id', orgId)
+    const now = new Date()
+    for (const it of items) {
+      const prev = (existing || []).find((r: any) => String(r.category) === it.category)
+      if (prev) {
+        const { error } = await sb.from('data_retention_policies').update({ retention_days: it.retentionDays, hard_delete: it.hardDelete }).eq('id', prev.id)
+        if (error) return 'DB_ERROR'
+      } else {
+        const { error } = await sb.from('data_retention_policies').insert({ org_id: orgId, category: it.category, retention_days: it.retentionDays, hard_delete: it.hardDelete, created_at: now })
+        if (error) return 'DB_ERROR'
+      }
+    }
+    const { data } = await sb.from('data_retention_policies').select('*').eq('org_id', orgId)
+    return (data || []).map(mapRetentionFromRow)
+  }
+  for (const it of items) {
+    const prev = retentionPoliciesMem.find(p => p.orgId === orgId && p.category === it.category)
+    if (prev) {
+      prev.retentionDays = it.retentionDays
+      prev.hardDelete = it.hardDelete
+    } else {
+      retentionPoliciesMem.push({ id: newId(), orgId, category: it.category, retentionDays: it.retentionDays, hardDelete: it.hardDelete, createdAt: Date.now() })
+    }
+  }
+  return retentionPoliciesMem.filter(p => p.orgId === orgId)
+}
+
+export async function createPrivacyRequest(input: { orgId: string, userId?: string, subjectType: 'user'|'member', subjectId: string, requestType: 'export'|'anonymize'|'delete' }): Promise<PrivacyRequest | 'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const now = new Date()
+    const { data, error } = await sb.from('privacy_requests').insert({ org_id: input.orgId, user_id: input.userId ?? null, subject_type: input.subjectType, subject_id: input.subjectId, request_type: input.requestType, status: 'pending', created_at: now }).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapPrivacyRequestFromRow(data)
+  }
+  const req: PrivacyRequest = { id: newId(), orgId: input.orgId, userId: input.userId, subjectType: input.subjectType, subjectId: input.subjectId, requestType: input.requestType, status: 'pending', createdAt: Date.now() }
+  privacyRequestsMem.push(req)
+  return req
+}
+
+export async function listPrivacyRequests(orgId: string, status?: PrivacyRequestStatus): Promise<PrivacyRequest[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('privacy_requests').select('*').eq('org_id', orgId)
+    if (status) q = q.eq('status', status)
+    const { data } = await q.order('created_at', { ascending: false })
+    return (data || []).map(mapPrivacyRequestFromRow)
+  }
+  const arr = privacyRequestsMem.filter(r => r.orgId === orgId)
+  return status ? arr.filter(r => r.status === status) : arr
+}
+
+async function buildExportData(orgId: string, subjectId: string): Promise<any> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: userRow } = await sb.from('users').select('*').eq('id', subjectId).eq('org_id', orgId).maybeSingle()
+    const { data: tsRows } = await sb.from('time_sessions').select('*').eq('org_id', orgId).eq('member_id', subjectId)
+    const { data: dailyRows } = await sb.from('daily_time_summaries').select('*').eq('org_id', orgId).eq('member_id', subjectId)
+    const { data: leaveRows } = await sb.from('leave_requests').select('*').eq('org_id', orgId).eq('member_id', subjectId)
+    const { data: trackingRows } = await sb.from('tracking_sessions').select('*').eq('org_id', orgId).eq('member_id', subjectId)
+    const { data: evRows } = await sb.from('activity_events').select('*').in('tracking_session_id', (trackingRows || []).map((r: any) => r.id))
+    const { data: shotRows } = await sb.from('screenshots').select('*').in('tracking_session_id', (trackingRows || []).map((r: any) => r.id))
+    return { user: userRow || null, time_sessions: tsRows || [], daily_time_summaries: dailyRows || [], leave_requests: leaveRows || [], tracking_sessions: trackingRows || [], activity_events: evRows || [], screenshots: shotRows || [] }
+  }
+  const u = users.find(x => x.id === subjectId && x.orgId === orgId) || null
+  const ts = timeSessions.filter(s => s.memberId === subjectId && s.orgId === orgId)
+  const ds = dailySummaries.filter(s => s.memberId === subjectId && s.orgId === orgId)
+  const lr: any[] = []
+  const tr = trackingSessions.filter(t => t.memberId === subjectId && t.orgId === orgId)
+  const ev = activityEvents.filter(e => tr.some(t => t.id === e.trackingSessionId))
+  const sc = screenshots.filter(s => tr.some(t => t.id === s.trackingSessionId))
+  return { user: u, time_sessions: ts, daily_time_summaries: ds, leave_requests: lr, tracking_sessions: tr, activity_events: ev, screenshots: sc }
+}
+
+export async function processPrivacyRequest(id: string, actorUserId: string): Promise<PrivacyRequest | 'NOT_FOUND' | 'DB_ERROR' | 'FORBIDDEN'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: req } = await sb.from('privacy_requests').select('*').eq('id', id).maybeSingle()
+    if (!req) return 'NOT_FOUND'
+    const now = new Date()
+    await sb.from('privacy_requests').update({ status: 'in_progress' }).eq('id', id)
+    if (String(req.request_type) === 'export') {
+      const bundle = await buildExportData(String(req.org_id), String(req.subject_id))
+      const note = JSON.stringify(bundle)
+      const { data, error } = await sb.from('privacy_requests').update({ status: 'completed', processed_at: now, processed_by: actorUserId || null, notes: note }).eq('id', id).select('*').single()
+      if (error) return 'DB_ERROR'
+      return mapPrivacyRequestFromRow(data)
+    }
+    if (String(req.request_type) === 'anonymize' || String(req.request_type) === 'delete') {
+      const email = `anon-${id}@example.local`
+      const { error: upErr } = await sb.from('users').update({ first_name: 'Anonymous', last_name: '', email, position_title: null, profile_image: null }).eq('id', req.subject_id).eq('org_id', req.org_id)
+      if (upErr) return 'DB_ERROR'
+      if (String(req.request_type) === 'delete') {
+        await sb.from('users').update({ status: 'inactive' }).eq('id', req.subject_id).eq('org_id', req.org_id)
+      }
+      const { data, error } = await sb.from('privacy_requests').update({ status: 'completed', processed_at: now, processed_by: actorUserId || null, notes: String(req.request_type) === 'delete' ? 'soft_deleted' : 'anonymized' }).eq('id', id).select('*').single()
+      if (error) return 'DB_ERROR'
+      return mapPrivacyRequestFromRow(data)
+    }
+    const { data, error } = await sb.from('privacy_requests').update({ status: 'rejected', processed_at: now, processed_by: actorUserId || null, notes: 'unsupported' }).eq('id', id).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapPrivacyRequestFromRow(data)
+  }
+  const req = privacyRequestsMem.find(r => r.id === id)
+  if (!req) return 'NOT_FOUND'
+  req.status = 'in_progress'
+  if (req.requestType === 'export') {
+    const bundle = await buildExportData(req.orgId, req.subjectId)
+    req.notes = JSON.stringify(bundle)
+  } else if (req.requestType === 'anonymize' || req.requestType === 'delete') {
+    const u = users.find(x => x.id === req.subjectId && x.orgId === req.orgId)
+    if (u) {
+      u.firstName = 'Anonymous'
+      u.lastName = ''
+      u.email = `anon-${id}@example.local`
+      u.positionTitle = undefined as any
+      u.profileImage = undefined as any
+      if (req.requestType === 'delete') u.status = 'inactive'
+    }
+    req.notes = req.requestType === 'delete' ? 'soft_deleted' : 'anonymized'
+  } else {
+    req.status = 'rejected'
+    req.notes = 'unsupported'
+  }
+  req.status = req.status === 'rejected' ? 'rejected' : 'completed'
+  req.processedAt = Date.now()
+  req.processedBy = actorUserId
+  return req
+}
+
+export async function runRetentionCleanup(): Promise<{ processed: number }> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: policies } = await sb.from('data_retention_policies').select('*')
+    const list = (policies || [])
+    let processed = 0
+    for (const p of list) {
+      const days = Number(p.retention_days || 0)
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - days)
+      if (String(p.category) === 'activity_logs') {
+        if (p.hard_delete) {
+          const { error } = await sb.from('activity_events').delete().lt('timestamp', cutoff)
+          if (!error) processed++
+        } else {
+          const { error } = await sb.from('activity_events').update({ window_title: '', url: null, keyboard_activity_score: null, mouse_activity_score: null }).lt('timestamp', cutoff)
+          if (!error) processed++
+        }
+      } else if (String(p.category) === 'screenshots') {
+        if (p.hard_delete) {
+          const { error } = await sb.from('screenshots').delete().lt('timestamp', cutoff)
+          if (!error) processed++
+        } else {
+          const { error } = await sb.from('screenshots').update({ storage_path: '', thumbnail_path: '' }).lt('timestamp', cutoff)
+          if (!error) processed++
+        }
+      } else if (String(p.category) === 'time_logs') {
+        if (p.hard_delete) {
+          await sb.from('daily_time_summaries').delete().lt('date', cutoff.toISOString().slice(0,10)).eq('org_id', p.org_id)
+          await sb.from('time_sessions').delete().lt('date', cutoff.toISOString().slice(0,10)).eq('org_id', p.org_id)
+          processed++
+        }
+      } else if (String(p.category) === 'audit_logs') {
+        if (p.hard_delete) {
+          const { error } = await sb.from('timesheet_audit_log').delete().lt('created_at', cutoff).eq('org_id', p.org_id)
+          if (!error) processed++
+        }
+      }
+    }
+    return { processed }
+  }
+  let processed = 0
+  processed++
+  return { processed }
 }

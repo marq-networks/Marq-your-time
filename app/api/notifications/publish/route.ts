@@ -9,8 +9,9 @@ export async function POST(req: NextRequest) {
   const title = body.title
   const message = body.message
   const meta = body.meta
+  const eventType = body.event_type || body.eventType
   if (!orgId || !type || !title || !message) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
-  const res = await publish({ orgId, memberId, type, title, message, meta })
+  const res = await publish({ orgId, memberId, type, title, message, meta, eventType })
   if (typeof res === 'string') return NextResponse.json({ error: res }, { status: 400 })
   return NextResponse.json({ item: res })
 }

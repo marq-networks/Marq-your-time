@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { updateOrgPolicy } from '@lib/security'
+import { logAuditEvent } from '@lib/db'
 
 function allow(role: string) { return ['admin','owner','super_admin'].includes(role.toLowerCase()) }
 
@@ -15,5 +16,11 @@ export async function POST(req: NextRequest) {
     allowedIpRanges: body.allowed_ip_ranges ?? body.allowedIpRanges
   }
   const policy = await updateOrgPolicy(orgId, patch)
+  try {
+    const actor = req.headers.get('x-user-id') || undefined
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-ip') || undefined
+    const ua = req.headers.get('user-agent') || undefined
+    await logAuditEvent({ orgId, actorUserId: actor, actorIp: ip || undefined, actorUserAgent: ua, eventType: 'org.policy.updated', entityType: 'org_settings', entityId: orgId, metadata: patch })
+  } catch {}
   return NextResponse.json({ policy })
 }

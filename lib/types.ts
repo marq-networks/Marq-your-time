@@ -93,6 +93,14 @@ export interface MemberRole {
   createdAt: number
 }
 
+export interface OrgMembership {
+  id: string
+  userId: string
+  orgId: string
+  role: 'owner' | 'admin' | 'manager' | 'member'
+  createdAt: number
+}
+
 export type TimeSessionStatus = 'open' | 'closed' | 'cancelled'
 export interface TimeSession {
   id: string
@@ -315,6 +323,18 @@ export interface NotificationPreferences {
   updatedAt: number
 }
 
+export type NotificationChannel = 'in_app' | 'email'
+export interface EventNotificationPreference {
+  id: string
+  userId: string
+  eventType: string
+  channel: NotificationChannel
+  enabled: boolean
+  createdAt: number
+}
+
+export type DigestFrequency = 'none' | 'daily' | 'weekly'
+
 export type TimesheetRequestStatus = 'pending' | 'approved' | 'rejected'
 export interface Survey {
   id: string
@@ -455,4 +475,77 @@ export interface AssetAssignment {
   memberId?: string
   assignedAt: number
   returnedAt?: number
+}
+
+export interface DataRetentionPolicy {
+  id: string
+  orgId: string
+  category: string
+  retentionDays: number
+  hardDelete: boolean
+  createdAt: number
+}
+
+export type PrivacyRequestType = 'export' | 'anonymize' | 'delete'
+export type PrivacyRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected'
+export interface PrivacyRequest {
+  id: string
+  orgId: string
+  userId?: string
+  subjectType: string
+  subjectId: string
+  requestType: PrivacyRequestType
+  status: PrivacyRequestStatus
+  createdAt: number
+  processedAt?: number
+  processedBy?: string
+  notes?: string
+}
+
+export interface AuditLog {
+  id: string
+  orgId: string
+  actorUserId?: string
+  actorIp?: string
+  actorUserAgent?: string
+  eventType: string
+  entityType?: string
+  entityId?: string
+  metadata?: any
+  createdAt: number
+}
+
+export type SupportTicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
+export type SupportTicketPriority = 'low' | 'normal' | 'high'
+export type SupportTicketCategory = 'hr' | 'it' | 'payroll' | 'other'
+export interface SupportTicket {
+  id: string
+  orgId: string
+  createdByUserId: string
+  category: SupportTicketCategory | string
+  title: string
+  description?: string
+  status: SupportTicketStatus | string
+  priority: SupportTicketPriority | string
+  assignedToUserId?: string
+  createdAt: number
+  updatedAt: number
+}
+export interface SupportComment {
+  id: string
+  ticketId: string
+  userId: string
+  body: string
+  createdAt: number
+}
+
+export interface AIInsightSnapshot {
+  id: string
+  orgId: string
+  targetType: 'org' | 'department' | 'member'
+  targetId?: string
+  snapshotDate: string
+  summary?: string
+  metadata?: any
+  createdAt: number
 }

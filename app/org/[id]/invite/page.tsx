@@ -9,11 +9,27 @@ export default function InviteUserPage() {
   const path = usePathname()
   const parts = path.split('/')
   const id = parts[2] || ''
-  const [form, setForm] = useState({ email:'', role:'member', assignSeat:true })
+  const [form, setForm] = useState({ email:'', roleId:'', assignSeat:true })
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
+  const [roles, setRoles] = useState<{ id: string, name: string }[]>([])
+
+  useEffect(() => {
+    const loadRoles = async () => {
+      if (!id) return
+      try {
+        const res = await fetch(`/api/role/list?orgId=${id}`, { cache: 'no-store' })
+        const data = await res.json()
+        const items = Array.isArray(data.items) ? data.items : []
+        setRoles(items)
+        setForm(f => ({ ...f, roleId: f.roleId || items[0]?.id || '' }))
+      } catch {}
+    }
+    loadRoles()
+  }, [id])
 
   const submit = async () => {
-    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: form.email, role: form.role, assignSeat: form.assignSeat }) })
+    const role = roles.find(r => r.id === form.roleId)
+    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: form.email, role: role?.name || '', assignSeat: form.assignSeat }) })
     const data = await res.json()
     if (res.ok) setToast({ m:'Invite sent', t:'success' })
     else setToast({ m:data.error || 'Error', t:'error' })
@@ -29,9 +45,9 @@ export default function InviteUserPage() {
         </div>
         <div>
           <div className="label">Role</div>
-          <select className="input" value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
-            <option value="member">member</option>
-            <option value="admin">admin</option>
+          <select className="input" value={form.roleId} onChange={e=>setForm({...form, roleId: e.target.value})}>
+            <option value="">Select role</option>
+            {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </div>
         <div className="row" style={{gap:8}}>

@@ -51,7 +51,8 @@ export default function OrgDetail() {
   }
 
   const sendInvite = async () => {
-    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: inviteForm.email, role: inviteForm.role, assignSeat: inviteForm.assignSeat }) })
+    if (!inviteForm.email.trim() || !inviteForm.profileImage) { setToast({ m:'Upload profile photo and enter email', t:'error' }); return }
+    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: inviteForm.email, role: 'member', assignSeat: inviteForm.assignSeat, profileImage: inviteForm.profileImage }) })
     const data = await res.json()
     if (res.ok) { setToast({ m:'Invite sent', t:'success' }); setOpen(false); load() } else setToast({ m:data.error || 'Error', t:'error' })
   }
@@ -176,21 +177,7 @@ export default function OrgDetail() {
             <div className="label">Email</div>
             <input className="input" value={inviteForm.email} onChange={e=>setInviteForm({...inviteForm,email:e.target.value})} />
           </div>
-          <div className="grid grid-3">
-            <div>
-              <div className="label">Role</div>
-              <select className="input" value={inviteForm.role} onChange={e=>setInviteForm({...inviteForm,role:e.target.value})}>
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-              </select>
-            </div>
-            <div>
-              <div className="label">Department</div>
-              <select className="input" value={inviteForm.departmentId} onChange={e=>setInviteForm({...inviteForm,departmentId:e.target.value})}>
-                <option value="">Select department</option>
-                {departments.map((d:any)=> <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
+          <div className="grid grid-1">
             <div>
               <div className="label">Status</div>
               <select className="input" value={inviteForm.status} onChange={e=>setInviteForm({...inviteForm,status:e.target.value})}>

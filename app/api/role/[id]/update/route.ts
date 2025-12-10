@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { updateRole } from '@lib/db'
+import { updateRole, logAuditEvent } from '@lib/db'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
@@ -11,6 +11,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (res === 'ROLE_PROTECTED') return NextResponse.json({ error: res }, { status: 400 })
   if (res === 'DB_ERROR') return NextResponse.json({ error: res }, { status: 500 })
   if (!res) return NextResponse.json({ error: 'ROLE_NOT_FOUND' }, { status: 404 })
+  try {
+    const orgId = body.orgId || ''
+    const actor = req.headers.get('x-user-id') || undefined
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-ip') || undefined
+    const ua = req.headers.get('user-agent') || undefined
+    if (orgId) await logAuditEvent({ orgId, actorUserId: actor, actorIp: ip || undefined, actorUserAgent: ua, eventType: 'role.updated', entityType: 'role', entityId: params.id, metadata: { name: body.name, permissions: body.permissions } })
+  } catch {}
   return NextResponse.json({ role: res })
 }
 import { checkPermission } from '@lib/permissions'

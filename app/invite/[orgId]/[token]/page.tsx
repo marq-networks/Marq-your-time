@@ -17,6 +17,8 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
     departmentId: '',
     status: 'active'
   })
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
   const load = async () => {
     const [orgRes, rRes, dRes] = await Promise.all([
@@ -35,6 +37,8 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
   useEffect(()=>{ load() }, [])
 
   const createAccount = async () => {
+    if (!password || password.length < 8) { setToast({ m:'Password must be at least 8 characters', t:'error' }); return }
+    if (password !== confirmPassword) { setToast({ m:'Passwords do not match', t:'error' }); return }
     const acceptRes = await fetch(`/api/invite/${params.token}/accept`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ grantPermissions: true }) })
     const acc = await acceptRes.json()
     if (!acceptRes.ok) { setToast({ m: acc.error || 'Error', t:'error' }); return }
@@ -50,7 +54,8 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
       salary: 0,
       workingDays: ['Mon','Tue','Wed','Thu','Fri'],
       workingHoursPerDay: 8,
-      status: form.status
+      status: form.status,
+      password
     }
     const res = await fetch('/api/user/create', { method:'POST', headers:{ 'Content-Type':'application/json','x-user-id':'admin' }, body: JSON.stringify(body) })
     const d = await res.json()
@@ -103,6 +108,16 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
                 <option value="inactive">inactive</option>
                 <option value="suspended">suspended</option>
               </select>
+            </div>
+          </div>
+          <div className="grid grid-2">
+            <div>
+              <div className="label">Password</div>
+              <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Set a password" />
+            </div>
+            <div>
+              <div className="label">Confirm Password</div>
+              <input className="input" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="Confirm password" />
             </div>
           </div>
           <div className="row" style={{justifyContent:'flex-end', gap:12}}>

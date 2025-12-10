@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createUser, getOrganization } from '@lib/db'
+import crypto from 'crypto'
+import { createUser, getOrganization, logAuditEvent } from '@lib/db'
 import { canConsumeSeat } from '@lib/rules'
 
 function isEmail(s: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) }
@@ -18,11 +19,14 @@ export async function POST(req: NextRequest) {
   if (desiredStatus === 'active' && !canConsumeSeat(org)) {
     return NextResponse.json({ requires_seat_upgrade: true })
   }
+  const passwordHash = typeof body.password === 'string' && body.password.length > 0
+    ? crypto.createHash('sha256').update(body.password).digest('hex')
+    : (body.passwordHash ?? '')
   const res = await createUser({
     firstName: body.firstName,
     lastName: body.lastName,
     email: body.email,
-    passwordHash: body.passwordHash ?? '',
+    passwordHash,
     roleId: body.roleId ?? undefined,
     orgId: body.orgId,
     departmentId: body.departmentId ?? undefined,
@@ -38,6 +42,13 @@ export async function POST(req: NextRequest) {
     const code = res === 'ORG_NOT_FOUND' ? 404 : res === 'EMAIL_ALREADY_EXISTS' ? 409 : bad.includes(res) ? 400 : 500
     return NextResponse.json({ error: res }, { status: code })
   }
+  try {
+    const orgId = body.orgId
+    const actor = req.headers.get('x-user-id') || undefined
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-ip') || undefined
+    const ua = req.headers.get('user-agent') || undefined
+    await logAuditEvent({ orgId, actorUserId: actor, actorIp: ip || undefined, actorUserAgent: ua, eventType: 'user.created', entityType: 'user', entityId: (res as any).id, metadata: { email: (res as any).email, roleId: (res as any).roleId } })
+  } catch {}
   return NextResponse.json({ user: res })
 }
 import { checkPermission } from '@lib/permissions'
