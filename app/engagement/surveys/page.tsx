@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type SurveyItem = { id: string, title: string, created_at: number, closes_at?: number|null, is_anonymous: boolean, avg_scale: number, response_rate: number|null }
@@ -20,6 +21,7 @@ export default function SurveysAdminPage() {
   const [newSurvey, setNewSurvey] = useState<{ title: string, description: string, is_anonymous: boolean, closes_at?: string, questions: QuestionInput[] }>({ title:'', description:'', is_anonymous: true, closes_at: undefined, questions: [] })
   const [results, setResults] = useState<any|null>(null)
   const [viewSurveyId, setViewSurveyId] = useState<string|undefined>(undefined)
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId){ loadList(orgId) } }, [orgId])
@@ -38,7 +40,7 @@ export default function SurveysAdminPage() {
   }
   const loadResults = async (sid: string, gb: 'none'|'department'|'role') => {
     const q = gb !== 'none' ? `&group_by=${gb}` : ''
-    const r = await fetch(`/api/surveys/results?survey_id=${sid}${q}`, { cache:'no-store', headers:{ 'x-role': 'admin' } })
+    const r = await fetch(`/api/surveys/results?survey_id=${sid}${q}`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } })
     const d = await r.json()
     setResults(d)
   }
@@ -57,7 +59,7 @@ export default function SurveysAdminPage() {
   const createSurvey = async () => {
     if (!orgId || !newSurvey.title || newSurvey.questions.length === 0) return
     const body = { org_id: orgId, title: newSurvey.title, description: newSurvey.description, is_anonymous: newSurvey.is_anonymous, closes_at: newSurvey.closes_at, questions: newSurvey.questions }
-    const r = await fetch('/api/surveys/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin', 'x-user-id': 'admin' }, body: JSON.stringify(body) })
+    const r = await fetch('/api/surveys/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin', 'x-user-id': 'admin' }, body: JSON.stringify(body) })
     const d = await r.json()
     if (d.survey) { setCreateOpen(false); setNewSurvey({ title:'', description:'', is_anonymous: true, closes_at: undefined, questions: [] }); loadList(orgId) }
   }

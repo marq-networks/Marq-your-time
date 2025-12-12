@@ -64,7 +64,7 @@ export default function UsersPage() {
     return () => document.removeEventListener('mousedown', closeOnOutside)
   }, [openMenuId])
 
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' })
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' })
   const emailOk = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email), [form.email])
 
   const createUser = async () => {
@@ -77,7 +77,7 @@ export default function UsersPage() {
     }
     const res = await fetch('/api/user/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) })
     const data = await res.json()
-    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' }); loadData(orgId) }
+    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' }); loadData(orgId) }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
@@ -190,6 +190,10 @@ export default function UsersPage() {
             {!emailOk && form.email ? <div className="subtitle">Invalid email</div> : null}
           </div>
           <div>
+            <div className="label">Password</div>
+            <input className="input" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} />
+          </div>
+          <div>
             <div className="label">Salary</div>
             <input className="input" type="number" value={form.salary} onChange={e=>setForm({...form, salary:e.target.value})} />
           </div>
@@ -282,8 +286,8 @@ export default function UsersPage() {
         <div className="grid">
           <div className="subtitle">Are you sure you want to suspend this user?</div>
           <div className="row" style={{justifyContent:'flex-end',gap:8}}>
-            <button className="btn-glass" onClick={()=>setConfirmSuspendId('')}>Cancel</button>
-            <button className="btn-glass primary" onClick={async()=>{ await suspend(confirmSuspendId); setConfirmSuspendId('') }}>Confirm Suspend</button>
+            <GlassButton variant="secondary" onClick={()=>setConfirmSuspendId('')}>Cancel</GlassButton>
+            <GlassButton variant="primary" onClick={async()=>{ await suspend(confirmSuspendId); setConfirmSuspendId('') }}>Confirm Suspend</GlassButton>
           </div>
         </div>
       </GlassModal>
@@ -292,8 +296,8 @@ export default function UsersPage() {
         <div className="grid">
           <div className="subtitle">Send a password reset email to this user?</div>
           <div className="row" style={{justifyContent:'flex-end',gap:8}}>
-            <button className="btn-glass" onClick={()=>setConfirmResetId('')}>Cancel</button>
-            <button className="btn-glass primary" onClick={()=>{ resetPassword(confirmResetId); setConfirmResetId('') }}>Send Reset Email</button>
+            <GlassButton variant="secondary" onClick={()=>setConfirmResetId('')}>Cancel</GlassButton>
+            <GlassButton variant="primary" onClick={()=>{ resetPassword(confirmResetId); setConfirmResetId('') }}>Send Reset Email</GlassButton>
           </div>
         </div>
       </GlassModal>

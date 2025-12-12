@@ -13,6 +13,7 @@ export default function Page() {
   const [members, setMembers] = useState<{ id: string, firstName: string, lastName: string }[]>([])
   const [memberId, setMemberId] = useState('')
   const [summary, setSummary] = useState<any>({ today_hours:'0:00', extra_time:'+00:00', short_time:'-00:00', session:null, break:null, sessions:[], breaks:[] })
+  const [mounted, setMounted] = useState(false)
 
   const loadOrgs = async () => {
     const res = await fetch('/api/org/list', { cache: 'no-store' })
@@ -34,6 +35,7 @@ export default function Page() {
     setSummary(data)
   }
   useEffect(() => { loadOrgs() }, [])
+  useEffect(() => { setMounted(true) }, [])
   useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
   useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
 
@@ -62,9 +64,8 @@ export default function Page() {
       <div className="grid grid-3">
         <GlassCard title="Quick Actions">
           <div className="row" style={{gap:12, flexWrap:'wrap'}}>
-            {canOrg && <GlassButton variant="primary" href="/org/create">Create Organization</GlassButton>}
+            {mounted && canOrg && <GlassButton variant="primary" href="/org/create">Create Organization</GlassButton>}
             <GlassButton href="/org/list">View Organizations</GlassButton>
-            <GlassButton onClick={() => { try { document.cookie = 'current_org_id=; Max-Age=0; path=/'; } catch(_){}; window.location.href = '/auth/login' }}>Logout</GlassButton>
           </div>
         </GlassCard>
         <GlassCard title="Today's Hours">

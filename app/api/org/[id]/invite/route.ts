@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createInvite } from '@lib/db'
+import { createInvite, getUser, isSuperAdmin } from '@lib/db'
 import { sendInviteMail } from '@lib/mailer'
+import { checkPermission } from '@lib/permissions'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const actor = req.headers.get('x-user-id') || ''
+  if (!actor) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+  const actorUser = await getUser(actor)
+  const superAdmin = await isSuperAdmin(actor)
+  const allowed = superAdmin || (actorUser && actorUser.orgId === params.id && await checkPermission(actor, 'manage_users'))
+  if (!allowed) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
   const body = await req.json()
   const required = ['invitedEmail','role']
   for (const k of required) if (body[k] === undefined || body[k] === '') return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })

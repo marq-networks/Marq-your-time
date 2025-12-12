@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -22,6 +23,7 @@ export default function AssetsDashboard() {
   const [newAsset, setNewAsset] = useState<any>({ asset_tag:'', category:'laptop', model:'', serial_number:'', purchase_date:'', warranty_end:'', status:'in_stock' })
   const [assigningId, setAssigningId] = useState<string>('')
   const [assignMemberId, setAssignMemberId] = useState<string>('')
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
     const r = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'admin' } })
@@ -52,7 +54,7 @@ export default function AssetsDashboard() {
   const onCreate = async () => {
     if (!orgId || !newAsset.asset_tag || !newAsset.category || !newAsset.status) return
     const body = { ...newAsset, org_id: orgId }
-    await fetch('/api/assets/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role':'admin' }, body: JSON.stringify(body) })
+    await fetch('/api/assets/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify(body) })
     setOpenCreate(false)
     setNewAsset({ asset_tag:'', category:'laptop', model:'', serial_number:'', purchase_date:'', warranty_end:'', status:'in_stock' })
     loadAssets(orgId)
@@ -60,14 +62,14 @@ export default function AssetsDashboard() {
 
   const onAssign = async () => {
     if (!assigningId || !assignMemberId) return
-    await fetch('/api/assets/assign', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role':'admin' }, body: JSON.stringify({ asset_id: assigningId, member_id: assignMemberId }) })
+    await fetch('/api/assets/assign', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ asset_id: assigningId, member_id: assignMemberId }) })
     setAssigningId('')
     setAssignMemberId('')
     loadAssets(orgId)
   }
 
   const onReturn = async (assetId: string) => {
-    await fetch('/api/assets/return', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role':'admin' }, body: JSON.stringify({ asset_id: assetId }) })
+    await fetch('/api/assets/return', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ asset_id: assetId }) })
     loadAssets(orgId)
   }
 
@@ -188,4 +190,3 @@ export default function AssetsDashboard() {
     </AppShell>
   )
 }
-

@@ -13,6 +13,7 @@ function getCookie(name: string) {
 export default function TopBar({ title }: { title: string }) {
   const [orgs, setOrgs] = useState<OrgItem[]>([])
   const [current, setCurrent] = useState<string>('')
+  const [userName, setUserName] = useState<string>('')
 
   const loadOrgs = async () => {
     try {
@@ -25,6 +26,7 @@ export default function TopBar({ title }: { title: string }) {
   }
 
   useEffect(() => { loadOrgs() }, [])
+  useEffect(() => { (async()=>{ try { const res = await fetch('/api/security/mfa/status', { cache:'no-store' }); const d = await res.json(); const n = d.name || d.email || ''; setUserName(n) } catch {} })() }, [])
 
   const onSwitch = async (id: string) => {
     setCurrent(id)
@@ -49,7 +51,7 @@ export default function TopBar({ title }: { title: string }) {
         <NotificationsBell />
         <div className="user-pill">
           <div className="avatar" />
-          <div className="user-name">User Name</div>
+          <div className="user-name">{orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization'}</div>
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassInput from '@components/ui/GlassInput'
 import GlassTable from '@components/ui/GlassTable'
 import TagPill from '@components/ui/TagPill'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -23,6 +24,7 @@ export default function SupportAdminPage() {
   const [openDetail, setOpenDetail] = useState(false)
   const [detail, setDetail] = useState<{ ticket: Ticket, comments: Comment[] } | null>(null)
   const [newComment, setNewComment] = useState('')
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadUsers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setUsers(d.items||[]) }
@@ -31,18 +33,18 @@ export default function SupportAdminPage() {
     const p = new URLSearchParams({ org_id: orgId })
     if (filters.status) p.set('status', filters.status)
     if (filters.category) p.set('category', filters.category)
-    const res = await fetch(`/api/support/tickets/list?${p.toString()}`, { cache:'no-store', headers: { 'x-role': 'admin' } })
+    const res = await fetch(`/api/support/tickets/list?${p.toString()}`, { cache:'no-store', headers: { 'x-role': role || 'admin' } })
     const d = await res.json(); setTickets(d.items||[])
   }
-  const openTicket = async (id: string) => { const res = await fetch(`/api/support/tickets/detail?id=${id}`, { cache:'no-store', headers: { 'x-role': 'admin' } }); const d = await res.json(); setDetail(d); setOpenDetail(true) }
+  const openTicket = async (id: string) => { const res = await fetch(`/api/support/tickets/detail?id=${id}`, { cache:'no-store', headers: { 'x-role': role || 'admin' } }); const d = await res.json(); setDetail(d); setOpenDetail(true) }
   const updateTicket = async (patch: any) => {
     if (!detail) return
-    const res = await fetch('/api/support/tickets/update', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ id: detail.ticket.id, ...patch }) })
+    const res = await fetch('/api/support/tickets/update', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ id: detail.ticket.id, ...patch }) })
     if (res.ok) { await openTicket(detail.ticket.id); await loadTickets() }
   }
   const submitComment = async () => {
     if (!detail || !newComment.trim()) return
-    const res = await fetch('/api/support/tickets/comment', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ ticket_id: detail.ticket.id, user_id: detail.ticket.assignedToUserId || users[0]?.id || '', body: newComment }) })
+    const res = await fetch('/api/support/tickets/comment', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ ticket_id: detail.ticket.id, user_id: detail.ticket.assignedToUserId || users[0]?.id || '', body: newComment }) })
     if (res.ok) { setNewComment(''); await openTicket(detail.ticket.id) }
   }
 
@@ -162,4 +164,3 @@ export default function SupportAdminPage() {
     </AppShell>
   )
 }
-

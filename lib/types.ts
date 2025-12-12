@@ -22,6 +22,7 @@ export interface Organization {
   pricePerLogin: number
   totalLicensedSeats: number
   usedSeats: number
+  orgPasswordHash?: string
   createdAt: number
   updatedAt: number
 }
@@ -37,6 +38,16 @@ export interface OrganizationInvite {
   expiresAt: number
   token: string
   assignSeat: boolean
+}
+
+export interface OrgCreationInvite {
+  id: string
+  token: string
+  invitedEmail?: string
+  createdBy?: string
+  status: 'pending' | 'used' | 'revoked'
+  expiresAt: number
+  createdAt: number
 }
 
 export interface SaaSSettings {

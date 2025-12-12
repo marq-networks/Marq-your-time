@@ -1,5 +1,7 @@
 'use client'
 import Link from 'next/link'
+import GlassButton from '@components/ui/GlassButton'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import usePermission from '@lib/hooks/usePermission'
 
@@ -37,13 +39,40 @@ const items = [
 
 export default function SidebarNav() {
   const pathname = usePathname()
+  const [mounted, setMounted] = useState(false)
   const canOrg = usePermission('manage_org').allowed
   const canUsers = usePermission('manage_users').allowed
   const canReports = usePermission('manage_reports').allowed
   const canSettings = usePermission('manage_settings').allowed
+  const [overrideRole, setOverrideRole] = useState('')
+  const applyOverride = () => { if (typeof document==='undefined') return; document.cookie = `current_role=${overrideRole}; path=/; SameSite=Lax`; if (typeof location!=='undefined') location.reload() }
+  useEffect(() => {
+    setMounted(true)
+    const roleCookie = document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || ''
+    setOverrideRole(roleCookie.toLowerCase())
+  }, [])
+  if (!mounted) {
+    return (
+      <div className="glass-panel strong" style={{padding:16,borderRadius:'var(--radius-large)'}} suppressHydrationWarning>
+        <div style={{display:'grid',gap:'var(--spacing-sm)'}}>
+          <a className="pill-link">Loading…</a>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="glass-panel strong" style={{padding:16,borderRadius:'var(--radius-large)'}}>
       <div style={{display:'grid',gap:'var(--spacing-sm)'}}>
+        <button className="pill-link" onClick={() => { try { document.cookie = 'current_org_id=; Max-Age=0; path=/'; document.cookie = 'current_role=; Max-Age=0; path=/'; } catch(_){}; if (typeof window !== 'undefined') window.location.href = '/auth/login' }}>Logout</button>
+        <div className="row" style={{gap:8,marginBottom:8}}>
+          <span className="label">Role</span>
+          <select className="input" value={overrideRole} onChange={(e)=>setOverrideRole(e.target.value)}>
+            <option value="employee">Employee</option>
+            <option value="admin">Admin</option>
+            <option value="super_admin">Super Admin</option>
+          </select>
+          <GlassButton variant="primary" onClick={applyOverride}>Apply</GlassButton>
+        </div>
         {items.filter(i => {
           if (i.label === 'Orgs') return canOrg
           if (i.label === 'Users') return canUsers
@@ -51,7 +80,7 @@ export default function SidebarNav() {
           if (i.label === 'Settings') return canSettings
           if (i.label === 'Integrations API') return canSettings
           if (i.label === 'API Docs') return canSettings
-          if (i.label === 'Members') return true
+          if (i.label === 'Members') return canUsers
           if (i.label === 'My Day') return true
           if (i.label === 'My Activity') return true
           if (i.label === 'My Earnings') return true
@@ -66,6 +95,8 @@ export default function SidebarNav() {
           if (i.label === 'Dashboard') return true
           if (i.label === 'Departments') return canUsers
           if (i.label === 'Reports') return canReports
+          const currentRole = overrideRole
+          if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
           return true
         }).map(i => {
           const active = pathname === i.href || pathname?.startsWith(i.href)

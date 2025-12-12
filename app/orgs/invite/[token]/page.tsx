@@ -1,31 +1,29 @@
 'use client'
 import { useState } from 'react'
-import GlassCard from '@components/ui/GlassCard'
+import Card from '@components/Card'
 import GlassButton from '@components/ui/GlassButton'
 import Toast from '@components/Toast'
-import AppShell from '@components/ui/AppShell'
 
-export default function CreateOrg() {
+export default function OrgInviteCreatePage({ params }: { params: { token: string } }) {
   const [form, setForm] = useState({ orgName:'', ownerName:'', ownerEmail:'', billingEmail:'', pricePerLogin:5, totalLicensedSeats:10, subscriptionType:'monthly', orgPassword:'', orgLogo:'' })
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
 
   const submit = async () => {
-    if (loading) return
+    if (loading || done) return
     setLoading(true)
-    const payload = { ...form }
+    const payload = { ...form, invite_token: params.token }
     const res = await fetch('/api/org/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     const data = await res.json()
-    if (res.ok) setToast({ m:'Organization created', t:'success' })
+    if (res.ok) { setToast({ m:'Organization created', t:'success' }); setDone(true) }
     else setToast({ m: data.error || 'Error', t:'error' })
     setLoading(false)
   }
 
-  const bind = (k: string) => ({ value: (form as any)[k], onChange: (e: any) => setForm({ ...form, [k]: e.target.value }) })
-
   return (
-    <AppShell title="Create Organization">
-      <GlassCard title="Create Organization">
+    <div className="grid" style={{maxWidth:800, margin:'40px auto'}}>
+      <Card title="Create Organization">
         <div className="grid grid-2">
           <div>
             <div className="label">Organization Logo</div>
@@ -38,19 +36,19 @@ export default function CreateOrg() {
           </div>
           <div>
             <div className="label">Org Name</div>
-            <input className="input" {...bind('orgName')} />
+            <input className="input" value={form.orgName} onChange={e=>setForm({...form, orgName:e.target.value})} />
           </div>
           <div>
             <div className="label">Owner Name</div>
-            <input className="input" {...bind('ownerName')} />
+            <input className="input" value={form.ownerName} onChange={e=>setForm({...form, ownerName:e.target.value})} />
           </div>
           <div>
             <div className="label">Owner Email</div>
-            <input className="input" {...bind('ownerEmail')} />
+            <input className="input" value={form.ownerEmail} onChange={e=>setForm({...form, ownerEmail:e.target.value})} />
           </div>
           <div>
             <div className="label">Billing Email</div>
-            <input className="input" {...bind('billingEmail')} />
+            <input className="input" value={form.billingEmail} onChange={e=>setForm({...form, billingEmail:e.target.value})} />
           </div>
           <div>
             <div className="label">Price per login</div>
@@ -72,12 +70,11 @@ export default function CreateOrg() {
             <input className="input" type="password" value={form.orgPassword} onChange={e=>setForm({...form, orgPassword:e.target.value})} />
           </div>
         </div>
-        <div className="row" style={{marginTop:16,gap:12}}>
-          <GlassButton variant="primary" onClick={submit} style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>{loading? 'Creating…' : 'Create Organization'}</GlassButton>
-          <GlassButton variant="secondary" href="/org/list">Cancel</GlassButton>
+        <div className="row" style={{marginTop:16,gap:12,justifyContent:'flex-end'}}>
+          <GlassButton variant="primary" onClick={submit} style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>{loading? 'Creating…' : done ? 'Created' : 'Create Organization'}</GlassButton>
         </div>
-      </GlassCard>
+      </Card>
       <Toast message={toast.m} type={toast.t} />
-    </AppShell>
+    </div>
   )
 }

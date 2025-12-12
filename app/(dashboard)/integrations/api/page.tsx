@@ -22,25 +22,26 @@ export default function IntegrationsApiPage() {
   const [newHook, setNewHook] = useState({ name: '', target_url: '', events: [] as string[] })
   const [viewHook, setViewHook] = useState<Webhook | null>(null)
   const [history, setHistory] = useState<EventRow[]>([])
+  const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadClients = async (oid: string) => { if(!oid) return; const r = await fetch(`/api/integrations/api-clients?org_id=${oid}`, { cache:'no-store', headers:{ 'x-role': 'admin' } }); const d = await r.json(); setClients(d.items||[]) }
-  const loadHooks = async (oid: string) => { if(!oid) return; const r = await fetch(`/api/integrations/webhooks?org_id=${oid}`, { cache:'no-store', headers:{ 'x-role': 'admin' } }); const d = await r.json(); setHooks(d.items||[]) }
-  const loadHistory = async (hookId: string) => { const r = await fetch(`/api/integrations/webhook-events?webhook_id=${hookId}&limit=50`, { cache:'no-store', headers:{ 'x-role': 'admin' } }); const d = await r.json(); setHistory(d.items||[]) }
+  const loadClients = async (oid: string) => { if(!oid) return; const r = await fetch(`/api/integrations/api-clients?org_id=${oid}`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } }); const d = await r.json(); setClients(d.items||[]) }
+  const loadHooks = async (oid: string) => { if(!oid) return; const r = await fetch(`/api/integrations/webhooks?org_id=${oid}`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } }); const d = await r.json(); setHooks(d.items||[]) }
+  const loadHistory = async (hookId: string) => { const r = await fetch(`/api/integrations/webhook-events?webhook_id=${hookId}&limit=50`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } }); const d = await r.json(); setHistory(d.items||[]) }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId){ loadClients(orgId); loadHooks(orgId) } }, [orgId])
 
   const createKey = async () => {
-    const r = await fetch('/api/integrations/api-clients', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ action:'create', org_id: orgId, name: newKey.name, scopes: newKey.scopes }) })
+    const r = await fetch('/api/integrations/api-clients', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ action:'create', org_id: orgId, name: newKey.name, scopes: newKey.scopes }) })
     const d = await r.json(); if(d.item){ setRawKey(d.raw_key||''); setCreateKeyOpen(false); setNewKey({ name:'', scopes:[] }); await loadClients(orgId) }
   }
-  const toggleClient = async (id: string, active: boolean) => { await fetch('/api/integrations/api-clients', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ action:'toggle', id, is_active: active }) }); await loadClients(orgId) }
+  const toggleClient = async (id: string, active: boolean) => { await fetch('/api/integrations/api-clients', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ action:'toggle', id, is_active: active }) }); await loadClients(orgId) }
   const createHook = async () => {
-    const r = await fetch('/api/integrations/webhooks', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ action:'create', org_id: orgId, name: newHook.name, target_url: newHook.target_url, events: newHook.events }) })
+    const r = await fetch('/api/integrations/webhooks', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ action:'create', org_id: orgId, name: newHook.name, target_url: newHook.target_url, events: newHook.events }) })
     const d = await r.json(); if(d.item){ setCreateHookOpen(false); setNewHook({ name:'', target_url:'', events:[] }); await loadHooks(orgId); alert(`Secret: ${d.secret}`) }
   }
-  const toggleHook = async (id: string, active: boolean) => { await fetch('/api/integrations/webhooks', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'admin' }, body: JSON.stringify({ action:'toggle', id, is_active: active }) }); await loadHooks(orgId) }
+  const toggleHook = async (id: string, active: boolean) => { await fetch('/api/integrations/webhooks', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ action:'toggle', id, is_active: active }) }); await loadHooks(orgId) }
 
   const apiColumns = ['Name','Scopes','Created','Last Used','Status','Actions']
   const apiRows = clients.map(c => [ c.name, c.scopes.join(', '), new Date(c.created_at).toLocaleString(), c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '-', c.is_active ? <span className="badge">Active</span> : <span className="badge">Inactive</span>, <div style={{display:'flex',gap:8}}><GlassButton variant='secondary' onClick={()=>toggleClient(c.id, !c.is_active)}>{c.is_active?'Deactivate':'Activate'}</GlassButton></div> ])

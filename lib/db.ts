@@ -1,10 +1,11 @@
-import { Organization, OrganizationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment } from './types'
+import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
 
 const organizations: Organization[] = []
 const invites: OrganizationInvite[] = []
+const orgCreationInvitesMem: OrgCreationInvite[] = []
 const roles: Role[] = []
 const departments: Department[] = []
 const users: User[] = []
@@ -1549,6 +1550,60 @@ export async function rejectInvite(token: string) {
   if (isInviteExpired(inv) || inv.inviteStatus !== 'pending') return 'INVITE_INVALID'
   inv.inviteStatus = 'revoked'
   return inv
+}
+
+export async function createOrgCreationInvite(params: { invitedEmail?: string, createdBy?: string }): Promise<{ token: string } | 'DB_ERROR'> {
+  const now = new Date()
+  const expires = new Date(now.getTime() + inviteWindowHours() * 60 * 60 * 1000)
+  const token = newToken()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { error } = await sb.from('org_creation_invites').insert({ token, invited_email: params.invitedEmail ?? null, created_by: params.createdBy ?? null, status: 'pending', expires_at: expires, created_at: now })
+    if (!error) return { token }
+    // Fallback to memory if table not present or insert fails
+  }
+  const base: OrgCreationInvite = { id: newId(), token, invitedEmail: params.invitedEmail, createdBy: params.createdBy, status: 'pending', expiresAt: expires.getTime(), createdAt: now.getTime() }
+  orgCreationInvitesMem.push(base)
+  return { token }
+}
+
+export async function getOrgCreationInvite(token: string): Promise<OrgCreationInvite | 'INVITE_NOT_FOUND' | 'INVITE_INVALID'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('org_creation_invites').select('*').eq('token', token).maybeSingle()
+    if (data && !error) {
+      const row = data
+      const inv: OrgCreationInvite = { id: String(row.id), token: String(row.token), invitedEmail: row.invited_email || undefined, createdBy: row.created_by || undefined, status: String(row.status) as any, expiresAt: new Date(row.expires_at).getTime(), createdAt: new Date(row.created_at).getTime() }
+      if (Date.now() > inv.expiresAt || inv.status !== 'pending') return 'INVITE_INVALID'
+      return inv
+    }
+    // Fallback to memory if table not present or query fails
+  }
+  const inv = orgCreationInvitesMem.find(i => i.token === token)
+  if (!inv) return 'INVITE_NOT_FOUND'
+  if (Date.now() > inv.expiresAt || inv.status !== 'pending') return 'INVITE_INVALID'
+  return inv
+}
+
+export async function consumeOrgCreationInvite(token: string): Promise<'OK' | 'INVITE_NOT_FOUND' | 'INVITE_INVALID' | 'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data, error } = await sb.from('org_creation_invites').select('*').eq('token', token).maybeSingle()
+    if (data && !error) {
+      const status = String(data.status || '')
+      const expiresAt = new Date(data.expires_at).getTime()
+      if (Date.now() > expiresAt || status !== 'pending') return 'INVITE_INVALID'
+      const { error: upErr } = await sb.from('org_creation_invites').update({ status: 'used' }).eq('id', data.id)
+      if (upErr) return 'DB_ERROR'
+      return 'OK'
+    }
+    // Fallback to memory if table not present or query fails
+  }
+  const inv = orgCreationInvitesMem.find(i => i.token === token)
+  if (!inv) return 'INVITE_NOT_FOUND'
+  if (Date.now() > inv.expiresAt || inv.status !== 'pending') return 'INVITE_INVALID'
+  inv.status = 'used'
+  return 'OK'
 }
 
 export async function getSettings() {

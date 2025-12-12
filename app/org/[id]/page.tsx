@@ -20,7 +20,7 @@ export default function OrgDetail() {
     firstName:'',
     lastName:'',
     email:'',
-    role:'member',
+    role:'employee',
     departmentId:'',
     status:'active',
     assignSeat:true
@@ -51,8 +51,8 @@ export default function OrgDetail() {
   }
 
   const sendInvite = async () => {
-    if (!inviteForm.email.trim() || !inviteForm.profileImage) { setToast({ m:'Upload profile photo and enter email', t:'error' }); return }
-    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: inviteForm.email, role: 'member', assignSeat: inviteForm.assignSeat, profileImage: inviteForm.profileImage }) })
+    if (!inviteForm.email.trim() || !inviteForm.profileImage || !inviteForm.role) { setToast({ m:'Upload profile photo, enter email, and select role', t:'error' }); return }
+    const res = await fetch(`/api/org/${id}/invite`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitedEmail: inviteForm.email, role: inviteForm.role, assignSeat: inviteForm.assignSeat, profileImage: inviteForm.profileImage }) })
     const data = await res.json()
     if (res.ok) { setToast({ m:'Invite sent', t:'success' }); setOpen(false); load() } else setToast({ m:data.error || 'Error', t:'error' })
   }
@@ -147,37 +147,51 @@ export default function OrgDetail() {
         </div>
       </Card>
       <Modal open={open} title="Invite User" onClose={()=>setOpen(false)}>
-        <div className="grid">
-          <div>
-            <div className="label">Profile photo</div>
-            <div className="row" style={{gap:12}}>
-              <div style={{width:48,height:48,borderRadius:12,background:'#111',border:'1px solid var(--border)'}}>
-                {inviteForm.profileImage && <img src={inviteForm.profileImage} alt="" style={{width:'100%',height:'100%',borderRadius:12,objectFit:'cover'}} />}
-              </div>
-              <input type="file" accept="image/*" onChange={(e)=>{
-                const f = e.target.files?.[0]
-                if (!f) return
-                const reader = new FileReader()
-                reader.onload = () => setInviteForm({...inviteForm, profileImage: String(reader.result || '')})
-                reader.readAsDataURL(f)
-              }} />
-            </div>
-          </div>
+        <div className="glass-panel" style={{padding:16}}>
           <div className="grid grid-2">
             <div>
-              <div className="label">First Name</div>
-              <input className="input" value={inviteForm.firstName} onChange={e=>setInviteForm({...inviteForm,firstName:e.target.value})} />
+              <div className="label">Profile photo</div>
+              <div className="row" style={{gap:12}}>
+                <div style={{width:80,height:80,borderRadius:16,background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.35)',overflow:'hidden'}}>
+                  {inviteForm.profileImage && <img src={inviteForm.profileImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+                </div>
+                <label className="btn-glass" style={{cursor:'pointer'}}>
+                  <input type="file" accept="image/*" style={{display:'none'}} onChange={(e)=>{
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    const reader = new FileReader()
+                    reader.onload = () => setInviteForm({...inviteForm, profileImage: String(reader.result || '')})
+                    reader.readAsDataURL(f)
+                  }} />
+                  Upload image
+                </label>
+              </div>
+            </div>
+            <div className="grid grid-2">
+              <div>
+                <div className="label">First Name</div>
+                <input className="input" value={inviteForm.firstName} onChange={e=>setInviteForm({...inviteForm,firstName:e.target.value})} />
+              </div>
+              <div>
+                <div className="label">Last Name</div>
+                <input className="input" value={inviteForm.lastName} onChange={e=>setInviteForm({...inviteForm,lastName:e.target.value})} />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-3" style={{marginTop:12}}>
+            <div>
+              <div className="label">Email</div>
+              <input className="input" value={inviteForm.email} onChange={e=>setInviteForm({...inviteForm,email:e.target.value})} />
             </div>
             <div>
-              <div className="label">Last Name</div>
-              <input className="input" value={inviteForm.lastName} onChange={e=>setInviteForm({...inviteForm,lastName:e.target.value})} />
+              <div className="label">Role</div>
+              <select className="input" value={inviteForm.role} onChange={e=>setInviteForm({...inviteForm,role:e.target.value})}>
+                <option value="">Select role</option>
+                <option value="employee">Employee</option>
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
             </div>
-          </div>
-          <div>
-            <div className="label">Email</div>
-            <input className="input" value={inviteForm.email} onChange={e=>setInviteForm({...inviteForm,email:e.target.value})} />
-          </div>
-          <div className="grid grid-1">
             <div>
               <div className="label">Status</div>
               <select className="input" value={inviteForm.status} onChange={e=>setInviteForm({...inviteForm,status:e.target.value})}>
@@ -187,11 +201,11 @@ export default function OrgDetail() {
               </select>
             </div>
           </div>
-          <div className="row" style={{gap:8}}>
+          <div className="row" style={{gap:8,marginTop:12}}>
             <input type="checkbox" checked={inviteForm.assignSeat} onChange={e=>setInviteForm({...inviteForm,assignSeat:e.target.checked})} />
             <div className="label">Assign Seat</div>
           </div>
-          <div className="row" style={{justifyContent:'flex-end',gap:8}}>
+          <div className="row" style={{justifyContent:'flex-end',gap:8,marginTop:12}}>
             <button className="btn" onClick={()=>setOpen(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={sendInvite}>Send Invite</button>
           </div>

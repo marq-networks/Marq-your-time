@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Shift = { id: string, orgId: string, name: string, startTime: string, endTime: string, isOvernight: boolean, graceMinutes: number, breakMinutes: number }
@@ -14,6 +15,7 @@ export default function ShiftsSettingsPage() {
   const [items, setItems] = useState<Shift[]>([])
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name:'', start:'09:00', end:'17:00', overnight:false, grace:0, break:0 })
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadShifts = async (oid: string) => { const res = await fetch(`/api/shifts?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]) }
@@ -22,7 +24,7 @@ export default function ShiftsSettingsPage() {
 
   const addShift = async () => {
     if (!orgId || !form.name || !form.start || !form.end) return
-    const res = await fetch('/api/shifts', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin' }, body: JSON.stringify({ org_id: orgId, name: form.name, start_time: form.start, end_time: form.end, is_overnight: form.overnight, grace_minutes: form.grace, break_minutes: form.break }) })
+    const res = await fetch('/api/shifts', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify({ org_id: orgId, name: form.name, start_time: form.start, end_time: form.end, is_overnight: form.overnight, grace_minutes: form.grace, break_minutes: form.break }) })
     if (res.ok) { setOpen(false); setForm({ name:'', start:'09:00', end:'17:00', overnight:false, grace:0, break:0 }); loadShifts(orgId) }
   }
 
@@ -93,4 +95,3 @@ export default function ShiftsSettingsPage() {
     </AppShell>
   )
 }
-

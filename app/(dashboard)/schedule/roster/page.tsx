@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -32,11 +33,12 @@ export default function RosterPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [selecting, setSelecting] = useState<{memberId?:string, day?:string}>({})
   const [selShift, setSelShift] = useState('')
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadDepsUsers = async (oid: string) => { const [deps, users] = await Promise.all([ fetch(`/api/department/list?org_id=${oid}`).then(r=>r.json()), fetch(`/api/user/list?org_id=${oid}`).then(r=>r.json()) ]); setDepartments(deps.items||[]); setMembers(users.items||[]) }
   const loadShifts = async (oid: string) => { const res = await fetch(`/api/shifts?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setShifts(d.items||[]) }
-  const loadAssignments = async (oid: string) => { const res = await fetch(`/api/shifts/assign?org_id=${oid}`, { cache:'no-store', headers:{'x-role':'admin'} }); const d = await res.json(); setAssignments(d.items||[]) }
+  const loadAssignments = async (oid: string) => { const res = await fetch(`/api/shifts/assign?org_id=${oid}`, { cache:'no-store', headers:{'x-role': role || 'admin'} }); const d = await res.json(); setAssignments(d.items||[]) }
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) { loadDepsUsers(orgId); loadShifts(orgId); loadAssignments(orgId) } }, [orgId])
 
@@ -50,7 +52,7 @@ export default function RosterPage() {
 
   const assignOne = async () => {
     if (!selecting.memberId || !selecting.day || !selShift) return
-    const res = await fetch('/api/shifts/assign', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin','x-org-id': orgId }, body: JSON.stringify({ member_id: selecting.memberId, shift_id: selShift, effective_from: selecting.day, effective_to: selecting.day }) })
+    const res = await fetch('/api/shifts/assign', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin','x-org-id': orgId }, body: JSON.stringify({ member_id: selecting.memberId, shift_id: selShift, effective_from: selecting.day, effective_to: selecting.day }) })
     if (res.ok) { setSelecting({}); setSelShift(''); loadAssignments(orgId) }
   }
 
@@ -109,4 +111,3 @@ export default function RosterPage() {
     </AppShell>
   )
 }
-

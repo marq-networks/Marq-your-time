@@ -41,9 +41,13 @@ export default function LoginForm() {
         setLoading(false)
         return
       }
-      const data: LoginResponse = await res.json()
+      const data: LoginResponse & { org_login_required?: boolean } = await res.json()
       if (data.mfaRequired) {
         router.push('/auth/mfa/verify')
+        return
+      }
+      if (data.org_login_required) {
+        router.push('/auth/org-login')
         return
       }
       const memberships = Array.isArray(data.memberships) ? data.memberships : []
@@ -52,6 +56,7 @@ export default function LoginForm() {
         return
       }
       const role = memberships[0]?.role || data.role || 'member'
+      try { document.cookie = `current_role=${role}; path=/; SameSite=Lax` } catch {}
       if (role === 'member') router.push('/my/time')
       else if (role === 'manager') router.push('/activity/overview')
       else router.push('/org/list')
@@ -99,6 +104,8 @@ export default function LoginForm() {
         </div>
         {errorPassword && <div id="password-error" className="field-error">{errorPassword}</div>}
       </div>
+
+      {/* Organization login is a separate step now */}
 
       <div className="row between">
         <label className="remember">

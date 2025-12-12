@@ -15,6 +15,7 @@ export default function TimesheetApprovalsPage() {
   const [items, setItems] = useState<any[]>([])
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<any>(null)
+  const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
     const r = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id': 'admin' } })
@@ -24,7 +25,7 @@ export default function TimesheetApprovalsPage() {
 
   const loadItems = async () => {
     if (!orgId) { setItems([]); return }
-    const r = await fetch(`/api/timesheets/change/list?org_id=${orgId}&status=pending`, { cache:'no-store', headers:{ 'x-role':'admin' } })
+    const r = await fetch(`/api/timesheets/change/list?org_id=${orgId}&status=pending`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } })
     const d = await r.json()
     setItems(d.items || [])
   }
@@ -33,14 +34,14 @@ export default function TimesheetApprovalsPage() {
 
   const approve = async () => {
     if (!selected) return
-    await fetch('/api/timesheets/change/review', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin','x-user-id':'admin' }, body: JSON.stringify({ change_request_id: selected.id, decision: 'approve', review_note: '' }) })
+    await fetch('/api/timesheets/change/review', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin','x-user-id':'admin' }, body: JSON.stringify({ change_request_id: selected.id, decision: 'approve', review_note: '' }) })
     setOpen(false)
     await loadItems()
   }
 
   const reject = async () => {
     if (!selected) return
-    await fetch('/api/timesheets/change/review', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin','x-user-id':'admin' }, body: JSON.stringify({ change_request_id: selected.id, decision: 'reject', review_note: '' }) })
+    await fetch('/api/timesheets/change/review', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin','x-user-id':'admin' }, body: JSON.stringify({ change_request_id: selected.id, decision: 'reject', review_note: '' }) })
     setOpen(false)
     await loadItems()
   }
@@ -85,4 +86,3 @@ export default function TimesheetApprovalsPage() {
     </AppShell>
   )
 }
-

@@ -6,6 +6,7 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
@@ -36,6 +37,7 @@ export default function ReportsPage() {
   const [downloading, setDownloading] = useState(false)
   const [templates, setTemplates] = useState<any>(null)
   const [jobs, setJobs] = useState<any[]>([])
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const r = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'admin' } }); const d = await r.json(); setOrgs(d.items||[]) }
   const loadDepsUsers = async (org: string) => {
@@ -64,7 +66,7 @@ export default function ReportsPage() {
     if (status && (reportType==='leave' || reportType==='billing' || reportType==='payroll')) payload.params.status = status
     if (managerId) payload.params.manager_id = managerId
     if (memberRoleId) payload.params.member_role_ids = [memberRoleId]
-    const res = await fetch('/api/reports/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin' }, body: JSON.stringify(payload) })
+    const res = await fetch('/api/reports/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify(payload) })
     if (res.ok && !runAsync) {
       const ct = res.headers.get('content-type') || ''
       if (ct.includes('text/csv')) {
@@ -108,7 +110,7 @@ export default function ReportsPage() {
   useEffect(()=>{ if (orgId) { loadDepsUsers(orgId) } }, [orgId])
   useEffect(()=>{ if (orgId) { loadJobs() } else { setJobs([]) } }, [orgId])
 
-  const loadJobs = async () => { if (!orgId) return; const r = await fetch(`/api/reports/jobs?org_id=${orgId}&limit=20`, { cache:'no-store', headers:{ 'x-role':'admin' } }); const d = await r.json(); setJobs(d.items||[]) }
+  const loadJobs = async () => { if (!orgId) return; const r = await fetch(`/api/reports/jobs?org_id=${orgId}&limit=20`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } }); const d = await r.json(); setJobs(d.items||[]) }
 
   return (
     <AppShell title="Reports">

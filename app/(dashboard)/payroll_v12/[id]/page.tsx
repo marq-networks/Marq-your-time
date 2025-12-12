@@ -7,6 +7,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Period = { id: string, period_start: string, period_end: string, status: string }
 type Row = { id: string, member_id: string, worked_minutes: number, extra_minutes: number, short_minutes: number, base_salary: number, overtime_amount: number, short_deduction: number, fines_total: number, adjustments_total: number, net_salary: number }
@@ -19,14 +20,15 @@ export default function PayrollDetailPageV12() {
   const [adjOpen, setAdjOpen] = useState(false)
   const [targetRow, setTargetRow] = useState<Row | null>(null)
   const [adj, setAdj] = useState({ type: 'bonus', amount: 0, reason: '' })
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadPeriod = async () => { /* server returns list; client filters by id */ const res = await fetch(`/api/payroll/periods/list?org_id=${''}&limit=200`, { cache:'no-store' }); const d = await res.json(); setPeriod(d.items?.find((p:any)=>p.id===id)||null) }
   const loadRows = async () => { const res = await fetch(`/api/payroll/members/list?payroll_period_id=${id}`, { cache:'no-store' }); const d = await res.json(); setRows(d.items||[]) }
 
   useEffect(()=>{ if(id) { loadPeriod(); loadRows() } }, [id])
 
-  const approve = async () => { await fetch('/api/payroll/periods/approve', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'manager' }, body: JSON.stringify({ payroll_period_id: id }) }); loadRows() }
-  const submitAdj = async () => { if (!targetRow) return; await fetch('/api/payroll/adjustments/add', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'manager' }, body: JSON.stringify({ member_payroll_id: targetRow.id, type: adj.type, amount: adj.amount, reason: adj.reason }) }); setAdjOpen(false); loadRows() }
+  const approve = async () => { await fetch('/api/payroll/periods/approve', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'manager' }, body: JSON.stringify({ payroll_period_id: id }) }); loadRows() }
+  const submitAdj = async () => { if (!targetRow) return; await fetch('/api/payroll/adjustments/add', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'manager' }, body: JSON.stringify({ member_payroll_id: targetRow.id, type: adj.type, amount: adj.amount, reason: adj.reason }) }); setAdjOpen(false); loadRows() }
 
   const columns = ['Member','Worked','Extra','Short','Base','Overtime','Deductions','Fines','Adjustments','Net','Actions']
   const rowsViz = rows.map(r => [ r.member_id, String(Math.round(r.worked_minutes/60)), String(Math.round(r.extra_minutes/60)), String(Math.round(r.short_minutes/60)), `$${Math.round(r.base_salary).toLocaleString()}`, `$${Math.round(r.overtime_amount).toLocaleString()}`, `$${Math.round(r.short_deduction).toLocaleString()}`, `$${Math.round(r.fines_total).toLocaleString()}`, `$${Math.round(r.adjustments_total).toLocaleString()}`, `$${Math.round(r.net_salary).toLocaleString()}`, <div className="row" style={{ gap:8 }}><GlassButton variant="secondary" onClick={()=>{ setTargetRow(r); setAdj({ type:'bonus', amount:0, reason:'' }); setAdjOpen(true) }} style={{ background:'rgba(255,255,255,0.6)' }}>Adjust</GlassButton></div> ])
@@ -76,4 +78,3 @@ export default function PayrollDetailPageV12() {
     </AppShell>
   )
 }
-

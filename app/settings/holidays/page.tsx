@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Calendar = { id: string, orgId: string, name: string, countryCode?: string }
@@ -22,6 +23,7 @@ export default function HolidaysSettingsPage() {
   const [newHoliday, setNewHoliday] = useState<{ date: string, name: string, isFullDay: boolean }>({ date: '', name: '', isFullDay: true })
   const [newCalendar, setNewCalendar] = useState<{ name: string, countryCode?: string }>({ name: '', countryCode: '' })
   const [createCalOpen, setCreateCalOpen] = useState(false)
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
     const res = await fetch('/api/org/list', { cache: 'no-store', headers: { 'x-user-id': 'demo-user' } })
@@ -38,7 +40,7 @@ export default function HolidaysSettingsPage() {
   }
   const setActive = async (oid: string, cid: string) => {
     if (!oid || !cid) return
-    await fetch(`/api/holidays/calendar/list`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-role': 'admin' }, body: JSON.stringify({ org_id: oid, calendar_id: cid }) })
+    await fetch(`/api/holidays/calendar/list`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ org_id: oid, calendar_id: cid }) })
     loadCalendars(oid)
     loadHolidays(cid, year)
   }
@@ -50,14 +52,14 @@ export default function HolidaysSettingsPage() {
   }
   const createCalendar = async () => {
     if (!orgId || !newCalendar.name.trim()) return
-    await fetch(`/api/holidays/calendar/create`, { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role':'admin' }, body: JSON.stringify({ org_id: orgId, name: newCalendar.name, country_code: newCalendar.countryCode }) })
+    await fetch(`/api/holidays/calendar/create`, { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ org_id: orgId, name: newCalendar.name, country_code: newCalendar.countryCode }) })
     setCreateCalOpen(false)
     setNewCalendar({ name:'', countryCode:'' })
     loadCalendars(orgId)
   }
   const addHolidayRow = async () => {
     if (!activeCalId || !newHoliday.date || !newHoliday.name.trim()) return
-    await fetch(`/api/holidays/holiday/add`, { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role':'admin' }, body: JSON.stringify({ calendar_id: activeCalId, date: newHoliday.date, name: newHoliday.name, is_full_day: newHoliday.isFullDay }) })
+    await fetch(`/api/holidays/holiday/add`, { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ calendar_id: activeCalId, date: newHoliday.date, name: newHoliday.name, is_full_day: newHoliday.isFullDay }) })
     setAddOpen(false)
     setNewHoliday({ date:'', name:'', isFullDay:true })
     loadHolidays(activeCalId, year)
@@ -133,4 +135,3 @@ export default function HolidaysSettingsPage() {
     </AppShell>
   )
 }
-

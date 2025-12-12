@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Period = { id: string, period_start: string, period_end: string, status: string }
@@ -17,16 +18,17 @@ export default function PayrollHomePageV12() {
   const [selected, setSelected] = useState<string>('')
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState({ start: '', end: '' })
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]) }
   const loadPeriods = async (oid: string) => { const res = await fetch(`/api/payroll/periods/list?org_id=${oid}&limit=50`, { cache:'no-store' }); const d = await res.json(); setPeriods(d.items||[]) }
 
   const createPeriod = async () => {
     if (!orgId || !form.start || !form.end) return
-    const res = await fetch('/api/payroll/periods/create', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin' }, body: JSON.stringify({ org_id: orgId, period_start: form.start, period_end: form.end }) })
+    const res = await fetch('/api/payroll/periods/create', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify({ org_id: orgId, period_start: form.start, period_end: form.end }) })
     if (res.ok) { setCreateOpen(false); setForm({ start:'', end:'' }); loadPeriods(orgId) }
   }
-  const generate = async (id: string) => { await fetch('/api/payroll/periods/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role':'admin' }, body: JSON.stringify({ payroll_period_id: id, org_id: orgId }) }); loadPeriods(orgId) }
+  const generate = async (id: string) => { await fetch('/api/payroll/periods/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify({ payroll_period_id: id, org_id: orgId }) }); loadPeriods(orgId) }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if (orgId) loadPeriods(orgId) }, [orgId])
@@ -74,4 +76,3 @@ export default function PayrollHomePageV12() {
     </AppShell>
   )
 }
-

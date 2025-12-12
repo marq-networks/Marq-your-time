@@ -10,5 +10,8 @@ export async function GET(req: NextRequest) {
   const settings = await getMFASettings(userId)
   const policy = await getOrgPolicy(orgId)
   const user = await getUser(userId)
-  return NextResponse.json({ mfa: settings, require_mfa: policy.requireMfa, email: user?.email || null })
+  const first_name = user?.firstName || null
+  const last_name = user?.lastName || null
+  const name = user ? `${user.firstName} ${user.lastName}`.trim() : null
+  return NextResponse.json({ mfa: settings, require_mfa: policy.requireMfa, email: user?.email || null, first_name, last_name, name })
 }
