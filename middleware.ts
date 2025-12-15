@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const config = { matcher: ['/api/:path*'] }
+export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] }
 
-export function middleware(req: NextRequest) {
+export default function middleware(req: NextRequest) {
   const headers = new Headers(req.headers)
   const cookieHeader = req.headers.get('cookie') || ''
   const parts = cookieHeader.split(';').map(s => s.trim())
@@ -13,6 +13,15 @@ export function middleware(req: NextRequest) {
   if (currentUser && !headers.get('x-user-id')) headers.set('x-user-id', currentUser)
   if (currentOrg && !headers.get('x-org-id')) headers.set('x-org-id', currentOrg)
   if (currentRole && !headers.get('x-role')) headers.set('x-role', currentRole)
-  if (!headers.get('x-user-id')) headers.set('x-user-id', 'demo-user')
+  const path = req.nextUrl.pathname || '/'
+  const isAuthRoute = path.startsWith('/auth/')
+  const isPublicApi = path.startsWith('/api/public/')
+  const isNextStatic = path.startsWith('/_next/') || path === '/favicon.ico'
+  const isAsset = path.startsWith('/assets/') || path.startsWith('/images/') || path.startsWith('/static/')
+  if (isAuthRoute) headers.set('x-auth-route', '1')
+  if (currentUser) headers.set('x-is-authenticated', '1')
+  if (!currentUser && !isAuthRoute && !isPublicApi && !isNextStatic && !isAsset) {
+    return NextResponse.redirect(new URL('/auth/login', req.url))
+  }
   return NextResponse.next({ request: { headers } })
 }

@@ -57,9 +57,7 @@ export default function LoginForm() {
       }
       const role = memberships[0]?.role || data.role || 'member'
       try { document.cookie = `current_role=${role}; path=/; SameSite=Lax` } catch {}
-      if (role === 'member') router.push('/my/time')
-      else if (role === 'manager') router.push('/activity/overview')
-      else router.push('/org/list')
+      router.push('/')
     } catch (err) {
       setToastMsg('Incorrect email or password')
     } finally {
