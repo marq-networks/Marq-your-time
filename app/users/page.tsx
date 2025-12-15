@@ -8,6 +8,7 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import usePermission from '@lib/hooks/usePermission'
 import Toast from '@components/Toast'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -29,15 +30,22 @@ export default function UsersPage() {
   const [confirmSuspendId, setConfirmSuspendId] = useState<string>('')
   const [confirmResetId, setConfirmResetId] = useState<string>('')
   const canManageUsers = usePermission('manage_users').allowed
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const roleName = (id?: string) => roles.find(r=>r.id===id)?.name || '-'
   const deptName = (id?: string) => departments.find(d=>d.id===id)?.name || '-'
 
   const loadOrgs = async () => {
-    const res = await fetch('/api/org/list', { cache: 'no-store' })
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache: 'no-store' })
     const data = await res.json()
-    setOrgs(data.items || [])
-    if (!orgId && data.items?.length) setOrgId(data.items[0].id)
+    const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
   }
   const loadData = async (oid: string) => {
     if (!oid) return
@@ -64,7 +72,7 @@ export default function UsersPage() {
     return () => document.removeEventListener('mousedown', closeOnOutside)
   }, [openMenuId])
 
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' })
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [] as string[], workingHoursPerDay: '', departmentId:'', roleId:'', roleName:'', profileImage:'' })
   const emailOk = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email), [form.email])
 
   const createUser = async () => {
@@ -77,7 +85,7 @@ export default function UsersPage() {
     }
     const res = await fetch('/api/user/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) })
     const data = await res.json()
-    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', profileImage:'' }); loadData(orgId) }
+    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', roleName:'', profileImage:'' }); loadData(orgId) }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
@@ -214,9 +222,20 @@ export default function UsersPage() {
           </div>
           <div>
             <div className="label">Role</div>
-            <GlassSelect value={form.roleId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setForm({...form, roleId:e.target.value})}>
+            <GlassSelect value={form.roleId || (form.roleName ? `role:${form.roleName.toLowerCase().replace(' ','_')}` : '')} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>{
+              const v = e.target.value
+              if (v.startsWith('role:')) {
+                const name = v.split(':')[1]
+                setForm({ ...form, roleId: '', roleName: name.replace('_',' ') })
+              } else {
+                setForm({ ...form, roleId: v, roleName: '' })
+              }
+            }}>
               <option value="">Select</option>
-              {roles.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
+              {role !== 'admin' && <option value="role:super_admin">Super Admin</option>}
+              {role !== 'admin' && <option value="role:admin">Admin</option>}
+              <option value="role:employee">Employee</option>
+              {(role === 'admin' ? roles.filter(r=>r.name.toLowerCase()==='employee') : roles).map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
             </GlassSelect>
           </div>
         </div>

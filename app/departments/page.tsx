@@ -3,14 +3,15 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
-import GlassModal from '@components/ui/GlassModal'
-import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import GlassButton from '@components/ui/GlassButton'
+import GlassModal from '@components/ui/GlassModal'
 import Toast from '@components/Toast'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string, createdAt: number }
-type User = { id: string, departmentId?: string }
+type User = { id: string, firstName: string, lastName: string, departmentId?: string }
 
 export default function DepartmentsPage() {
   const [orgs, setOrgs] = useState<Org[]>([])
@@ -21,23 +22,30 @@ export default function DepartmentsPage() {
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
-    const res = await fetch('/api/org/list', { cache: 'no-store' })
-    const data = await res.json()
-    setOrgs(data.items || [])
-    if (!orgId && data.items?.length) setOrgId(data.items[0].id)
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
   }
   const loadData = async (oid: string) => {
     if (!oid) return
-    const [dRes, uRes] = await Promise.all([
-      fetch(`/api/department/list?orgId=${oid}`, { cache: 'no-store' }),
-      fetch(`/api/user/list?orgId=${oid}`, { cache: 'no-store' })
+    const [uRes, dRes] = await Promise.all([
+      fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }),
+      fetch(`/api/department/list?orgId=${oid}`, { cache: 'no-store' })
     ])
-    const [d, u] = await Promise.all([dRes.json(), uRes.json()])
-    setDepartments(d.items || [])
-    setDataSource((d.source as any) || '')
-    setUsers(u.items || [])
+    const [dData, uData] = await Promise.all([dRes.json(), uRes.json()])
+    setDepartments(dData.items || [])
+    setDataSource((dData.source as any) || '')
+    setUsers(uData.items || [])
   }
 
   useEffect(() => { loadOrgs() }, [])

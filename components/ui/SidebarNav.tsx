@@ -1,6 +1,5 @@
 'use client'
 import Link from 'next/link'
-import GlassButton from '@components/ui/GlassButton'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import usePermission from '@lib/hooks/usePermission'
@@ -44,8 +43,8 @@ export default function SidebarNav() {
   const canUsers = usePermission('manage_users').allowed
   const canReports = usePermission('manage_reports').allowed
   const canSettings = usePermission('manage_settings').allowed
+  const canTime = usePermission('manage_time').allowed
   const [overrideRole, setOverrideRole] = useState('')
-  const applyOverride = () => { if (typeof document==='undefined') return; document.cookie = `current_role=${overrideRole}; path=/; SameSite=Lax`; if (typeof location!=='undefined') location.reload() }
   useEffect(() => {
     setMounted(true)
     const roleCookie = document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || ''
@@ -66,15 +65,10 @@ export default function SidebarNav() {
         <button className="pill-link" onClick={() => { try { document.cookie = 'current_org_id=; Max-Age=0; path=/'; document.cookie = 'current_role=; Max-Age=0; path=/'; } catch(_){}; if (typeof window !== 'undefined') window.location.href = '/auth/login' }}>Logout</button>
         <div className="row" style={{gap:8,marginBottom:8}}>
           <span className="label">Role</span>
-          <select className="input" value={overrideRole} onChange={(e)=>setOverrideRole(e.target.value)}>
-            <option value="employee">Employee</option>
-            <option value="admin">Admin</option>
-            <option value="super_admin">Super Admin</option>
-          </select>
-          <GlassButton variant="primary" onClick={applyOverride}>Apply</GlassButton>
+          <span className="badge">{overrideRole || '-'}</span>
         </div>
         {items.filter(i => {
-          if (i.label === 'Orgs') return canOrg
+          if (i.label === 'Orgs') return (overrideRole === 'super_admin')
           if (i.label === 'Users') return canUsers
           if (i.label === 'Roles') return canUsers && canSettings
           if (i.label === 'Settings') return canSettings
@@ -84,7 +78,7 @@ export default function SidebarNav() {
           if (i.label === 'My Day') return true
           if (i.label === 'My Activity') return true
           if (i.label === 'My Earnings') return true
-          if (i.label === 'Time Logs') return canReports || usePermission('manage_time').allowed
+          if (i.label === 'Time Logs') return canReports || canTime
           if (i.label === 'Leave') return true
           if (i.label === 'Leave Approvals') return canUsers
           if (i.label === 'Activity Overview') return canReports

@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -21,19 +22,30 @@ export default function MyDayPage() {
   const [members, setMembers] = useState<User[]>([])
   const [memberId, setMemberId] = useState('')
   const [summary, setSummary] = useState<any>({ today_hours: '00:00', extra_time: '+00:00', short_time: '-00:00', session_open: false, break_open: false, sessions: [], breaks: [] })
+  const [role, setRole] = useState('')
 
   const loadOrgs = async () => {
-    const res = await fetch('/api/org/list', { cache: 'no-store', headers: { 'x-user-id': 'demo-user' } })
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache: 'no-store' })
     const data = await res.json()
-    setOrgs(data.items || [])
-    if (!orgId && data.items?.length) setOrgId(data.items[0].id)
+    const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
   }
   const loadMembers = async (oid: string) => {
     if (!oid) return
     const res = await fetch(`/api/user/list?orgId=${oid}`, { cache: 'no-store' })
     const data = await res.json()
     setMembers(data.items || [])
-    if (!memberId && data.items?.length) setMemberId(data.items[0].id)
+    if (!memberId && data.items?.length) {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const preferredMember = (data.items as any[]).find(m => m.id === cookieUserId)?.id || data.items[0].id
+      setMemberId(preferredMember)
+    }
   }
   const loadSummary = async (mid: string, oid: string) => {
     if (!mid || !oid) return
@@ -42,7 +54,8 @@ export default function MyDayPage() {
     setSummary(data)
   }
 
-  useEffect(() => { loadOrgs() }, [])
+  useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
   useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
 
@@ -74,17 +87,25 @@ export default function MyDayPage() {
           <div className="grid grid-2" style={{marginBottom:12}}>
             <div>
               <div className="label">Organization</div>
-              <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
-                <option value="">Select org</option>
-                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-              </GlassSelect>
+              {(['employee','member'].includes(role)) ? (
+                <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+              ) : (
+                <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
+                  <option value="">Select org</option>
+                  {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                </GlassSelect>
+              )}
             </div>
             <div>
               <div className="label">Me</div>
-              <GlassSelect value={memberId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setMemberId(e.target.value)}>
-                <option value="">Select member</option>
-                {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-              </GlassSelect>
+              {(['employee','member'].includes(role)) ? (
+                <span className="tag-pill">{members.find(m=>m.id===memberId) ? `${members.find(m=>m.id===memberId)!.firstName} ${members.find(m=>m.id===memberId)!.lastName}` : 'Me'}</span>
+              ) : (
+                <GlassSelect value={memberId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setMemberId(e.target.value)}>
+                  <option value="">Select member</option>
+                  {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+                </GlassSelect>
+              )}
             </div>
           </div>
           <div className="grid grid-3" style={{marginBottom:12}}>
@@ -178,4 +199,3 @@ export default function MyDayPage() {
     </AppShell>
   )
 }
-

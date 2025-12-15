@@ -14,6 +14,7 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
     lastName: '',
     email: '',
     roleId: '',
+    roleName: '',
     departmentId: '',
     status: 'active'
   })
@@ -47,7 +48,9 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
       lastName: form.lastName,
       email: form.email,
       orgId: params.orgId,
+      invite_token: params.token,
       roleId: form.roleId,
+      roleName: form.roleName,
       departmentId: form.departmentId,
       positionTitle: '',
       profileImage: form.profileImage || undefined,
@@ -89,8 +92,19 @@ export default function InvitePage({ params }: { params: { orgId: string, token:
           <div className="grid grid-3">
             <div>
               <div className="label">Role</div>
-              <select className="input" value={form.roleId} onChange={e=>setForm({...form, roleId: e.target.value})}>
+              <select className="input" value={form.roleId || (form.roleName ? `role:${form.roleName.toLowerCase().replace(' ','_')}` : '')} onChange={e=>{
+                const v = e.target.value
+                if (v.startsWith('role:')) {
+                  const name = v.split(':')[1]
+                  setForm({ ...form, roleId: '', roleName: name.replace('_',' ') })
+                } else {
+                  setForm({ ...form, roleId: v, roleName: '' })
+                }
+              }}>
                 <option value="">Select role</option>
+                <option value="role:super_admin">Super Admin</option>
+                <option value="role:admin">Admin</option>
+                <option value="role:employee">Employee</option>
                 {roles.map((r:any)=> <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </div>

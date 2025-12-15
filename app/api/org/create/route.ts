@@ -10,21 +10,18 @@ export async function POST(req: NextRequest) {
   const token = body.invite_token || body.inviteToken || ''
   let allowed = false
   if (token) {
-    // Allow token-based creation even if invite cannot be looked up (e.g., in-memory fallback lost after restart)
     try {
       const inv = await getOrgCreationInvite(String(token))
       allowed = typeof inv !== 'string'
     } catch {
-      allowed = true
+      allowed = false
     }
-    if (!allowed) allowed = true
   } else {
-    allowed = role === 'super_admin' ? true : (actor ? await checkPermission(actor, 'manage_org') : false)
+    allowed = role === 'super_admin'
   }
   if (!allowed) {
-    const sb = isSupabaseConfigured()
-    const existing = sb ? await listOrganizations() : []
-    const allowBootstrap = sb ? ((existing || []).length === 0) : true
+    const existing = await listOrganizations()
+    const allowBootstrap = ((existing || []).length === 0)
     if (allowBootstrap) allowed = true
   }
   if (!allowed) return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You do not have permission to perform this action.' }, { status: 403 })

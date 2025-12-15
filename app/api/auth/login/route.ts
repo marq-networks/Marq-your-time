@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { getUser, listUsers, listUserOrganizations, getOrganization, getRole } from '@lib/db'
+import { getUser, listUsers, listUserOrganizations, getOrganization, getRole, isSuperAdmin } from '@lib/db'
 import { getMFASettings } from '@lib/security'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
 
@@ -46,10 +46,12 @@ export async function POST(req: NextRequest) {
   }
   const mfa = await getMFASettings(user.id)
   const role = await getRole(user.roleId)
-  const memberships = orgs.map(()=>({ role: (role?.name?.toLowerCase() || 'member') as any }))
-  const res = NextResponse.json({ mfaRequired: !!(mfa && mfa.isEnabled), memberships, role: (role?.name?.toLowerCase() || 'member'), org_login_required: requireOrgLogin })
+  const isSA = await isSuperAdmin(user.id)
+  const sessionRole = isSA ? 'super_admin' : (role?.name?.toLowerCase() || 'member')
+  const memberships = orgs.map(()=>({ role: sessionRole as any }))
+  const res = NextResponse.json({ mfaRequired: !!(mfa && mfa.isEnabled), memberships, role: sessionRole, org_login_required: requireOrgLogin })
   res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax' })
-  res.cookies.set('current_role', (role?.name?.toLowerCase() || 'member'), { path: '/', sameSite: 'lax' })
+  res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax' })
   if (orgs.length === 1 && !requireOrgLogin) {
     res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax' })
   }

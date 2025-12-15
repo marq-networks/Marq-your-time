@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { getOrganization, listOrganizations } from '@lib/db'
+import { getOrganization, listOrganizations, addOrgMembership, isSuperAdmin } from '@lib/db'
 import { isSupabaseConfigured } from '@lib/supabase'
 
 export async function POST(req: NextRequest) {
@@ -29,7 +29,16 @@ export async function POST(req: NextRequest) {
     const ok = !org.orgPasswordHash || (hash && org.orgPasswordHash === hash)
     if (!ok) return NextResponse.json({ error: 'ORG_PASSWORD_INVALID' }, { status: 401 })
   }
-  const res = NextResponse.json({ success: true, current_org_id: orgId })
-  res.cookies.set('current_org_id', orgId, { path: '/', sameSite: 'lax' })
+  const currentId = String(org?.id || orgId || '')
+  const res = NextResponse.json({ success: true, current_org_id: currentId })
+  res.cookies.set('current_org_id', currentId, { path: '/', sameSite: 'lax' })
+  res.cookies.set('org_login', '1', { path: '/', sameSite: 'lax' })
+  try {
+    const actor = (req.cookies.get('current_user_id')?.value || req.headers.get('x-user-id') || '') as string
+    if (actor) {
+      try { await addOrgMembership(actor, currentId, 'admin') } catch {}
+      res.cookies.set('current_role', 'admin', { path: '/', sameSite: 'lax' })
+    }
+  } catch {}
   return res
 }

@@ -9,9 +9,8 @@ export async function POST(req: NextRequest) {
   const role = (req.headers.get('x-role') || '').toLowerCase()
   let allowed = role === 'super_admin' ? true : await isSuperAdmin(actor)
   if (!allowed) {
-    const sb = isSupabaseConfigured()
-    const existing = sb ? await listOrganizations() : []
-    const allowBootstrap = sb ? ((existing || []).length === 0) : true
+    const existing = await listOrganizations()
+    const allowBootstrap = ((existing || []).length === 0)
     if (allowBootstrap) allowed = true
   }
   if (!allowed) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
