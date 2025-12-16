@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -22,14 +23,37 @@ export default function MyEarningsPage() {
   const [line, setLine] = useState<any | undefined>()
   const [fines, setFines] = useState<any[]>([])
   const [adjustments, setAdjustments] = useState<any[]>([])
+  const [role, setRole] = useState<string>('')
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]); if(!memberId && d.items?.length) setMemberId(d.items[0].id) }
+  const loadOrgs = async () => {
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
+  }
+  const loadMembers = async (oid: string) => {
+    const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' })
+    const d = await res.json()
+    const items: User[] = Array.isArray(d.items) ? (d.items as User[]) : []
+    setMembers(items)
+    if (!memberId && items.length) {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const preferredMember = items.find(m => m.id === cookieUserId)?.id || items[0].id
+      setMemberId(preferredMember)
+    }
+  }
   const loadPeriods = async (oid: string) => { const res = await fetch(`/api/payroll/periods?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setPeriods(d.items||[]); if(!periodId && d.items?.length) setPeriodId(d.items[0].id) }
   const loadLine = async (mid: string, oid: string, pid: string) => { const res = await fetch(`/api/payroll/member?member_id=${mid}&org_id=${oid}&period_id=${pid}`, { cache:'no-store' }); const d = await res.json(); setLine(d.line); }
   const loadExtras = async (mid: string, oid: string, pid: string) => { const [fRes, aRes] = await Promise.all([ fetch(`/api/payroll/fines?member_id=${mid}&org_id=${oid}&period_id=${pid}`, { cache:'no-store' }), fetch(`/api/payroll/adjustments?member_id=${mid}&org_id=${oid}&period_id=${pid}`, { cache:'no-store' }) ]); const [f,a] = await Promise.all([ fRes.json(), aRes.json() ]); setFines(f.items||[]); setAdjustments(a.items||[]) }
 
-  useEffect(()=>{ loadOrgs() }, [])
+  useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ if(orgId) { loadMembers(orgId); loadPeriods(orgId) } }, [orgId])
   useEffect(()=>{ if(orgId && memberId && periodId) { loadLine(memberId, orgId, periodId); loadExtras(memberId, orgId, periodId) } }, [orgId, memberId, periodId])
 
@@ -80,4 +104,3 @@ export default function MyEarningsPage() {
     </AppShell>
   )
 }
-

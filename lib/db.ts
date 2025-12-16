@@ -984,8 +984,8 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   const today = dateISO(now)
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
-    const { data: openRows } = await sb.from('time_sessions').select('id').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open')
-    if ((openRows || []).length > 0) return 'SESSION_ALREADY_OPEN'
+    const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
+    if (openRow) return mapTimeSessionFromRow(openRow)
     const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
@@ -993,8 +993,8 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: out.id, started_at: new Date(out.startTime).toISOString() }) } catch {}
     return out
   }
-  const hasOpen = timeSessions.some(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open')
-  if (hasOpen) return 'SESSION_ALREADY_OPEN'
+  const openExisting = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
+  if (openExisting) return openExisting
   const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)
   try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: sess.id, started_at: new Date(sess.startTime).toISOString() }) } catch {}

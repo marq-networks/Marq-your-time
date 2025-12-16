@@ -3,8 +3,9 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import GlassModal from '@components/ui/GlassModal'
 import usePermission from '@lib/hooks/usePermission'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export default function DashboardClient() {
   const canOrg = usePermission('manage_org').allowed
@@ -15,6 +16,14 @@ export default function DashboardClient() {
   const [summary, setSummary] = useState<any>({ today_hours:'0:00', extra_time:'+00:00', short_time:'-00:00', session:null, break:null, sessions:[], breaks:[] })
   const [mounted, setMounted] = useState(false)
   const [role, setRole] = useState('')
+  const [consentOpen, setConsentOpen] = useState(false)
+  const [consentText, setConsentText] = useState('')
+  const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
+  const [activityTimer, setActivityTimer] = useState<any>(null)
+  const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
+  const mouseCountRef = useRef(0)
+  const keyCountRef = useRef(0)
+  const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     try {
@@ -58,11 +67,13 @@ export default function DashboardClient() {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
     const _ = await res.json(); loadSummary(memberId, orgId)
+    await beginTracking()
   }
   const stopSession = async () => {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const _ = await res.json(); loadSummary(memberId, orgId)
+    await stopTrackingFlow()
   }
   const startBreak = async () => {
     if (!orgId || !memberId) return
@@ -74,6 +85,97 @@ export default function DashboardClient() {
     const res = await fetch('/api/time/break/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const _ = await res.json(); loadSummary(memberId, orgId)
   }
+  const beginTracking = async () => {
+    if (!orgId || !memberId) return
+    const res = await fetch('/api/tracking/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
+    const data = await res.json()
+    if (data.trackingAllowed && data.trackingSessionId) {
+      setTrackingSessionId(data.trackingSessionId)
+      if (data.consentRequired) {
+        setConsentText(String(data.consentText || ''))
+        setConsentOpen(true)
+      }
+    }
+  }
+  const acceptConsent = async () => {
+    if (!trackingSessionId) { setConsentOpen(false); return }
+    const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: true, consent_text: consentText }) })
+    const data = await res.json()
+    setConsentOpen(false)
+    if (data.allowed) {
+      startActivityLoop()
+      const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
+      if (s.settings?.allowScreenshots) {
+        await captureAndSendScreenshot()
+        const t = setInterval(captureAndSendScreenshot, 5 * 60 * 1000)
+        setScreenshotTimer(t)
+      }
+    }
+  }
+  const rejectConsent = async () => {
+    if (!trackingSessionId) { setConsentOpen(false); return }
+    await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: false, consent_text: consentText }) })
+    setConsentOpen(false)
+  }
+  const startActivityLoop = () => {
+    if (activityTimer) return
+    const onMouse = () => { mouseCountRef.current += 1 }
+    const onKey = () => { keyCountRef.current += 1 }
+    window.addEventListener('mousemove', onMouse)
+    window.addEventListener('keydown', onKey)
+    const t = setInterval(async () => {
+      if (!trackingSessionId) return
+      const ev = {
+        timestamp: Date.now(),
+        app_name: 'Web',
+        window_title: document.title || 'MARQ',
+        url: location.href,
+        is_active: document.hasFocus(),
+        keyboard_activity_score: keyCountRef.current,
+        mouse_activity_score: mouseCountRef.current
+      }
+      keyCountRef.current = 0
+      mouseCountRef.current = 0
+      await fetch('/api/activity/batch', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, events: [ev] }) })
+    }, 60 * 1000)
+    setActivityTimer(t)
+  }
+  const stopTrackingFlow = async () => {
+    if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
+    if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(tr=>tr.stop()); streamRef.current = null }
+    if (trackingSessionId) {
+      await fetch('/api/tracking/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId }) })
+    }
+    setTrackingSessionId(null)
+  }
+  const ensureStream = async () => {
+    if (streamRef.current) return streamRef.current
+    try {
+      const ms = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      streamRef.current = ms
+      return ms
+    } catch {
+      return null
+    }
+  }
+  const captureAndSendScreenshot = async () => {
+    if (!trackingSessionId) return
+    const ms = await ensureStream()
+    if (!ms) return
+    const video = document.createElement('video')
+    video.srcObject = ms
+    await new Promise(r => { video.onloadedmetadata = () => r(null); video.play().then(()=>r(null)).catch(()=>r(null)) })
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL('image/png', 0.8)
+    await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
+  }
+  useEffect(() => { return () => { stopTrackingFlow() } }, [])
   return (
     <AppShell title="Dashboard">
       <div className="grid grid-3">
@@ -157,6 +259,13 @@ export default function DashboardClient() {
           </div>
         </GlassCard>
       </div>
+      <GlassModal open={consentOpen} onClose={()=>setConsentOpen(false)} title="Activity Tracking">
+        <div className="subtitle">{consentText}</div>
+        <div className="row" style={{ justifyContent:'flex-end', gap:8, marginTop:12 }}>
+          <GlassButton onClick={rejectConsent}>Decline</GlassButton>
+          <GlassButton variant="primary" onClick={acceptConsent} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Allow</GlassButton>
+        </div>
+      </GlassModal>
     </AppShell>
   )
 }

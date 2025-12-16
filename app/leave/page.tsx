@@ -5,6 +5,7 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -22,9 +23,31 @@ export default function LeavePage() {
   const [date, setDate] = useState(new Date())
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<any>({ type:'', start:'', end:'', reason:'' })
+  const [role, setRole] = useState<string>('')
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]); if(!memberId && d.items?.length) setMemberId(d.items[0].id) }
+  const loadOrgs = async () => {
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
+  }
+  const loadMembers = async (oid: string) => {
+    const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' })
+    const d = await res.json()
+    const items: User[] = Array.isArray(d.items) ? (d.items as User[]) : []
+    setMembers(items)
+    if (!memberId && items.length) {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const preferredMember = items.find(m => m.id === cookieUserId)?.id || items[0].id
+      setMemberId(preferredMember)
+    }
+  }
   const loadTypes = async (oid: string) => { const res = await fetch(`/api/leave/types?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); const items = d.items||[]; setTypes(items); if (!form.type && items.length) setForm((f:any)=> ({ ...f, type: items[0].id })) }
   const loadMy = async (mid: string) => { const res = await fetch(`/api/leave/my-requests?member_id=${mid}`, { cache:'no-store' }); const d = await res.json(); setRequests(d.items||[]) }
   const submit = async () => {
@@ -37,7 +60,8 @@ export default function LeavePage() {
     }
   }
 
-  useEffect(()=>{ loadOrgs() }, [])
+  useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ if(orgId) { loadMembers(orgId); loadTypes(orgId) } }, [orgId])
   useEffect(()=>{ if(memberId) loadMy(memberId) }, [memberId])
 
@@ -46,6 +70,11 @@ export default function LeavePage() {
   for (const r of requests.filter(r=> r.status==='approved' || r.status==='pending')) {
     for (const d of days) if (inRange(d, r.start_date, r.end_date)) marked.set(d, r.status)
   }
+
+  const monthName = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(date)
+  const weekdayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+  const firstDow = new Date(date.getFullYear(), date.getMonth(), 1).getDay()
+  const calendarCells = Array(firstDow).fill(null).concat(days)
 
   return (
     <AppShell title="Leave">
@@ -69,13 +98,25 @@ export default function LeavePage() {
       </GlassCard>
 
       <GlassCard title="Calendar" right={<div className="row" style={{gap:8}}><GlassButton variant="secondary" onClick={()=>setDate(new Date(new Date(date).setMonth(date.getMonth()-1)))}>Prev</GlassButton><GlassButton variant="secondary" onClick={()=>setDate(new Date(new Date(date).setMonth(date.getMonth()+1)))}>Next</GlassButton><GlassButton onClick={()=>setOpen(true)}>Request leave</GlassButton></div>}>
+        <div className="row" style={{justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div className="title">{monthName}</div>
+          <div className="row" style={{gap:8}}>
+            {weekdayNames.map(w => (<span key={w} className="subtitle" style={{width:80,textAlign:'center'}}>{w}</span>))}
+          </div>
+        </div>
         <div className="grid grid-7">
-          {days.map(d=> (
-            <div key={d} className="glass-panel" style={{padding:10,borderRadius:12, background: marked.has(d)? (marked.get(d)==='approved'?'rgba(57,255,20,0.18)':'rgba(255,165,0,0.18)'):'rgba(255,255,255,0.08)'}}>
-              <div className="subtitle">{new Date(d+'T00:00:00').toLocaleDateString()}</div>
-              {marked.has(d) && <div className="badge">{marked.get(d)==='approved'?'Leave':'Pending'}</div>}
-            </div>
-          ))}
+          {calendarCells.map((cell, idx) => {
+            if (cell === null) return <div key={'empty-'+idx} />
+            const d = cell as string
+            const status = marked.get(d)
+            const bg = status ? (status === 'approved' ? 'rgba(57,255,20,0.18)' : 'rgba(255,165,0,0.18)') : 'rgba(255,255,255,0.08)'
+            return (
+              <div key={d} className="glass-panel" style={{padding:10,borderRadius:12, background: bg}}>
+                <div className="subtitle">{new Date(d+'T00:00:00').getDate()}</div>
+                {status && <div className="badge">{status === 'approved' ? 'Leave' : 'Pending'}</div>}
+              </div>
+            )
+          })}
         </div>
       </GlassCard>
 

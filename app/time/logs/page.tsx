@@ -7,6 +7,7 @@ import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import usePermission from '@lib/hooks/usePermission'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -30,18 +31,31 @@ export default function TimeLogsPage() {
   const [items, setItems] = useState<any[]>([])
   const [detail, setDetail] = useState<{ memberId: string, orgId: string, date: string } | undefined>()
   const [detailData, setDetailData] = useState<any>({ sessions: [], breaks: [] })
+  const [role, setRole] = useState<string>('')
 
   const loadOrgs = async () => {
-    const res = await fetch('/api/org/list', { cache: 'no-store', headers: { 'x-user-id': 'demo-user' } })
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache: 'no-store' })
     const data = await res.json()
-    setOrgs(data.items || [])
-    if (!orgId && data.items?.length) setOrgId(data.items[0].id)
+    const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
   }
   const loadMembers = async (oid: string) => {
     if (!oid) return
     const res = await fetch(`/api/user/list?orgId=${oid}`, { cache: 'no-store' })
     const data = await res.json()
-    setMembers(data.items || [])
+    const items: User[] = Array.isArray(data.items) ? (data.items as User[]) : []
+    setMembers(items)
+    if (!memberId && items.length) {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const preferredMember = items.find(m => m.id === cookieUserId)?.id || items[0].id
+      setMemberId(preferredMember)
+    }
   }
   const loadLogs = async (oid: string, dt: string, mid?: string) => {
     if (!oid || !dt) return
@@ -57,7 +71,8 @@ export default function TimeLogsPage() {
     setDetailData({ sessions: data.sessions || [], breaks: data.breaks || [] })
   }
 
-  useEffect(() => { loadOrgs() }, [])
+  useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) { loadMembers(orgId); loadLogs(orgId, date, memberId || undefined) } }, [orgId, date, memberId])
 
   const columns = ['Member','Department','Date','Scheduled','Worked','Extra','Short','Status','Action']
