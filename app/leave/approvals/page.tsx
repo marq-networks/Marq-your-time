@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 
@@ -16,12 +17,48 @@ export default function LeaveApprovalsPage() {
   const [items, setItems] = useState<any[]>([])
   const [open, setOpen] = useState<{ id?: string, action?: 'approved'|'rejected' } | null>(null)
   const [note, setNote] = useState('')
+  const [role, setRole] = useState('')
+  const [actorId, setActorId] = useState('')
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadItems = async () => { if(!orgId) return; const hdr = { 'x-role': 'manager' }; const res = await fetch(`/api/leave/requests?org_id=${orgId}&status=pending`, { cache:'no-store', headers: hdr }); if(res.status===403){ setForbidden(true); return } const d = await res.json(); setItems(d.items||[]) }
-  const review = async () => { if(!open?.id || !open?.action) return; const hdr = { 'Content-Type':'application/json', 'x-role':'manager', 'x-user-id':'manager-user' }; await fetch('/api/leave/review', { method:'POST', headers: hdr, body: JSON.stringify({ request_id: open.id, status: open.action, note }) }); setOpen(null); setNote(''); loadItems() }
+  const loadOrgs = async () => {
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
+  }
+  const loadItems = async () => {
+    if(!orgId) return
+    const hdr: Record<string,string> = {}
+    const r = role.toLowerCase()
+    if (r === 'manager') {
+      if (actorId) { hdr['x-role'] = 'manager'; hdr['x-user-id'] = actorId }
+    } else if (['admin','owner','super_admin','org_admin','hr'].includes(r)) {
+      hdr['x-role'] = 'org_admin'
+    }
+    const res = await fetch(`/api/leave/requests?org_id=${orgId}&status=pending`, { cache:'no-store', headers: hdr })
+    if(res.status===403){ setForbidden(true); return }
+    const d = await res.json()
+    setItems(d.items||[])
+  }
+  const review = async () => {
+    if(!open?.id || !open?.action) return
+    const r = role.toLowerCase()
+    const hdr: Record<string,string> = { 'Content-Type':'application/json' }
+    if (r === 'manager') { hdr['x-role'] = 'manager'; if (actorId) hdr['x-user-id'] = actorId }
+    else if (['admin','owner','super_admin','org_admin','hr'].includes(r)) { hdr['x-role'] = 'org_admin'; if (actorId) hdr['x-user-id'] = actorId }
+    const res = await fetch('/api/leave/review', { method:'POST', headers: hdr, body: JSON.stringify({ request_id: open.id, status: open.action, note }) })
+    if (res.status === 403) { setForbidden(true); return }
+    setOpen(null); setNote(''); loadItems()
+  }
 
-  useEffect(()=>{ loadOrgs() }, [])
+  useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r); const uid = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''; setActorId(uid) } catch {} }, [])
+  useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ loadItems() }, [orgId])
 
   if (forbidden) {
@@ -63,4 +100,3 @@ export default function LeaveApprovalsPage() {
     </AppShell>
   )
 }
-

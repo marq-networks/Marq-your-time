@@ -31,7 +31,7 @@ export default function TimeLogsPage() {
   const [items, setItems] = useState<any[]>([])
   const [detail, setDetail] = useState<{ memberId: string, orgId: string, date: string } | undefined>()
   const [detailData, setDetailData] = useState<any>({ sessions: [], breaks: [] })
-  const [role, setRole] = useState<string>('')
+  const [role, setRole] = useState('')
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -40,7 +40,7 @@ export default function TimeLogsPage() {
     const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
     setOrgs(items)
     if (!orgId && items.length) {
-      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
       const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
       setOrgId(preferred)
     }
@@ -50,9 +50,9 @@ export default function TimeLogsPage() {
     const res = await fetch(`/api/user/list?orgId=${oid}`, { cache: 'no-store' })
     const data = await res.json()
     const items: User[] = Array.isArray(data.items) ? (data.items as User[]) : []
-    setMembers(items)
+    setMembers(items || [])
     if (!memberId && items.length) {
-      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
       const preferredMember = items.find(m => m.id === cookieUserId)?.id || items[0].id
       setMemberId(preferredMember)
     }
@@ -71,7 +71,7 @@ export default function TimeLogsPage() {
     setDetailData({ sessions: data.sessions || [], breaks: data.breaks || [] })
   }
 
-  useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
   useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) { loadMembers(orgId); loadLogs(orgId, date, memberId || undefined) } }, [orgId, date, memberId])
 
