@@ -19,6 +19,7 @@ export default function LeaveApprovalsPage() {
   const [note, setNote] = useState('')
   const [role, setRole] = useState('')
   const [actorId, setActorId] = useState('')
+  const [history, setHistory] = useState<any[]>([])
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -46,6 +47,25 @@ export default function LeaveApprovalsPage() {
     const d = await res.json()
     setItems(d.items||[])
   }
+  const loadHistory = async () => {
+    if (!orgId) return
+    const hdr: Record<string,string> = {}
+    const r = role.toLowerCase()
+    if (r === 'manager') {
+      if (actorId) { hdr['x-role'] = 'manager'; hdr['x-user-id'] = actorId }
+    } else if (['admin','owner','super_admin','org_admin','hr'].includes(r)) {
+      hdr['x-role'] = 'org_admin'
+    }
+    const [aRes, rRes] = await Promise.all([
+      fetch(`/api/leave/requests?org_id=${orgId}&status=approved`, { cache:'no-store', headers: hdr }),
+      fetch(`/api/leave/requests?org_id=${orgId}&status=rejected`, { cache:'no-store', headers: hdr }),
+    ])
+    if (aRes.status===403 || rRes.status===403) { setForbidden(true); return }
+    const a = await aRes.json().catch(()=>({items:[]}))
+    const b = await rRes.json().catch(()=>({items:[]}))
+    const items = ([] as any[]).concat(a.items||[], b.items||[]).sort((x:any,y:any)=> new Date(y.reviewed_at||y.created_at||0).getTime() - new Date(x.reviewed_at||x.created_at||0).getTime()).slice(0,50)
+    setHistory(items)
+  }
   const review = async () => {
     if(!open?.id || !open?.action) return
     const r = role.toLowerCase()
@@ -54,12 +74,12 @@ export default function LeaveApprovalsPage() {
     else if (['admin','owner','super_admin','org_admin','hr'].includes(r)) { hdr['x-role'] = 'org_admin'; if (actorId) hdr['x-user-id'] = actorId }
     const res = await fetch('/api/leave/review', { method:'POST', headers: hdr, body: JSON.stringify({ request_id: open.id, status: open.action, note }) })
     if (res.status === 403) { setForbidden(true); return }
-    setOpen(null); setNote(''); loadItems()
+    setOpen(null); setNote(''); loadItems(); loadHistory()
   }
 
   useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r); const uid = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''; setActorId(uid) } catch {} }, [])
   useEffect(()=>{ loadOrgs() }, [role])
-  useEffect(()=>{ loadItems() }, [orgId])
+  useEffect(()=>{ loadItems(); loadHistory() }, [orgId])
 
   if (forbidden) {
     return (
@@ -76,17 +96,26 @@ export default function LeaveApprovalsPage() {
 
   const columns = ['Member','Type','Dates','Days','Reason','Actions']
   const rows = items.map(it => [ it.member_id, it.type_code, `${it.start_date} - ${it.end_date}`, String(it.days_count||0), it.reason||'', <div key={it.id} className="row" style={{gap:8}}><GlassButton onClick={()=>setOpen({ id: it.id, action:'approved' })}>Approve</GlassButton><GlassButton variant="secondary" onClick={()=>setOpen({ id: it.id, action:'rejected' })}>Reject</GlassButton></div> ])
+  const histColumns = ['Member','Type','Dates','Days','Status','Reviewed At','Note']
+  const histRows = history.map(it => [ it.member_id, it.type_code, `${it.start_date} - ${it.end_date}`, String(it.days_count||0), <span className="badge">{it.status}</span>, (it.reviewed_at ? new Date(it.reviewed_at).toLocaleString() : '-'), it.review_note || '' ])
 
   return (
     <AppShell title="Leave Approvals">
       <GlassCard title="Organization">
-        <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-          <option value="">Select org</option>
-          {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-        </GlassSelect>
+        {role === 'super_admin' ? (
+          <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+            <option value="">Select org</option>
+            {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+          </GlassSelect>
+        ) : (
+          <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+        )}
       </GlassCard>
       <GlassCard title="Pending Requests">
         <GlassTable columns={columns} rows={rows} />
+      </GlassCard>
+      <GlassCard title="Review History">
+        <GlassTable columns={histColumns} rows={histRows} />
       </GlassCard>
       <GlassModal open={!!open} title="Review" onClose={()=>{ setOpen(null); setNote('') }}>
         <div className="grid-1">

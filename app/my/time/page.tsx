@@ -28,6 +28,8 @@ export default function MyDayPage() {
   const [consentText, setConsentText] = useState('')
   const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
   const [trackingOn, setTrackingOn] = useState(false)
+  const [consentStatus, setConsentStatus] = useState<'unknown'|'granted'|'denied'>('unknown')
+  const [permissionGranted, setPermissionGranted] = useState(false)
   const [activityTimer, setActivityTimer] = useState<any>(null)
   const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
   const [screenshotKickoff, setScreenshotKickoff] = useState<any>(null)
@@ -96,7 +98,6 @@ export default function MyDayPage() {
       return { ...prev, session_open: true, sessions: [open, ...(prev.sessions || [])] }
     })
     startClock()
-    await ensureStream()
     await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
     await beginTracking()
     await loadSummary(memberId, orgId)
@@ -144,6 +145,9 @@ export default function MyDayPage() {
       if (data.consentRequired) {
         setConsentText(String(data.consentText || ''))
         setConsentOpen(true)
+      } else {
+        setConsentStatus('granted')
+        try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'granted') } catch {}
       }
     }
   }
@@ -152,45 +156,42 @@ export default function MyDayPage() {
     if (!trackingSessionId) { setConsentOpen(false); return }
     const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: true, consent_text: consentText }) })
     const data = await res.json()
-    setConsentOpen(false)
-    if (data.allowed) {
-      const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
-      if (s.trackingOn) {
-        setTrackingOn(true)
-        setUiSessionOpen(true)
-        startActivityLoop()
-        if (s.settings?.allowScreenshots) {
-          await ensureStream()
-          await captureAndSendScreenshot()
+    if (!data.allowed) { setConsentOpen(false); return }
+    setConsentStatus('granted')
+    try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'granted') } catch {}
+    setTrackingOn(true)
+    setUiSessionOpen(true)
+    startActivityLoop()
+    const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
+    if (s.settings?.allowScreenshots) {
+      const ms = await ensureStream()
+      if (ms) {
+        setPermissionGranted(true)
+        await captureAndSendScreenshot()
+        if (!screenshotTimer) {
           const t = setInterval(captureAndSendScreenshot, 60 * 1000)
           setScreenshotTimer(t)
-          setScreenshotKickoff(null)
+          console.log('screenshotTimerStarted')
         }
-        startClock()
+        setScreenshotKickoff(null)
       } else {
-        setTimeout(async () => {
-          const s2 = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
-          if (s2.trackingOn) {
-            setTrackingOn(true)
-            setUiSessionOpen(true)
-            startActivityLoop()
-            if (s2.settings?.allowScreenshots) {
-              await ensureStream()
-              await captureAndSendScreenshot()
-              const t = setInterval(captureAndSendScreenshot, 60 * 1000)
-              setScreenshotTimer(t)
-              setScreenshotKickoff(null)
-            }
-            startClock()
-          }
-        }, 1000)
+        setPermissionGranted(false)
+        console.log('permissionDeniedForScreenshots')
       }
     }
+    startClock()
+    console.log('consentChanged', { consentStatus: 'granted', sessionRunning: true, trackingEnabled: true })
+    setConsentOpen(false)
   }
 
   const rejectConsent = async () => {
     if (!trackingSessionId) { setConsentOpen(false); return }
     await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: false, consent_text: consentText }) })
+    setConsentStatus('denied')
+    try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'denied') } catch {}
+    await stopTrackingFlow()
+    setTrackingOn(false)
+    console.log('consentChanged', { consentStatus: 'denied', sessionRunning: uiSessionOpen, trackingEnabled: false })
     setConsentOpen(false)
   }
 
@@ -218,6 +219,11 @@ export default function MyDayPage() {
     setActivityTimer(t)
   }
 
+  /* TEST CHECKLIST
+    - Start Day -> Allow -> tracking continues; screenshots start if enabled and permission granted (Electron)
+    - Start Day -> Close -> tracking continues; no consent change
+    - Start Day -> Decline -> tracking stops; consent=denied
+  */
   const stopTrackingFlow = async () => {
     if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
     if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
@@ -285,9 +291,7 @@ export default function MyDayPage() {
     await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
   }
 
-  useEffect(() => {
-    return () => { stopTrackingFlow() }
-  }, [])
+  useEffect(() => { return () => { stopTrackingFlow() } }, [])
   const startClock = () => {
     const open = (summary.sessions||[]).find((s:any)=>!s.endTime)
     const base = open ? Number(open.startTime) : Date.now()

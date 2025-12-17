@@ -81,7 +81,7 @@ export default function SidebarNav() {
           if (i.label === 'Time Logs') return canReports || canTime
           if (i.label === 'Leave') return true
           if (i.label === 'Leave Approvals') return canUsers
-          if (i.label === 'Activity Overview') return canReports
+          if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
           if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports
           if (i.label === 'Billing') return ['admin','owner','super_admin'].includes(overrideRole)

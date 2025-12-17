@@ -113,7 +113,7 @@ export default function LeavePage() {
         <div className="grid grid-2">
           <div>
             <div className="label">Organization</div>
-            {(['employee','member'].includes(role)) ? (
+            {(role !== 'super_admin') ? (
               <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
             ) : (
               <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>

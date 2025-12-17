@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
@@ -21,12 +22,42 @@ export default function ActivityOverviewPage() {
   const [date, setDate] = useState(()=> new Date().toISOString().slice(0,10))
   const [items, setItems] = useState<any[]>([])
   const [totals, setTotals] = useState<any>({ tracked:0, productive:0, unproductive:0, idle:0, screenshots:0 })
+  const [role, setRole] = useState('')
+  const [actorId, setActorId] = useState('')
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadDepsUsers = async (oid: string) => { const [dRes, uRes] = await Promise.all([ fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' }), fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }) ]); const [d,u] = await Promise.all([dRes.json(), uRes.json()]); setDepartments(d.items||[]); setMembers(u.items||[]) }
+  const loadOrgs = async () => {
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
+  }
+  const loadDepsUsers = async (oid: string) => {
+    const [dRes, uRes] = await Promise.all([ fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' }), fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }) ])
+    const [d,u] = await Promise.all([dRes.json(), uRes.json()])
+    const deps: Department[] = Array.isArray(d.items) ? (d.items as Department[]) : []
+    const users: User[] = Array.isArray(u.items) ? (u.items as User[]) : []
+    setDepartments(deps)
+    setMembers(users)
+    if (!memberId && users.length) {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      const preferredMember = users.find(m => m.id === cookieUserId)?.id || users[0].id
+      setMemberId(preferredMember)
+    }
+    if (!departmentId) {
+      const me = users.find(m => m.id === (actorId || memberId))
+      if (me?.departmentId) setDepartmentId(me.departmentId)
+    }
+  }
   const loadOverview = async () => { if(!orgId) return; const url = `/api/activity/overview?org_id=${orgId}&date=${date}` + (departmentId? `&department_id=${departmentId}`:'') + (memberId? `&member_id=${memberId}`:''); const res = await fetch(url, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]); setTotals(d.totals||{ tracked:0, productive:0, unproductive:0, idle:0, screenshots:0 }) }
 
-  useEffect(()=>{ loadOrgs() }, [])
+  useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r); const uid = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''; setActorId(uid) } catch {} }, [])
+  useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ if(orgId) { loadDepsUsers(orgId); } }, [orgId])
   useEffect(()=>{ loadOverview() }, [orgId, date, departmentId, memberId])
 
@@ -35,35 +66,54 @@ export default function ActivityOverviewPage() {
 
   return (
     <AppShell title="Activity Overview">
-      <GlassCard title="Filters">
-        <div className="grid grid-1">
-          <div>
-            <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-              <option value="">Select org</option>
-              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
+      {(['admin','owner','super_admin','org_admin','hr','manager'].includes(role)) ? (
+        <GlassCard title="Filters">
+          <div className="grid grid-1">
+            <div>
+              <div className="label">Organization</div>
+              {role === 'super_admin' ? (
+                <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                  <option value="">Select org</option>
+                  {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                </GlassSelect>
+              ) : (
+                <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+              )}
+            </div>
+            <div>
+              <div className="label">Date</div>
+              <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+            </div>
+            <div>
+              <div className="label">Department</div>
+              <GlassSelect value={departmentId} onChange={(e:any)=>setDepartmentId(e.target.value)}>
+                <option value="">All</option>
+                {departments.map(d=> <option key={d.id} value={d.id}>{d.name}</option>)}
+              </GlassSelect>
+            </div>
+            <div>
+              <div className="label">Member</div>
+              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
+                <option value="">All</option>
+                {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+              </GlassSelect>
+            </div>
           </div>
-          <div>
-            <div className="label">Date</div>
-            <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        </GlassCard>
+      ) : (
+        <GlassCard title="Context">
+          <div className="grid grid-2">
+            <div>
+              <div className="label">Organization</div>
+              <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+            </div>
+            <div>
+              <div className="label">Department</div>
+              <span className="tag-pill">{departments.find(d => d.id === departmentId)?.name || '-'}</span>
+            </div>
           </div>
-          <div>
-            <div className="label">Department</div>
-            <GlassSelect value={departmentId} onChange={(e:any)=>setDepartmentId(e.target.value)}>
-              <option value="">All</option>
-              {departments.map(d=> <option key={d.id} value={d.id}>{d.name}</option>)}
-            </GlassSelect>
-          </div>
-          <div>
-            <div className="label">Member</div>
-            <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
-              <option value="">All</option>
-              {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-            </GlassSelect>
-          </div>
-        </div>
-      </GlassCard>
+        </GlassCard>
+      )}
 
       <div className="grid grid-1 mt-4">
         <GlassCard title="Total Tracked">

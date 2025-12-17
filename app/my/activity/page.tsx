@@ -49,13 +49,21 @@ export default function MyActivityPage() {
   const loadInsights = async (mid: string, oid: string) => { const qs = new URLSearchParams({ org_id: oid, member_id: mid, limit: '5' }); const res = await fetch(`/api/insights/list?${qs.toString()}`, { cache: 'no-store', headers: { 'x-user-id': mid } }); const d = await res.json(); setInsights(d.insights || d.items || []) }
 
   useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch { } }, [])
+  useEffect(() => {
+    try {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      if (!orgId && cookieOrgId) setOrgId(cookieOrgId)
+      if (!memberId && cookieUserId) setMemberId(cookieUserId)
+    } catch {}
+  }, [])
   useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
   useEffect(() => { if (orgId && memberId) { load(memberId, orgId); loadInsights(memberId, orgId) } }, [orgId, memberId])
   useEffect(() => {
     let t: any = null
     if (orgId && memberId && (data.trackingOn || data.settings.allowScreenshots)) {
-      t = setInterval(() => load(memberId, orgId), 5000)
+      t = setInterval(() => load(memberId, orgId), 3000)
     }
     return () => { if (t) clearInterval(t) }
   }, [orgId, memberId, data.trackingOn, data.settings?.allowScreenshots])
