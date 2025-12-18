@@ -89,7 +89,8 @@ export default function SidebarNav() {
           if (i.label === 'Offline Sync') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Dashboard') return true
           if (i.label === 'Departments') return canUsers
-          if (i.label === 'Reports') return canReports
+          if (i.label === 'Reports') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
           const currentRole = overrideRole
           if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
           return true

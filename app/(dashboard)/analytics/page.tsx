@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import usePermission from '@lib/hooks/usePermission'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -56,6 +57,7 @@ export default function AnalyticsPage() {
   const canView = usePermission('manage_reports').allowed
   const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
+  const [role, setRole] = useState('')
   const [departments, setDepartments] = useState<Department[]>([])
   const [departmentId, setDepartmentId] = useState('')
   const [start, setStart] = useState(rangeFromQuick('7').start)
@@ -98,6 +100,13 @@ export default function AnalyticsPage() {
     setCostHours(ch.points || [])
   }
 
+  useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(() => {
+    try {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      if (!orgId && cookieOrgId) setOrgId(cookieOrgId)
+    } catch {}
+  }, [])
   useEffect(() => { loadOrgs() }, [])
   useEffect(() => { if (orgId) loadDeps(orgId) }, [orgId])
   useEffect(() => { refresh() }, [orgId, start, end, departmentId, sortKey])
@@ -135,10 +144,14 @@ export default function AnalyticsPage() {
         <div className="grid-1">
           <div>
             <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-              <option value="">Select org</option>
-              {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
+            {(['employee','member'].includes(role)) ? (
+              <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+            ) : (
+              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                <option value="">Select org</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
+              </GlassSelect>
+            )}
           </div>
           <div>
             <div className="label">Department</div>

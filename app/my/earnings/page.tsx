@@ -53,6 +53,14 @@ export default function MyEarningsPage() {
   const loadExtras = async (mid: string, oid: string, pid: string) => { const [fRes, aRes] = await Promise.all([ fetch(`/api/payroll/fines?member_id=${mid}&org_id=${oid}&period_id=${pid}`, { cache:'no-store' }), fetch(`/api/payroll/adjustments?member_id=${mid}&org_id=${oid}&period_id=${pid}`, { cache:'no-store' }) ]); const [f,a] = await Promise.all([ fRes.json(), aRes.json() ]); setFines(f.items||[]); setAdjustments(a.items||[]) }
 
   useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
+  useEffect(() => {
+    try {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      if (!orgId && cookieOrgId) setOrgId(cookieOrgId)
+      if (!memberId && cookieUserId) setMemberId(cookieUserId)
+    } catch {}
+  }, [])
   useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ if(orgId) { loadMembers(orgId); loadPeriods(orgId) } }, [orgId])
   useEffect(()=>{ if(orgId && memberId && periodId) { loadLine(memberId, orgId, periodId); loadExtras(memberId, orgId, periodId) } }, [orgId, memberId, periodId])
