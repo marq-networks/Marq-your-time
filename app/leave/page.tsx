@@ -6,7 +6,7 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
-import { DayPicker } from 'react-day-picker'
+import { DayPicker, DateRange } from 'react-day-picker'
 import 'react-day-picker/dist/style.css'
 
 type Org = { id: string, orgName: string }
@@ -32,7 +32,7 @@ export default function LeavePage() {
   const [submitError, setSubmitError] = useState('')
   const [seeded, setSeeded] = useState(false)
   const [month, setMonth] = useState<Date>(() => new Date())
-  const [range, setRange] = useState<{ from?: Date, to?: Date } | undefined>(undefined)
+  const [range, setRange] = useState<DateRange | undefined>(undefined)
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'

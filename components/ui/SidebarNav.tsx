@@ -75,7 +75,7 @@ export default function SidebarNav() {
           if (i.label === 'Integrations API') return canSettings
           if (i.label === 'API Docs') return canSettings
           if (i.label === 'Members') return canUsers
-          if (i.label === 'My Day') return true
+          if (i.label === 'My Day') return ['employee','member'].includes(overrideRole)
           if (i.label === 'My Activity') return true
           if (i.label === 'My Earnings') return true
           if (i.label === 'Time Logs') return canReports || canTime
@@ -91,6 +91,7 @@ export default function SidebarNav() {
           if (i.label === 'Departments') return canUsers
           if (i.label === 'Reports') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Insights') return ['admin','owner','super_admin'].includes(overrideRole)
           const currentRole = overrideRole
           if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
           return true

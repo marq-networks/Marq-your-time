@@ -324,6 +324,19 @@ export default function MyDayPage() {
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }
 
+  if (role && !['employee','member'].includes(role)) {
+    return (
+      <AppShell title="My Day">
+        <div style={{display:'grid',placeItems:'center',height:'60vh'}}>
+          <div className="glass-panel" style={{padding:24,borderRadius:'var(--radius-large)'}}>
+            <div className="title">Access Denied</div>
+            <div className="subtitle">This page is only available to employees.</div>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
   return (
     <AppShell title="My Day">
       <div className="grid grid-3">

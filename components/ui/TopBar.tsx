@@ -56,7 +56,7 @@ export default function TopBar({ title }: { title: string }) {
   }
 
   return (
-    <div className="topbar glass-panel" style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderRadius:'var(--radius-large)'}}>
+    <div className="topbar glass-panel" style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderRadius:'var(--radius-large)',overflow:'visible',position:'relative'}}>
       <div className="page-title" style={{display:'flex',alignItems:'center',gap:12}}>
         <div style={{width:32,height:32,borderRadius:10,background:'#111',border:'1px solid var(--border)',overflow:'hidden'}}>
           {orgSession && orgLogo && <img src={orgLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}

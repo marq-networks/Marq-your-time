@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import GlassButton from './GlassButton'
 
 type NotificationItem = { id: string, title: string, message: string, isRead: boolean, createdAt: number, meta?: any }
@@ -8,20 +9,49 @@ export default function NotificationsBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const ref = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number, right: number } | null>(null)
+  const [mounted, setMounted] = useState(false)
 
   const load = async () => { const res = await fetch('/api/notifications/list?limit=10', { cache:'no-store' }); const d = await res.json(); setItems(d.items || []) }
   const markAll = async () => { await fetch('/api/notifications/mark-all-read', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: null }) }); setItems(items.map(i=>({ ...i, isRead: true })))}
   useEffect(()=>{ load() }, [])
+  useEffect(()=>{ setMounted(true) }, [])
   useEffect(()=>{
-    const handler = (e: MouseEvent) => { if (open && ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const handler = (e: MouseEvent) => {
+      if (!open) return
+      const t = e.target as Node
+      const insideBell = !!(ref.current && t && ref.current.contains(t))
+      const insidePanel = !!(panelRef.current && t && panelRef.current.contains(t))
+      if (!insideBell && !insidePanel) setOpen(false)
+    }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
+  }, [open])
+  useEffect(() => {
+    const update = () => {
+      const el = ref.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const right = Math.max(8, Math.round(window.innerWidth - r.right))
+      const top = Math.round(r.bottom + 8)
+      setPos({ top, right })
+    }
+    if (open) {
+      update()
+      window.addEventListener('resize', update)
+      window.addEventListener('scroll', update, { passive: true })
+      return () => {
+        window.removeEventListener('resize', update)
+        window.removeEventListener('scroll', update)
+      }
+    }
   }, [open])
 
   const unread = items.filter(i=>!i.isRead).length
 
   return (
-    <div ref={ref} style={{ position:'relative' }}>
+    <div ref={ref} style={{ position:'relative', zIndex: 1000 }}>
       <button className="btn-glass" onClick={()=>setOpen(!open)} style={{ position:'relative' }}>
         <span style={{ fontSize:16 }}>🔔</span>
         {unread>0 && (
@@ -30,8 +60,8 @@ export default function NotificationsBell() {
           </span>
         )}
       </button>
-      {open && (
-        <div className="glass-panel" style={{ position:'absolute', right:0, marginTop:8, width:360, padding:12, borderRadius:'var(--radius-large)' }}>
+      {open && mounted && createPortal(
+        <div ref={panelRef} className="glass-panel" style={{ position:'fixed', right: pos?.right ?? 20, top: pos?.top ?? 72, width:360, maxWidth:'90vw', padding:12, borderRadius:'var(--radius-large)', zIndex: 99999 }}>
           <div style={{ display:'grid', gap:8 }}>
             {(items || []).map(i=> (
               <div key={i.id} style={{ display:'grid', gridTemplateColumns:'10px 1fr auto', gap:8, alignItems:'center', background:'rgba(255,255,255,0.28)', padding:'8px 10px', borderRadius:18 }}>
@@ -48,7 +78,8 @@ export default function NotificationsBell() {
             <GlassButton variant="secondary" onClick={markAll}>Mark all read</GlassButton>
             <GlassButton variant="primary" href="/notifications" style={{ background:'#39FF14', borderColor:'#39FF14' }}>View all</GlassButton>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
