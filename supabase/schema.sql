@@ -3,6 +3,9 @@ create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   org_name text not null,
   org_logo text,
+  theme_bg_main text,
+  theme_accent text,
+  layout_type text check (layout_type in ('cozy','compact')),
   owner_name text not null,
   owner_email text not null,
   billing_email text not null,
@@ -67,6 +70,11 @@ alter table public.departments add column if not exists parent_id uuid reference
 alter table public.departments add column if not exists updated_at timestamptz not null default now();
 create index if not exists idx_departments_parent on public.departments(parent_id);
 
+-- Ensure theme columns exist on organizations for older deployments
+alter table if not exists public.organizations add column if not exists theme_bg_main text;
+alter table if not exists public.organizations add column if not exists theme_accent text;
+alter table if not exists public.organizations add column if not exists layout_type text check (layout_type in ('cozy','compact'));
+
 -- Roles
 create table if not exists public.roles (
   id uuid primary key default gen_random_uuid(),
@@ -93,6 +101,9 @@ create table if not exists public.users (
   last_name text not null,
   email text not null,
   password_hash text not null,
+  theme_bg_main text,
+  theme_accent text,
+  layout_type text check (layout_type in ('cozy','compact')),
   role_id uuid references public.roles(id) on delete set null,
   department_id uuid references public.departments(id) on delete set null,
   position_title text,
@@ -109,6 +120,11 @@ alter table public.users add column if not exists manager_id uuid references pub
 alter table public.users add column if not exists member_role_id uuid references public.member_roles(id) on delete set null;
 create index if not exists idx_users_manager on public.users(manager_id);
 create index if not exists idx_users_member_role on public.users(member_role_id);
+
+-- Ensure theme columns exist on users for older deployments
+alter table if not exists public.users add column if not exists theme_bg_main text;
+alter table if not exists public.users add column if not exists theme_accent text;
+alter table if not exists public.users add column if not exists layout_type text check (layout_type in ('cozy','compact'));
 
 -- Permission Audit Log
 create table if not exists public.permission_audit_logs (

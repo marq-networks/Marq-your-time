@@ -225,18 +225,20 @@ export default function DashboardClient() {
               <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
             </div>
           </div>
-          <div className="row" style={{gap:12}}>
-            {!summary.session ? (
-              <GlassButton variant="primary" onClick={startSession}>Check In</GlassButton>
-            ) : (
-              <GlassButton variant="secondary" onClick={stopSession}>Check Out</GlassButton>
-            )}
-            {!summary.break ? (
-              <GlassButton onClick={startBreak}>Start Break</GlassButton>
-            ) : (
-              <GlassButton onClick={stopBreak}>End Break</GlassButton>
-            )}
-          </div>
+          {(['employee','member'].includes(role)) && (
+            <div className="row" style={{gap:12}}>
+              {!summary.session ? (
+                <GlassButton variant="primary" onClick={startSession}>Check In</GlassButton>
+              ) : (
+                <GlassButton variant="secondary" onClick={stopSession}>Check Out</GlassButton>
+              )}
+              {!summary.break ? (
+                <GlassButton onClick={startBreak}>Start Break</GlassButton>
+              ) : (
+                <GlassButton onClick={stopBreak}>End Break</GlassButton>
+              )}
+            </div>
+          )}
         </GlassCard>
         <GlassCard title="Today Log">
           <div className="subtitle">Sessions and Breaks</div>

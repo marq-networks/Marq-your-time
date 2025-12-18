@@ -83,7 +83,7 @@ export default function SidebarNav() {
           if (i.label === 'Leave Approvals') return canUsers
           if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
           if (i.label === 'Analytics') return canReports
-          if (i.label === 'Payroll') return canReports
+          if (i.label === 'Payroll') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing Plans') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Offline Sync') return ['admin','owner','super_admin'].includes(overrideRole)

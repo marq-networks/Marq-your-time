@@ -19,6 +19,8 @@ export default function TopBar({ title }: { title: string }) {
   const [orgLogo, setOrgLogo] = useState<string>('')
   const [orgSession, setOrgSession] = useState<boolean>(false)
   const [role, setRole] = useState<string>('')
+  const [userTheme, setUserTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
+  const [orgTheme, setOrgTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
 
   const loadOrgs = async () => {
     try {
@@ -43,9 +45,42 @@ export default function TopBar({ title }: { title: string }) {
         const o = d.org || {}
         setOrgName(o.orgName || '')
         setOrgLogo(o.orgLogo || '')
+        setOrgTheme({ bg: o.themeBgMain || undefined, accent: o.themeAccent || undefined, layout: o.layoutType || undefined })
       } catch {}
     })()
   }, [current, orgSession])
+  useEffect(() => {
+    (async()=>{
+      try {
+        const userId = getCookie('current_user_id') || ''
+        if (!userId) return
+        const res = await fetch(`/api/user/${userId}`, { cache:'no-store' })
+        const d = await res.json()
+        const u = d.user || {}
+        setUserTheme({ bg: u.themeBgMain || undefined, accent: u.themeAccent || undefined, layout: u.layoutType || undefined })
+      } catch {}
+    })()
+  }, [])
+  useEffect(() => {
+    try {
+      const root = document.documentElement
+      const bg = (userTheme?.bg || orgTheme?.bg)
+      const accent = (userTheme?.accent || orgTheme?.accent)
+      const layout = (userTheme?.layout || orgTheme?.layout)
+      if (bg) root.style.setProperty('--color-bg-main', bg)
+      if (accent) {
+        root.style.setProperty('--color-accent', accent)
+        const accentTagBg = `${accent}30`
+        root.style.setProperty('--tag-accent-bg', accentTagBg)
+      }
+      if (layout) {
+        const compact = layout === 'compact'
+        root.style.setProperty('--spacing-md', compact ? '16px' : '20px')
+        root.style.setProperty('--spacing-lg', compact ? '20px' : '24px')
+        root.style.setProperty('--spacing-xl', compact ? '28px' : '32px')
+      }
+    } catch {}
+  }, [userTheme, orgTheme])
 
   const onSwitch = async (id: string) => {
     setCurrent(id)

@@ -15,6 +15,9 @@ export interface Organization {
   id: string
   orgName: string
   orgLogo?: string
+  themeBgMain?: string
+  themeAccent?: string
+  layoutType?: 'cozy' | 'compact'
   ownerName: string
   ownerEmail: string
   billingEmail: string
@@ -83,6 +86,9 @@ export interface User {
   passwordHash: string
   roleId: string
   orgId: string
+  themeBgMain?: string
+  themeAccent?: string
+  layoutType?: 'cozy' | 'compact'
   departmentId?: string
   managerId?: string
   memberRoleId?: string

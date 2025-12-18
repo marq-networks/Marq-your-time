@@ -1331,6 +1331,9 @@ export async function createOrganization(input: Omit<Organization, 'id'|'created
     const payload = {
       org_name: input.orgName,
       org_logo: input.orgLogo ?? null,
+      theme_bg_main: input.themeBgMain ?? null,
+      theme_accent: input.themeAccent ?? null,
+      layout_type: input.layoutType ?? null,
       owner_name: input.ownerName,
       owner_email: input.ownerEmail,
       billing_email: input.billingEmail,
@@ -1432,6 +1435,9 @@ export async function updateOrganization(id: string, patch: Partial<Organization
     const { data, error } = await sb.from('organizations').update({
       org_name: patch.orgName ?? org.orgName,
       org_logo: patch.orgLogo ?? org.orgLogo ?? null,
+      theme_bg_main: patch.themeBgMain ?? org.themeBgMain ?? null,
+      theme_accent: patch.themeAccent ?? org.themeAccent ?? null,
+      layout_type: patch.layoutType ?? org.layoutType ?? null,
       owner_name: patch.ownerName ?? org.ownerName,
       owner_email: patch.ownerEmail ?? org.ownerEmail,
       billing_email: patch.billingEmail ?? org.billingEmail,
@@ -2037,6 +2043,9 @@ function mapOrgFromRow(row: any): Organization {
     id: row.id,
     orgName: row.org_name,
     orgLogo: row.org_logo ?? undefined,
+    themeBgMain: row.theme_bg_main ?? undefined,
+    themeAccent: row.theme_accent ?? undefined,
+    layoutType: row.layout_type ?? undefined,
     ownerName: row.owner_name,
     ownerEmail: row.owner_email,
     billingEmail: row.billing_email,
@@ -2515,7 +2524,7 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
   return user
 }
 
-export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'managerId'|'memberRoleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'>>) {
+export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'managerId'|'memberRoleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'|'themeBgMain'|'themeAccent'|'layoutType'>>) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: row, error: gErr } = await sb.from('users').select('*').eq('id', id).single()
@@ -2553,6 +2562,9 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       working_days: patch.workingDays ?? row.working_days,
       working_hours_per_day: patch.workingHoursPerDay ?? row.working_hours_per_day ?? null,
       status: patch.status ?? row.status,
+      theme_bg_main: patch.themeBgMain ?? row.theme_bg_main ?? null,
+      theme_accent: patch.themeAccent ?? row.theme_accent ?? null,
+      layout_type: patch.layoutType ?? row.layout_type ?? null,
       updated_at: now
     }).eq('id', id).select('*').single()
     if (error) return 'DB_ERROR'
@@ -2583,6 +2595,9 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
   if (patch.workingDays !== undefined) u.workingDays = patch.workingDays
   if (patch.workingHoursPerDay !== undefined) u.workingHoursPerDay = patch.workingHoursPerDay
   if (patch.status !== undefined) u.status = patch.status
+  if (patch.themeBgMain !== undefined) u.themeBgMain = patch.themeBgMain
+  if (patch.themeAccent !== undefined) u.themeAccent = patch.themeAccent
+  if (patch.layoutType !== undefined) u.layoutType = patch.layoutType
   u.updatedAt = Date.now()
   if (patch.roleId && patch.roleId !== prev.roleId) {
     const newRole = roles.find(r => r.id === patch.roleId)
@@ -2621,6 +2636,9 @@ function mapUserFromRow(row: any): User {
     passwordHash: row.password_hash,
     roleId: row.role_id ?? undefined,
     orgId: row.org_id,
+    themeBgMain: row.theme_bg_main ?? undefined,
+    themeAccent: row.theme_accent ?? undefined,
+    layoutType: row.layout_type ?? undefined,
     departmentId: row.department_id ?? undefined,
     managerId: row.manager_id ?? undefined,
     memberRoleId: row.member_role_id ?? undefined,
