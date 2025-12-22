@@ -50,10 +50,11 @@ export async function POST(req: NextRequest) {
   const memberships = orgs.map(()=>({ role: sessionRole as any }))
   const res = NextResponse.json({ mfaRequired: !!(mfa && mfa.isEnabled), memberships, role: sessionRole, org_login_required: requireOrgLogin })
   const secure = process.env.NODE_ENV === 'production'
-  res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax', secure })
-  res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax', secure })
+  const maxAge = 60 * 60 * 24 * 7 // 7 days
+  res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax', secure, maxAge })
+  res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax', secure, maxAge })
   if (orgs.length === 1 && !requireOrgLogin) {
-    res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax', secure })
+    res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax', secure, maxAge })
   }
   return res
 }

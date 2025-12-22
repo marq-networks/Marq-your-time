@@ -63,9 +63,23 @@ export default function DashboardClient() {
   useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
   useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
 
+  const fmt = (m: any) => {
+    if (typeof m !== 'number') return m || '0:00'
+    const h = Math.floor(m / 60)
+    const min = m % 60
+    return `${h}:${min < 10 ? '0' : ''}${min}`
+  }
+
   const startSession = async () => {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
+    if (res.status === 403) {
+      const d = await res.json()
+      if (d.error === 'CHECKIN_COOLDOWN') {
+        alert('You cannot check in again within 12 hours of your last session.')
+        return
+      }
+    }
     const _ = await res.json(); loadSummary(memberId, orgId)
     await beginTracking()
   }
@@ -94,6 +108,9 @@ export default function DashboardClient() {
       if (data.consentRequired) {
         setConsentText(String(data.consentText || ''))
         setConsentOpen(true)
+      } else {
+        // Automatically start if no consent required (unlikely but safe)
+        startActivityLoop()
       }
     }
   }
@@ -125,12 +142,15 @@ export default function DashboardClient() {
     window.addEventListener('keydown', onKey)
     const t = setInterval(async () => {
       if (!trackingSessionId) return
+      const isFocused = document.hasFocus()
+      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0
+      const isActive = isFocused ? hasActivity : true
       const ev = {
         timestamp: Date.now(),
         app_name: 'Web',
         window_title: document.title || 'MARQ',
         url: location.href,
-        is_active: document.hasFocus(),
+        is_active: isActive,
         keyboard_activity_score: keyCountRef.current,
         mouse_activity_score: mouseCountRef.current
       }
@@ -144,6 +164,7 @@ export default function DashboardClient() {
     if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
     if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
     if (streamRef.current) { streamRef.current.getTracks().forEach(tr=>tr.stop()); streamRef.current = null }
+    if (videoRef.current) { try { videoRef.current.pause() } catch {} ; if (videoRef.current.parentElement) videoRef.current.parentElement.removeChild(videoRef.current); videoRef.current = null }
     if (trackingSessionId) {
       await fetch('/api/tracking/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId }) })
     }
@@ -152,20 +173,54 @@ export default function DashboardClient() {
   const ensureStream = async () => {
     if (streamRef.current) return streamRef.current
     try {
-      const ms = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      const ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
       streamRef.current = ms
+      if (!videoRef.current) {
+        const v = document.createElement('video')
+        v.style.position = 'fixed'
+        v.style.opacity = '0'
+        v.style.pointerEvents = 'none'
+        v.style.width = '1px'
+        v.style.height = '1px'
+        v.muted = true
+        v.playsInline = true as any
+        v.autoplay = true as any
+        v.srcObject = ms
+        document.body.appendChild(v)
+        videoRef.current = v
+        try { await v.play() } catch {}
+      } else {
+        videoRef.current.srcObject = ms
+        try { await videoRef.current.play() } catch {}
+      }
       return ms
     } catch {
       return null
     }
   }
   const captureAndSendScreenshot = async () => {
+    console.log('[Screenshot] Attempting capture...')
     if (!trackingSessionId) return
     const ms = await ensureStream()
     if (!ms) return
-    const video = document.createElement('video')
-    video.srcObject = ms
-    await new Promise(r => { video.onloadedmetadata = () => r(null); video.play().then(()=>r(null)).catch(()=>r(null)) })
+    const video = videoRef.current || document.createElement('video')
+    if (!video.srcObject) {
+      video.srcObject = ms
+    }
+    try { await video.play() } catch {}
+    
+    // Wait for dimensions
+    let attempts = 0
+    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
+      await new Promise(r => setTimeout(r, 200))
+      attempts++
+    }
+    
+    if ((video as any).requestVideoFrameCallback) {
+      await new Promise(r => (video as any).requestVideoFrameCallback(() => r(null)))
+    } else {
+      await new Promise(r => setTimeout(r, 1000))
+    }
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth || 1280
     canvas.height = video.videoHeight || 720
@@ -214,25 +269,25 @@ export default function DashboardClient() {
           <div className="grid grid-3" style={{marginBottom:12}}>
             <div>
               <div className="subtitle">Worked</div>
-              <div className="title">{summary.today_hours}</div>
+              <div className="title">{fmt(summary.today_hours)}</div>
             </div>
             <div>
               <div className="subtitle">Extra</div>
-              <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
+              <div className="title" style={{color:'var(--green)'}}>{fmt(summary.extra_time)}</div>
             </div>
             <div>
               <div className="subtitle">Short</div>
-              <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
+              <div className="title" style={{color:'var(--orange)'}}>{fmt(summary.short_time)}</div>
             </div>
           </div>
           {(['employee','member'].includes(role)) && (
             <div className="row" style={{gap:12}}>
-              {!summary.session ? (
+              {!summary.session_open ? (
                 <GlassButton variant="primary" onClick={startSession}>Check In</GlassButton>
               ) : (
                 <GlassButton variant="secondary" onClick={stopSession}>Check Out</GlassButton>
               )}
-              {!summary.break ? (
+              {!summary.break_open ? (
                 <GlassButton onClick={startBreak}>Start Break</GlassButton>
               ) : (
                 <GlassButton onClick={stopBreak}>End Break</GlassButton>

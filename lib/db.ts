@@ -976,16 +976,52 @@ async function ensureDemoForOrg(orgId: string) {
   await createUser({ firstName:'Eve', lastName:'Employee', email:`eve.employee+${orgId}@example.com`, passwordHash:'demo', roleId:roleEmployee.id, orgId: orgId, departmentId:depEng.id, positionTitle:'Engineer', profileImage: undefined, salary: 5000, workingDays:['Mon','Tue','Wed','Thu','Fri'], workingHoursPerDay: 8, status:'active' })
 }
 
+export async function getOpenSession(memberId: string, orgId: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sess } = await sb.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
+    if (!sess) return null
+    const { data: br } = await sb.from('break_sessions').select('*').eq('time_session_id', sess.id).is('end_time', null).maybeSingle()
+    return { ...mapTimeSessionFromRow(sess), currentBreak: br ? mapBreakSessionFromRow(br) : null }
+  }
+  const sess = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
+  if (!sess) return null
+  const br = breakSessions.find(b => b.timeSessionId === sess.id && !b.endTime)
+  return { ...sess, currentBreak: br }
+}
+
 export async function startWorkSession(params: { memberId: string, orgId: string, source: string }) {
   const user = await getUser(params.memberId)
   if (!user || user.orgId !== params.orgId) return 'USER_NOT_IN_ORG'
   if (user.status !== 'active') return 'USER_INACTIVE'
   const now = new Date()
   const today = dateISO(now)
+  
+  // 12-hour cooldown check
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    // Check if there is ANY session started within the last 12 hours
+    const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
+    if (last) {
+      const diff = now.getTime() - new Date(last.start_time).getTime()
+      // If last session started less than 12 hours ago, prevent new check-in
+      // NOTE: If the last session is still OPEN, this logic would also block it, but we handle "openExisting" below.
+      // However, if we want to allow re-returning the EXISTING open session, we should check that first.
+    }
+  }
+
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (openRow) return mapTimeSessionFromRow(openRow)
+
+    // Check cooldown only if no open session exists
+    const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
+    if (last) {
+      const diff = now.getTime() - new Date(last.start_time).getTime()
+      if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
+    }
+
     const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
@@ -995,6 +1031,11 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   }
   const openExisting = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
   if (openExisting) return openExisting
+
+  // Check cooldown
+  const last = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId).sort((a,b)=>b.startTime-a.startTime)[0]
+  if (last && (now.getTime() - last.startTime < 12 * 60 * 60 * 1000)) return 'CHECKIN_COOLDOWN'
+
   const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)
   try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: sess.id, started_at: new Date(sess.startTime).toISOString() }) } catch {}

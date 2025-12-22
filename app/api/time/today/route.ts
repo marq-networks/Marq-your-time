@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getTodaySummary, getUser, isOrgHoliday } from '@lib/db'
+import { getTodaySummary, getUser, isOrgHoliday, getOpenSession } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   const orgId = searchParams.get('org_id') || searchParams.get('orgId') || ''
   if (!memberId || !orgId) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const summary = await getTodaySummary({ memberId, orgId })
+  const openSess = await getOpenSession(memberId, orgId)
   const user = await getUser(memberId)
   const today = new Date().toISOString().slice(0,10)
   const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(today + 'T00:00:00').getDay()]
@@ -22,13 +23,15 @@ export async function GET(req: NextRequest) {
   const is_holiday = await isOrgHoliday(orgId, new Date(today + 'T00:00:00'))
   if (is_holiday && status === 'absent') status = 'unconfigured'
   const out = {
-    today_hours: summary.today_hours,
-    extra_time: summary.extra_time,
-    short_time: summary.short_time,
+    today_hours: summary.worked,
+    extra_time: summary.extra,
+    short_time: summary.short,
     status,
     is_holiday,
-    session_open: !!summary.session,
-    break_open: !!summary.break,
+    session_open: !!openSess,
+    break_open: !!openSess?.currentBreak,
+    current_session_id: openSess?.id,
+    current_break_id: openSess?.currentBreak?.id,
     sessions: summary.sessions,
     breaks: summary.breaks
   }

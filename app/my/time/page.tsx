@@ -268,18 +268,37 @@ export default function MyDayPage() {
   }
 
   const captureAndSendScreenshot = async () => {
-    if (!trackingSessionId) return
+    console.log('[Screenshot] Attempting capture...')
+    if (!trackingSessionId) {
+      console.warn('[Screenshot] No tracking session ID')
+      return
+    }
     const ms = await ensureStream()
-    if (!ms) return
+    if (!ms) {
+      console.warn('[Screenshot] No stream available')
+      return
+    }
     const video = videoRef.current || document.createElement('video')
     if (!video.srcObject) {
       video.srcObject = ms
-      try { await video.play() } catch {}
     }
+    try { await video.play() } catch (e) { console.warn('[Screenshot] Video play warning:', e) }
+    
+    // Wait for dimensions
+    let attempts = 0
+    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
+      await new Promise(r => setTimeout(r, 200))
+      attempts++
+    }
+    if (video.videoWidth === 0) {
+      console.error('[Screenshot] Video dimensions zero after wait')
+      return
+    }
+
     if ((video as any).requestVideoFrameCallback) {
       await new Promise(r => (video as any).requestVideoFrameCallback(() => r(null)))
     } else {
-      await new Promise(r => setTimeout(r, 200))
+      await new Promise(r => setTimeout(r, 1000))
     }
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth || 1280
@@ -288,7 +307,15 @@ export default function MyDayPage() {
     if (!ctx) return
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const dataUrl = canvas.toDataURL('image/png')
-    await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
+    console.log('[Screenshot] Captured size:', dataUrl.length)
+    
+    try {
+      const res = await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
+      const json = await res.json()
+      console.log('[Screenshot] Server response:', json)
+    } catch (e) {
+      console.error('[Screenshot] Upload failed:', e)
+    }
   }
 
   useEffect(() => { return () => { stopTrackingFlow() } }, [])
