@@ -15,12 +15,13 @@ export default function middleware(req: NextRequest) {
   if (currentRole && !headers.get('x-role')) headers.set('x-role', currentRole)
   const path = req.nextUrl.pathname || '/'
   const isAuthRoute = path.startsWith('/auth/')
+  const isAuthApi = path.startsWith('/api/auth/')
   const isPublicApi = path.startsWith('/api/public/')
   const isNextStatic = path.startsWith('/_next/') || path === '/favicon.ico'
   const isAsset = path.startsWith('/assets/') || path.startsWith('/images/') || path.startsWith('/static/')
   if (isAuthRoute) headers.set('x-auth-route', '1')
   if (currentUser) headers.set('x-is-authenticated', '1')
-  if (!currentUser && !isAuthRoute && !isPublicApi && !isNextStatic && !isAsset) {
+  if (!currentUser && !isAuthRoute && !isAuthApi && !isPublicApi && !isNextStatic && !isAsset) {
     return NextResponse.redirect(new URL('/auth/login', req.url))
   }
   return NextResponse.next({ request: { headers } })

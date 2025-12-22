@@ -50,10 +50,11 @@ export async function POST(req: NextRequest) {
   const sessionRole = isSA ? 'super_admin' : (role?.name?.toLowerCase() || 'member')
   const memberships = orgs.map(()=>({ role: sessionRole as any }))
   const res = NextResponse.json({ mfaRequired: !!(mfa && mfa.isEnabled), memberships, role: sessionRole, org_login_required: requireOrgLogin })
-  res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax' })
-  res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax' })
+  const secure = process.env.NODE_ENV === 'production'
+  res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax', secure })
+  res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax', secure })
   if (orgs.length === 1 && !requireOrgLogin) {
-    res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax' })
+    res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax', secure })
   }
   return res
 }
