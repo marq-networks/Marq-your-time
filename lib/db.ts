@@ -1744,8 +1744,26 @@ export async function ingestScreenshot(input: { trackingSessionId: string, times
     if (!priv.allowScreenshots) return 'SCREENSHOTS_DISABLED'
     const blur = priv.maskPersonalWindows ? 60 : 0
     const wasMasked = !!priv.maskPersonalWindows
-    const storage_path = input.storagePath || input.imageUrl || ''
-    const thumbnail_path = input.thumbnailPath || input.imageUrl || ''
+    let storage_path = input.storagePath || ''
+    let thumbnail_path = input.thumbnailPath || ''
+    if (!storage_path && input.imageUrl) {
+      const img = input.imageUrl as string
+      if (img.startsWith('data:image/png;base64,') || img.startsWith('data:image/jpeg;base64,')) {
+        const base64 = img.split(',')[1]
+        const buffer = Buffer.from(base64, 'base64')
+        const ext = img.includes('jpeg') ? 'jpg' : 'png'
+        const key = `${ts.org_id}/${ts.member_id}/${ts.id}/${input.timestamp}.${ext}`
+        const up = await sb!.storage.from('screenshots').upload(key, buffer, { contentType: `image/${ext}`, upsert: true, cacheControl: '3600' })
+        if (up.error) return 'DB_ERROR'
+        const pub = sb!.storage.from('screenshots').getPublicUrl(key)
+        storage_path = pub.data.publicUrl
+        thumbnail_path = storage_path
+      } else {
+        storage_path = img
+        thumbnail_path = img
+      }
+    }
+    if (!thumbnail_path && storage_path) thumbnail_path = storage_path
     if (!storage_path) return 'MISSING_IMAGE'
     const { data, error } = await sb!.from('screenshots').insert({ tracking_session_id: ts.id, timestamp: new Date(input.timestamp), storage_path, thumbnail_path, blur_level: blur, was_masked: wasMasked, created_at: new Date() }).select('*').single()
     if (error) return 'DB_ERROR'
@@ -1776,11 +1794,19 @@ export async function listActivityToday(memberId: string, orgId: string) {
     const { data: evRows } = await sb!.from('activity_events').select('*').in('tracking_session_id', (tsRows || []).map((r: any) => r.id))
     const { data: scRows } = await sb!.from('screenshots').select('*').in('tracking_session_id', (tsRows || []).map((r: any) => r.id))
     const settings = await getPrivacySettings(memberId, orgId)
+    const store = sb!.storage.from('screenshots')
+    function toPublicUrl(p?: string) {
+      const s = p || ''
+      if (!s) return s
+      if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:')) return s
+      const pub = store.getPublicUrl(s)
+      return pub.data.publicUrl || s
+    }
     return {
       trackingOn: !!tsActive,
       settings,
       events: (evRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), appName: r.app_name, windowTitle: r.window_title, url: r.url ?? undefined, category: r.category ?? undefined, isActive: !!r.is_active, keyboardActivityScore: r.keyboard_activity_score ?? undefined, mouseActivityScore: r.mouse_activity_score ?? undefined, createdAt: new Date(r.created_at).getTime() })),
-      screenshots: (scRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), storagePath: r.storage_path, thumbnailPath: r.thumbnail_path, blurLevel: Number(r.blur_level), wasMasked: !!r.was_masked, createdAt: new Date(r.created_at).getTime() }))
+      screenshots: (scRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), storagePath: toPublicUrl(r.storage_path), thumbnailPath: toPublicUrl(r.thumbnail_path), blurLevel: Number(r.blur_level), wasMasked: !!r.was_masked, createdAt: new Date(r.created_at).getTime() }))
     }
   }
   const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.date === today)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { getUser, listUsers, listUserOrganizations, getOrganization, getRole, isSuperAdmin } from '@lib/db'
+import { getUser, listUsers, listUserOrganizations, listOrganizations, getOrganization, getRole, isSuperAdmin } from '@lib/db'
 import { getMFASettings } from '@lib/security'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
 
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
   if (!user) {
     try {
-      const orgsAll = await listUserOrganizations('demo-user')
+      const orgsAll = await listOrganizations()
       for (const o of orgsAll) {
         const items = await listUsers(o.id)
         const match = items.find(u => (u.email || '').toLowerCase() === email.toLowerCase())
@@ -27,7 +27,6 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
   }
-  if (!user) user = await getUser('demo-user')
   if (!user) return NextResponse.json({ error: 'USER_NOT_FOUND' }, { status: 404 })
   const inputHash = crypto.createHash('sha256').update(password).digest('hex')
   const ok = !!user.passwordHash && (user.passwordHash.length === 64 ? user.passwordHash === inputHash : user.passwordHash === password)
