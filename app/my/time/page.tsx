@@ -9,7 +9,7 @@ import { normalizeRoleForApi } from '@lib/permissions'
 import { useTracking } from '@components/TrackingProvider'
 
 type Org = { id: string, orgName: string }
-type User = { id: string, firstName: string, lastName: string }
+type User = { id: string, firstName: string, lastName: string, salary?: number, workingHoursPerDay?: number }
 
 function formatHM(mins: number) {
   const m = Math.max(0, Math.round(mins || 0))
@@ -92,15 +92,18 @@ export default function MyDayPage() {
     })
     startClock()
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    // if (res.status === 403) {
-    //   const d = await res.json()
-    //   if (d.error === 'CHECKIN_COOLDOWN') {
-    //     alert('You cannot check in again within 12 hours of your last session.')
-    //     setUiStarting(false)
-    //     setUiSessionOpen(false)
-    //     return
-    //   }
-    // }
+    if (res.status === 403) {
+      const d = await res.json()
+      if (d.error === 'CHECKIN_COOLDOWN') {
+        alert('You cannot check in again within 12 hours of your last session.')
+        setUiStarting(false)
+        setUiSessionOpen(false)
+        stopClock()
+        // Revert summary state
+        loadSummary(memberId, orgId)
+        return
+      }
+    }
     await beginTracking()
     await loadSummary(memberId, orgId)
     setUiStarting(false)
@@ -214,6 +217,16 @@ export default function MyDayPage() {
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }
 
+  // Earnings calculation
+  const currentUser = members.find(m => m.id === memberId)
+  const monthlySalary = currentUser?.salary || 0
+  const workingHours = currentUser?.workingHoursPerDay || 8
+  const perMinuteRate = monthlySalary > 0 ? monthlySalary / (26 * workingHours * 60) : 0
+  const workedMinutes = (summary.sessions || []).reduce((acc: number, s: any) => acc + (s.totalMinutes || 0), 0)
+  const currentSessionMinutes = clockStart ? elapsedMs / 60000 : 0
+  const totalMinutes = workedMinutes + currentSessionMinutes
+  const earnings = totalMinutes * perMinuteRate
+
   if (role && !['employee','member'].includes(role)) {
     return (
       <AppShell title="My Day">
@@ -229,79 +242,86 @@ export default function MyDayPage() {
 
   return (
     <AppShell title="My Day">
-      <div className="grid grid-3">
-        <GlassCard title="Today's Hours">
-          <div className="grid grid-2" style={{marginBottom:12}}>
-            <div>
-              <div className="label">Organization</div>
-              {(['employee','member'].includes(role)) ? (
-                <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
-              ) : (
-                <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
-                  <option value="">Select org</option>
-                  {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-                </GlassSelect>
-              )}
-            </div>
-            <div>
-              <div className="label">Me</div>
-              {(['employee','member'].includes(role)) ? (
-                <span className="tag-pill">{members.find(m=>m.id===memberId) ? `${members.find(m=>m.id===memberId)!.firstName} ${members.find(m=>m.id===memberId)!.lastName}` : 'Me'}</span>
-              ) : (
-                <GlassSelect value={memberId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setMemberId(e.target.value)}>
-                  <option value="">Select member</option>
-                  {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-                </GlassSelect>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-3" style={{marginBottom:12}}>
-            <div>
-              <div className="subtitle">Worked</div>
-              <div className="title">{summary.today_hours}</div>
-            </div>
-            <div>
-              <div className="subtitle">Live Clock</div>
-              <div className="title">{clockStart ? fmtClock(elapsedMs) : '00:00:00'}</div>
-            </div>
-            <div>
-              <div className="subtitle">Extra</div>
-              <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
-            </div>
-            <div>
-              <div className="subtitle">Short</div>
-              <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
-            </div>
-          </div>
-          <div className="row" style={{gap:12}}>
-            {!uiSessionOpen ? (
-              <GlassButton variant="primary" onClick={startDay}>Start Day</GlassButton>
+      <div className="grid grid-2" style={{marginBottom: 24}}>
+          <div>
+            <div className="label">Organization</div>
+            {(['employee','member'].includes(role)) ? (
+              <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
             ) : (
-              <GlassButton variant="secondary" onClick={endDay}>End Day</GlassButton>
+              <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
+                <option value="">Select org</option>
+                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+              </GlassSelect>
             )}
           </div>
+          <div>
+            <div className="label">Me</div>
+            {(['employee','member'].includes(role)) ? (
+              <span className="tag-pill">{members.find(m=>m.id===memberId) ? `${members.find(m=>m.id===memberId)!.firstName} ${members.find(m=>m.id===memberId)!.lastName}` : 'Me'}</span>
+            ) : (
+              <GlassSelect value={memberId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setMemberId(e.target.value)}>
+                <option value="">Select member</option>
+                {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+              </GlassSelect>
+            )}
+          </div>
+      </div>
+
+      <div className="grid grid-3" style={{gap: 24, marginBottom: 24}}>
+        <GlassCard title="Worked Today">
+          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700}}>{summary.today_hours}</div>
+          <div className="subtitle">Total worked time</div>
         </GlassCard>
-        <GlassCard title="Extra Time">
-          <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
+        
+        <GlassCard title="Live Clock">
+           <div className="title" style={{fontSize: '2.5rem', fontWeight: 700, color: uiSessionOpen ? 'var(--primary)' : 'inherit'}}>
+             {clockStart ? fmtClock(elapsedMs) : '00:00:00'}
+           </div>
+           <div className="subtitle">{uiSessionOpen ? 'Session Active' : 'Session Inactive'}</div>
+           <div style={{marginTop: 16}}>
+             {!uiSessionOpen ? (
+                <GlassButton variant="primary" onClick={startDay} style={{width: '100%'}}>Start Day</GlassButton>
+              ) : (
+                <GlassButton variant="secondary" onClick={endDay} style={{width: '100%'}}>End Day</GlassButton>
+              )}
+           </div>
         </GlassCard>
-        <GlassCard title="Short Time">
-          <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
+
+        <GlassCard title="My Earnings">
+          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700, color: 'var(--green)'}}>
+             {earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="subtitle">Calculated real-time</div>
         </GlassCard>
       </div>
 
-      <div className="grid grid-2" style={{marginTop:24}}>
-        <GlassCard title="Take Break">
-          <div className="row" style={{gap:12}}>
+      <div className="grid grid-2" style={{marginBottom: 24}}>
+         <GlassCard title="Time Status">
+           <div className="grid grid-2">
+             <div>
+               <div className="subtitle">Extra Time</div>
+               <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
+             </div>
+             <div>
+               <div className="subtitle">Short Time</div>
+               <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
+             </div>
+           </div>
+         </GlassCard>
+         
+         <GlassCard title="Actions">
+            <div className="subtitle" style={{marginBottom: 12}}>Break Management</div>
+            <div className="row" style={{gap:12}}>
             {!summary.break_open ? (
-              <GlassButton onClick={startBreak}>Take Break</GlassButton>
+              <GlassButton onClick={startBreak} disabled={!uiSessionOpen}>Take Break</GlassButton>
             ) : (
               <GlassButton onClick={endBreak}>End Break</GlassButton>
             )}
           </div>
-        </GlassCard>
+         </GlassCard>
       </div>
 
-      <div className="grid" style={{marginTop:24}}>
+      <div className="grid">
         <GlassCard title="Today's Sessions">
           <div className="subtitle">Sessions</div>
           <table className="glass-table">

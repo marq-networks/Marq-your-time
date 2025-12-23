@@ -1041,8 +1041,7 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     if (last) {
       const diff = now.getTime() - new Date(last.start_time).getTime()
       // If last session started less than 12 hours ago, prevent new check-in
-      // NOTE: If the last session is still OPEN, this logic would also block it, but we handle "openExisting" below.
-      // However, if we want to allow re-returning the EXISTING open session, we should check that first.
+      if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
     }
   }
 
