@@ -10,8 +10,9 @@ export async function GET(req: NextRequest) {
   const metric = (searchParams.get('metric') || '').toLowerCase()
   if (!orgId || !start || !end || !['worked','extra','short','attendance'].includes(metric)) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
 
-  const sb = isSupabaseConfigured() ? supabaseServer() : null
-  let points: { date: string, value: number }[] = []
+  try {
+    const sb = isSupabaseConfigured() ? supabaseServer() : null
+    let points: { date: string, value: number }[] = []
 
   if (sb) {
     const { data: rows } = await sb.from('daily_time_summaries').select('*').eq('org_id', orgId).gte('date', start).lte('date', end)
@@ -82,4 +83,8 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ points })
+  } catch (error) {
+    console.error('Error in time-series:', error)
+    return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 })
+  }
 }

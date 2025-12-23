@@ -10,8 +10,9 @@ export async function GET(req: NextRequest) {
   const departmentId = searchParams.get('department') || searchParams.get('department_id') || ''
   if (!orgId || !start || !end) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
 
-  const sb = isSupabaseConfigured() ? supabaseServer() : null
-  const users = await listUsers(orgId)
+  try {
+    const sb = isSupabaseConfigured() ? supabaseServer() : null
+    const users = await listUsers(orgId)
   const departments = await listDepartments(orgId)
   const org = await getOrganization(orgId)
   let allowedMemberIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : users.map(u => u.id)
@@ -184,4 +185,8 @@ export async function GET(req: NextRequest) {
       billedAmount
     }
   })
+  } catch (error) {
+    console.error('Error in org-overview:', error)
+    return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 })
+  }
 }

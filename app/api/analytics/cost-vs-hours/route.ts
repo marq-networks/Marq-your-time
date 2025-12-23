@@ -9,8 +9,9 @@ export async function GET(req: NextRequest) {
   const end = searchParams.get('end') || ''
   if (!orgId || !start || !end) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
 
-  const sb = isSupabaseConfigured() ? supabaseServer() : null
-  const points: { date: string, totalWorkedMinutes: number, payrollCost: number }[] = []
+  try {
+    const sb = isSupabaseConfigured() ? supabaseServer() : null
+    const points: { date: string, totalWorkedMinutes: number, payrollCost: number }[] = []
 
   if (sb) {
     const { data: rows } = await sb.from('daily_time_summaries').select('date, worked_minutes').eq('org_id', orgId).gte('date', start).lte('date', end)
@@ -62,4 +63,8 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ points })
+  } catch (error) {
+    console.error('Error in cost-vs-hours:', error)
+    return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 })
+  }
 }

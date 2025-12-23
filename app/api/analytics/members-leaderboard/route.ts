@@ -11,8 +11,9 @@ export async function GET(req: NextRequest) {
   const departmentId = searchParams.get('department') || searchParams.get('department_id') || ''
   if (!orgId || !start || !end) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
 
-  const sb = isSupabaseConfigured() ? supabaseServer() : null
-  const users = await listAllOrgMembers(orgId)
+  try {
+    const sb = isSupabaseConfigured() ? supabaseServer() : null
+    const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
   const deptMap = new Map(departments.map(d => [d.id, d.name]))
   const filteredUsers = departmentId ? users.filter(u => u.departmentId === departmentId) : users
@@ -121,10 +122,14 @@ export async function GET(req: NextRequest) {
 
   const key = sort
   items.sort((a, b) => {
-    if (key === 'productivity') return (b.productivity || 0) - (a.productivity || 0)
-    if (key === 'net_pay') return (b.net_pay || 0) - (a.net_pay || 0)
-    return (b[`${key}_minutes`] || 0) - (a[`${key}_minutes`] || 0)
-  })
+      if (key === 'productivity') return (b.productivity || 0) - (a.productivity || 0)
+      if (key === 'net_pay') return (b.net_pay || 0) - (a.net_pay || 0)
+      return (b[`${key}_minutes`] || 0) - (a[`${key}_minutes`] || 0)
+    })
 
-  return NextResponse.json({ items })
+    return NextResponse.json({ items })
+  } catch (error) {
+    console.error('Error in members-leaderboard:', error)
+    return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 })
+  }
 }
