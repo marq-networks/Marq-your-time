@@ -69,6 +69,10 @@ export default function MyActivityPage() {
   }, [orgId, memberId, data.trackingOn, data.settings?.allowScreenshots])
 
   const privacyLines = [`Activity tracking: ${data.settings.allowActivityTracking ? 'On' : 'Off'}`, `Screenshots: ${data.settings.allowScreenshots ? 'On' : 'Off'}`]
+  
+  const totalClicks = (data.events || []).reduce((acc: number, e: any) => acc + (e.clickCount || 0), 0)
+  const idleMinutes = (data.events || []).filter((e: any) => !e.isActive).length
+  const activeMinutes = (data.events || []).length - idleMinutes
 
   return (
     <AppShell title="My Activity">
@@ -106,8 +110,25 @@ export default function MyActivityPage() {
           <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(data.topApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
         </GlassCard>
       </div>
-      <div className='
-mt-10'>
+      <div className='mt-10'>
+        <div style={{marginBottom: 20}}>
+          <GlassCard title="Activity Stats">
+             <div className="grid grid-3" style={{ textAlign: 'center' }}>
+                <div>
+                   <div className="label">Active Time</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(activeMinutes)}</div>
+                </div>
+                <div>
+                   <div className="label">Idle Time</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(idleMinutes)}</div>
+                </div>
+                <div>
+                   <div className="label">Total Clicks</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>{totalClicks}</div>
+                </div>
+             </div>
+          </GlassCard>
+        </div>
         <GlassCard title="Today Timeline">
           <div className="subtitle">Work sessions and breaks</div>
           <div>

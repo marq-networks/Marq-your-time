@@ -337,13 +337,14 @@ create table if not exists public.billing_settings (
 
 create table if not exists public.member_privacy_settings (
   id uuid primary key default gen_random_uuid(),
-  member_id uuid not null references public.users(id) on delete cascade unique,
+  member_id uuid not null references public.users(id) on delete cascade,
   org_id uuid not null references public.organizations(id) on delete cascade,
   allow_activity_tracking boolean not null default false,
   allow_screenshots boolean not null default false,
   mask_personal_windows boolean not null default true,
   last_updated_by uuid references public.users(id) on delete set null,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (member_id, org_id)
 );
 
 create table if not exists public.tracking_sessions (
@@ -369,6 +370,7 @@ create table if not exists public.activity_events (
   is_active boolean not null,
   keyboard_activity_score smallint,
   mouse_activity_score smallint,
+  click_count integer,
   created_at timestamptz not null default now()
 );
 
@@ -488,7 +490,8 @@ create table if not exists public.data_retention_policies (
   category text not null,
   retention_days int not null,
   hard_delete boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (org_id, category)
 );
 create index if not exists idx_data_retention_policies_org on public.data_retention_policies(org_id);
 create index if not exists idx_data_retention_policies_category on public.data_retention_policies(category);

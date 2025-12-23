@@ -57,6 +57,10 @@ function minutesBetween(a: number, b: number) {
   return Math.max(0, Math.round((b - a) / 60000))
 }
 
+function sanitizeFilename(s: string) {
+  return s.replace(/[^a-z0-9\-_]/gi, '_').toLowerCase()
+}
+
 function weekdayFromISO(date: string) {
   const dt = new Date(date + 'T00:00:00')
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]
@@ -64,7 +68,18 @@ function weekdayFromISO(date: string) {
 
 async function computeScheduledMinutes(memberId: string, orgId: string, date: string) {
   const u = await getUser(memberId)
-  if (!u || u.orgId !== orgId) return 0
+  if (!u) return 0
+  let inOrg = u.orgId === orgId
+  if (!inOrg) {
+    if (isSupabaseConfigured()) {
+       const sb = supabaseServer()
+       const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', memberId).eq('org_id', orgId)
+       if ((count || 0) > 0) inOrg = true
+    } else {
+       if (orgMembershipsMem.some(m => m.userId === memberId && m.orgId === orgId)) inOrg = true
+    }
+  }
+  if (!inOrg) return 0
   const assigned = await getAssignedShiftFor(memberId, orgId, date)
   if (assigned) {
     const m = minutesBetweenShift(assigned.startTime, assigned.endTime, assigned.isOvernight) - (assigned.breakMinutes || 0)
@@ -186,7 +201,7 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
 
 export async function recalculateDailySummary(memberId: string, orgId: string, date: string) {
   const res = await recomputeDaily(memberId, orgId, date)
-  await applyShiftRulesToDay(memberId, date)
+  await applyShiftRulesToDay(memberId, orgId, date)
   return res
 }
 
@@ -369,7 +384,18 @@ function minutesBetweenShift(start: string, end: string, isOvernight: boolean) {
 
 async function getAssignedShiftFor(memberId: string, orgId: string, date: string) {
   const u = await getUser(memberId)
-  if (!u || u.orgId !== orgId) return undefined
+  if (!u) return undefined
+  let inOrg = u.orgId === orgId
+  if (!inOrg) {
+    if (isSupabaseConfigured()) {
+       const sb = supabaseServer()
+       const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', memberId).eq('org_id', orgId)
+       if ((count || 0) > 0) inOrg = true
+    } else {
+       if (orgMembershipsMem.some(m => m.userId === memberId && m.orgId === orgId)) inOrg = true
+    }
+  }
+  if (!inOrg) return undefined
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: asg } = await sb.from('shift_assignments').select('*, shifts(*)').eq('member_id', memberId).lte('effective_from', date).or(`effective_to.is.null,effective_to.gte.${date}`)
@@ -454,10 +480,9 @@ export async function listShiftAssignments(params: { orgId?: string, memberId?: 
   return arr
 }
 
-export async function applyShiftRulesToDay(memberId: string, date: string) {
+export async function applyShiftRulesToDay(memberId: string, orgId: string, date: string) {
   const u = await getUser(memberId)
   if (!u) return
-  const orgId = u.orgId
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: leaves } = await sb.from('leave_requests').select('id').eq('org_id', orgId).eq('member_id', memberId).eq('status','approved').lte('start_date', date).gte('end_date', date)
@@ -992,7 +1017,18 @@ export async function getOpenSession(memberId: string, orgId: string) {
 
 export async function startWorkSession(params: { memberId: string, orgId: string, source: string }) {
   const user = await getUser(params.memberId)
-  if (!user || user.orgId !== params.orgId) return 'USER_NOT_IN_ORG'
+  if (!user) return 'USER_NOT_IN_ORG'
+  let inOrg = user.orgId === params.orgId
+  if (!inOrg) {
+    if (isSupabaseConfigured()) {
+       const sb = supabaseServer()
+       const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', params.memberId).eq('org_id', params.orgId)
+       if ((count || 0) > 0) inOrg = true
+    } else {
+       if (orgMembershipsMem.some(m => m.userId === params.memberId && m.orgId === params.orgId)) inOrg = true
+    }
+  }
+  if (!inOrg) return 'USER_NOT_IN_ORG'
   if (user.status !== 'active') return 'USER_INACTIVE'
   const now = new Date()
   const today = dateISO(now)
@@ -1387,12 +1423,16 @@ export async function createOrganization(input: Omit<Organization, 'id'|'created
     }
     const { data, error } = await sb.from('organizations').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
+    
+    await sb.from('data_retention_policies').insert({ org_id: data.id, category: 'screenshots', retention_days: 30, hard_delete: true })
+
     return mapOrgFromRow(data)
   }
   const id = newId()
   const now = Date.now()
   const org: Organization = { ...input, id, createdAt: now, updatedAt: now, usedSeats: 0 }
   organizations.push(org)
+  retentionPoliciesMem.push({ id: newId(), orgId: org.id, category: 'screenshots', retentionDays: 30, hardDelete: true, createdAt: now })
   return org
 }
 
@@ -1411,11 +1451,11 @@ export async function listUserOrganizations(userId: string): Promise<Organizatio
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data } = await sb.from('org_memberships').select('org_id').eq('user_id', userId)
-    const orgIds = (data || []).map((r: any) => String(r.org_id))
-    if (!orgIds.length) {
-      const { data: u } = await sb.from('users').select('org_id').eq('id', userId).limit(1).maybeSingle()
-      if (u?.org_id) orgIds.push(String(u.org_id))
-    }
+    const orgIds = new Set((data || []).map((r: any) => String(r.org_id)))
+    
+    const { data: u } = await sb.from('users').select('org_id').eq('id', userId).limit(1).maybeSingle()
+    if (u?.org_id) orgIds.add(String(u.org_id))
+
     const out: Organization[] = []
     for (const id of orgIds) {
       const o = await getOrganization(id)
@@ -1718,7 +1758,7 @@ async function listAliases(orgId: string): Promise<ActivityAppAlias[]> {
   return activityAliases.filter(a => !a.orgId || a.orgId === orgId)
 }
 
-export async function ingestActivityBatch(input: { trackingSessionId: string, events: { timestamp: number, app_name: string, window_title: string, url?: string, is_active: boolean, keyboard_activity_score?: number, mouse_activity_score?: number }[] }) {
+export async function ingestActivityBatch(input: { trackingSessionId: string, events: { timestamp: number, app_name: string, window_title: string, url?: string, is_active: boolean, keyboard_activity_score?: number, mouse_activity_score?: number, click_count?: number }[] }) {
   const sb = isSupabaseConfigured() ? supabaseServer() : null
   if (sb) {
     const { data: ts } = await sb!.from('tracking_sessions').select('*').eq('id', input.trackingSessionId).single()
@@ -1741,11 +1781,18 @@ export async function ingestActivityBatch(input: { trackingSessionId: string, ev
         is_active: !!e.is_active,
         keyboard_activity_score: e.keyboard_activity_score ?? null,
         mouse_activity_score: e.mouse_activity_score ?? null,
+        click_count: e.click_count ?? null,
         created_at: new Date()
       }
     })
     const { error } = await sb!.from('activity_events').insert(rows)
-    if (error) return 'DB_ERROR'
+    if (error) {
+        console.error('ingestActivityBatch insert error (first attempt):', error)
+        // Fallback: try without click_count if column missing
+        const fallbackRows = rows.map(({ click_count, ...rest }: any) => rest)
+        const { error: err2 } = await sb!.from('activity_events').insert(fallbackRows)
+        if (err2) { console.error('ingestActivityBatch insert error (fallback):', err2); return 'DB_ERROR' }
+    }
     return { inserted: rows.length }
   }
   const ts = trackingSessions.find(t => t.id === input.trackingSessionId)
@@ -1769,6 +1816,7 @@ export async function ingestActivityBatch(input: { trackingSessionId: string, ev
       isActive: !!e.is_active,
       keyboardActivityScore: e.keyboard_activity_score,
       mouseActivityScore: e.mouse_activity_score,
+      clickCount: e.click_count,
       createdAt: Date.now()
     }
     activityEvents.push(ev)
@@ -1793,12 +1841,20 @@ export async function ingestScreenshot(input: { trackingSessionId: string, times
         const base64 = img.split(',')[1]
         const buffer = Buffer.from(base64, 'base64')
         const ext = img.includes('jpeg') ? 'jpg' : 'png'
-        const key = `${ts.org_id}/${ts.member_id}/${ts.id}/${input.timestamp}.${ext}`
+
+        let orgName = ts.org_id
+        let userName = ts.member_id
+        const { data: orgRow } = await sb!.from('organizations').select('org_name').eq('id', ts.org_id).single()
+        if (orgRow?.org_name) orgName = sanitizeFilename(orgRow.org_name)
+        const { data: userRow } = await sb!.from('users').select('first_name, last_name').eq('id', ts.member_id).single()
+        if (userRow) userName = sanitizeFilename(`${userRow.first_name || ''}_${userRow.last_name || ''}`)
+
+        const key = `${orgName}/${userName}/${ts.id}/${input.timestamp}.${ext}`
         const up = await sb!.storage.from('screenshots').upload(key, buffer, { contentType: `image/${ext}`, upsert: true, cacheControl: '3600' })
         if (up.error) return 'DB_ERROR'
-        const pub = sb!.storage.from('screenshots').getPublicUrl(key)
-        storage_path = pub.data.publicUrl
-        thumbnail_path = storage_path
+        
+        storage_path = key
+        thumbnail_path = key
       } else {
         storage_path = img
         thumbnail_path = img
@@ -1846,7 +1902,7 @@ export async function listActivityToday(memberId: string, orgId: string) {
     return {
       trackingOn: !!tsActive,
       settings,
-      events: (evRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), appName: r.app_name, windowTitle: r.window_title, url: r.url ?? undefined, category: r.category ?? undefined, isActive: !!r.is_active, keyboardActivityScore: r.keyboard_activity_score ?? undefined, mouseActivityScore: r.mouse_activity_score ?? undefined, createdAt: new Date(r.created_at).getTime() })),
+      events: (evRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), appName: r.app_name, windowTitle: r.window_title, url: r.url ?? undefined, category: r.category ?? undefined, isActive: !!r.is_active, keyboardActivityScore: r.keyboard_activity_score ?? undefined, mouseActivityScore: r.mouse_activity_score ?? undefined, clickCount: r.click_count ?? undefined, createdAt: new Date(r.created_at).getTime() })),
       screenshots: (scRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), storagePath: toPublicUrl(r.storage_path), thumbnailPath: toPublicUrl(r.thumbnail_path), blurLevel: Number(r.blur_level), wasMasked: !!r.was_masked, createdAt: new Date(r.created_at).getTime() }))
     }
   }
@@ -1877,11 +1933,11 @@ export async function updatePrivacySettings(input: { memberId: string, orgId: st
     const { data: existing } = await sb.from('member_privacy_settings').select('*').eq('member_id', input.memberId).eq('org_id', input.orgId).limit(1).maybeSingle()
     if (existing) {
       const { data, error } = await sb.from('member_privacy_settings').update({ allow_activity_tracking: input.allowActivityTracking, allow_screenshots: input.allowScreenshots, mask_personal_windows: input.maskPersonalWindows, last_updated_by: input.actorUserId ?? null, updated_at: now }).eq('id', existing.id).select('*').single()
-      if (error) return 'DB_ERROR'
+      if (error) { console.error('updatePrivacySettings update error:', error); return 'DB_ERROR' }
       return mapPrivacyFromRow(data)
     } else {
       const { data, error } = await sb.from('member_privacy_settings').insert({ member_id: input.memberId, org_id: input.orgId, allow_activity_tracking: input.allowActivityTracking, allow_screenshots: input.allowScreenshots, mask_personal_windows: input.maskPersonalWindows, last_updated_by: input.actorUserId ?? null, updated_at: now }).select('*').single()
-      if (error) return 'DB_ERROR'
+      if (error) { console.error('updatePrivacySettings insert error:', error); return 'DB_ERROR' }
       return mapPrivacyFromRow(data)
     }
   }
@@ -1909,6 +1965,13 @@ export async function startTracking(input: { timeSessionId?: string, memberId?: 
       sessionRow = data
     }
     if (!sessionRow || sessionRow.status !== 'open') return { trackingAllowed: false }
+    
+    // Check for existing active tracking session
+    const { data: existing } = await sb!.from('tracking_sessions').select('*').eq('time_session_id', sessionRow.id).is('ended_at', null).maybeSingle()
+    if (existing) {
+       return { trackingAllowed: true, trackingSessionId: existing.id, consentRequired: !existing.consent_given, consentText: existing.consent_text }
+    }
+
     const priv = await getPrivacySettings(sessionRow.member_id, sessionRow.org_id)
     if (!priv.allowActivityTracking) return { trackingAllowed: false }
     const consentText = 'While you are clocked in, MARQ will record active apps/websites and, if enabled, screenshots for work purposes.'
@@ -1920,6 +1983,12 @@ export async function startTracking(input: { timeSessionId?: string, memberId?: 
   if (input.timeSessionId) sess = timeSessions.find(s => s.id === input.timeSessionId)
   else sess = timeSessions.filter(s => s.memberId === input.memberId && s.orgId === input.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
   if (!sess || sess.status !== 'open') return { trackingAllowed: false }
+  
+  const existing = trackingSessions.find(t => t.timeSessionId === sess!.id && !t.endedAt)
+  if (existing) {
+     return { trackingAllowed: true, trackingSessionId: existing.id, consentRequired: !existing.consentGiven, consentText: existing.consentText }
+  }
+
   const priv = await getPrivacySettings(sess.memberId, sess.orgId)
   if (!priv.allowActivityTracking) return { trackingAllowed: false }
   const consentText = 'While you are clocked in, MARQ will record active apps/websites and, if enabled, screenshots for work purposes.'
@@ -2385,6 +2454,35 @@ export async function listUsers(orgId: string) {
   return users.filter(u => u.orgId === orgId)
 }
 
+export async function listAllOrgMembers(orgId: string): Promise<User[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: primary } = await sb.from('users').select('*').eq('org_id', orgId)
+    const { data: memberships } = await sb.from('org_memberships').select('user_id').eq('org_id', orgId)
+    const memberIds = (memberships || []).map((m: any) => m.user_id)
+    
+    let secondary: any[] = []
+    if (memberIds.length > 0) {
+      const { data } = await sb.from('users').select('*').in('id', memberIds)
+      secondary = data || []
+    }
+    
+    const all = [...(primary || []), ...secondary]
+    const unique = new Map()
+    for (const u of all) {
+      unique.set(u.id, u)
+    }
+    return Array.from(unique.values()).map(mapUserFromRow)
+  }
+  
+  await ensureDemoForOrg(orgId)
+  const p = users.filter(u => u.orgId === orgId)
+  const sIds = orgMembershipsMem.filter(m => m.orgId === orgId).map(m => m.userId)
+  const s = users.filter(u => sIds.includes(u.id))
+  const set = new Set([...p, ...s])
+  return Array.from(set)
+}
+
 export async function listMemberRoles(orgId: string) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -2447,7 +2545,7 @@ export async function deleteMemberRole(id: string) {
 }
 
 export async function listTeamMemberIds(orgId: string, managerId: string) {
-  const members = await listUsers(orgId)
+  const members = await listAllOrgMembers(orgId)
   const children = new Map<string, string[]>()
   for (const u of members) {
     const mgr = u.managerId || ''
@@ -2898,7 +2996,7 @@ export async function payrollSummary(orgId: string, periodId: string) {
   const period = isSupabaseConfigured() ? await (async ()=>{ const sb = supabaseServer(); const { data } = await sb.from('payroll_periods').select('*').eq('id', periodId).single(); return data ? mapPayrollPeriodFromRow(data) : undefined })() : payrollPeriods.find(p => p.id === periodId)
   if (!period || period.orgId !== orgId) return 'PERIOD_NOT_FOUND'
   const lines = await listPayrollLines(periodId)
-  const users = await listUsers(orgId)
+  const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
   const deptMap = new Map(departments.map(d => [d.id, d.name]))
   const userMap = new Map(users.map(u => [u.id, u]))
@@ -2916,7 +3014,7 @@ export async function payrollMember(orgId: string, periodId: string, memberId: s
   const lines = await listPayrollLines(periodId)
   const line = lines.find(l => l.memberId === memberId)
   if (!line) return 'NOT_FOUND'
-  const user = (await listUsers(orgId)).find(u => u.id === memberId)
+  const user = (await listAllOrgMembers(orgId)).find(u => u.id === memberId)
   const dept = user?.departmentId ? (await listDepartments(orgId)).find(d => d.id === user!.departmentId) : undefined
   return { period, line, memberName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(), departmentName: dept?.name || '' }
 }
@@ -3130,13 +3228,13 @@ export async function getSurveyResults(input: { surveyId: string, groupBy?: 'dep
     const sb = supabaseServer()
     const { data: rows } = await sb.from('survey_responses').select('*').eq('survey_id', input.surveyId)
     const responses = (rows || []).map(mapSurveyResponseFromRow)
-    const users = await listUsers(orgId)
+    const users = await listAllOrgMembers(orgId)
     const depMap = new Map(users.map(u => [u.id, u.departmentId || '']))
     const roleMap = new Map(users.map(u => [u.id, u.roleId || '']))
     return aggregateSurvey(questions, responses, input.groupBy, depMap, roleMap)
   }
   const responses = surveyResponsesMem.filter(r => r.surveyId === input.surveyId)
-  const users = await listUsers(orgId)
+  const users = await listAllOrgMembers(orgId)
   const depMap = new Map(users.map(u => [u.id, u.departmentId || '']))
   const roleMap = new Map(users.map(u => [u.id, u.roleId || '']))
   return aggregateSurvey(questions, responses, input.groupBy, depMap, roleMap)
@@ -3384,6 +3482,18 @@ export async function runRetentionCleanup(): Promise<{ processed: number }> {
         }
       } else if (String(p.category) === 'screenshots') {
         if (p.hard_delete) {
+          const { data: files } = await sb.from('screenshots').select('storage_path').lt('timestamp', cutoff).limit(1000)
+          if (files && files.length > 0) {
+            const keys = files.map((f: any) => {
+              const s = f.storage_path || ''
+              if (s.startsWith('http')) {
+                const parts = s.split('/screenshots/')
+                return parts.length > 1 ? decodeURIComponent(parts[1]) : ''
+              }
+              return s
+            }).filter((k: string) => k)
+            if (keys.length > 0) await sb.storage.from('screenshots').remove(keys)
+          }
           const { error } = await sb.from('screenshots').delete().lt('timestamp', cutoff)
           if (!error) processed++
         } else {

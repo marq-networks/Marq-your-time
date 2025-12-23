@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
-import { listUsers, listDepartments, listDailyLogs } from '@lib/db'
+import { listAllOrgMembers, listDepartments, listDailyLogs } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   if (!orgId || !start || !end) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
 
   const sb = isSupabaseConfigured() ? supabaseServer() : null
-  const users = await listUsers(orgId)
+  const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
   const deptMap = new Map(departments.map(d => [d.id, d.name]))
   const filteredUsers = departmentId ? users.filter(u => u.departmentId === departmentId) : users

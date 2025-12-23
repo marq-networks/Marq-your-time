@@ -22,6 +22,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const [activityTimer, setActivityTimer] = useState<any>(null)
   const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
   const mouseCountRef = useRef(0)
+  const clickCountRef = useRef(0)
   const keyCountRef = useRef(0)
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -157,13 +158,15 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const startActivityLoop = (tid: string) => {
     if (activityTimer) return
     const onMouse = () => { mouseCountRef.current += 1 }
+    const onClick = () => { clickCountRef.current += 1 }
     const onKey = () => { keyCountRef.current += 1 }
     window.addEventListener('mousemove', onMouse)
+    window.addEventListener('mousedown', onClick)
     window.addEventListener('keydown', onKey)
     
     const t = setInterval(async () => {
       const isFocused = document.hasFocus()
-      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0
+      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0 || clickCountRef.current > 0
       const isActive = isFocused ? hasActivity : true // Background tab workaround
       
       const ev = {
@@ -173,11 +176,13 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
         url: location.href,
         is_active: isActive,
         keyboard_activity_score: keyCountRef.current,
-        mouse_activity_score: mouseCountRef.current
+        mouse_activity_score: mouseCountRef.current,
+        click_count: clickCountRef.current
       }
       
       keyCountRef.current = 0
       mouseCountRef.current = 0
+      clickCountRef.current = 0
       
       try {
         await fetch('/api/activity/batch', { 
@@ -231,6 +236,22 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       setScreenshotTimer(t)
     }
   }
+
+  useEffect(() => {
+    const resume = async () => {
+      try {
+        const res = await fetch('/api/tracking/current')
+        const data = await res.json()
+        if (data.trackingAllowed && data.trackingSessionId && !data.consentRequired) {
+            console.log('[Tracking] Resuming session:', data.trackingSessionId)
+            startTracking(data.trackingSessionId, data.settings)
+        }
+      } catch (e) {
+        console.error('[Tracking] Failed to resume:', e)
+      }
+    }
+    resume()
+  }, [])
 
   return (
     <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId }}>

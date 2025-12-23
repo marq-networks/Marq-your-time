@@ -213,6 +213,7 @@ export interface ActivityEvent {
   isActive: boolean
   keyboardActivityScore?: number
   mouseActivityScore?: number
+  clickCount?: number
   createdAt: number
 }
 

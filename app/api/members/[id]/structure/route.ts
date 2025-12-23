@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUser, listUsers, updateUser } from '@lib/db'
+import { getUser, listAllOrgMembers, updateUser } from '@lib/db'
 
 function detectCycle(users: any[], memberId: string, newManagerId: string): boolean {
   const children = new Map<string, string[]>()
@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const target = await getUser(params.id)
   if (!target || target.orgId !== org_id) return NextResponse.json({ error: 'USER_NOT_FOUND' }, { status: 404 })
   if (manager_id === params.id) return NextResponse.json({ error: 'INVALID_MANAGER_SELF' }, { status: 400 })
-  const orgUsers = await listUsers(org_id)
+  const orgUsers = await listAllOrgMembers(org_id)
   if (manager_id) {
     const mgr = orgUsers.find(u => u.id === manager_id)
     if (!mgr) return NextResponse.json({ error: 'MANAGER_NOT_FOUND' }, { status: 404 })

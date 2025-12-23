@@ -23,9 +23,9 @@ export async function GET(req: NextRequest) {
   const is_holiday = await isOrgHoliday(orgId, new Date(today + 'T00:00:00'))
   if (is_holiday && status === 'absent') status = 'unconfigured'
   const out = {
-    today_hours: summary.worked,
-    extra_time: summary.extra,
-    short_time: summary.short,
+    today_hours: summary.today_hours,
+    extra_time: summary.extra_time,
+    short_time: summary.short_time,
     status,
     is_holiday,
     session_open: !!openSess,

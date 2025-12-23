@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
-import { listUsers, listDepartments, getUser } from '@lib/db'
+import { listAllOrgMembers, listDepartments, getUser, listUserOrganizations } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const org_id = searchParams.get('org_id') || searchParams.get('orgId') || ''
+  const org_id = (searchParams.get('org_id') || searchParams.get('orgId') || '').trim()
   const member_id = searchParams.get('member_id') || searchParams.get('memberId') || ''
   const severity = searchParams.get('severity') || ''
   const range = searchParams.get('range') || ''
@@ -23,7 +23,11 @@ export async function GET(req: NextRequest) {
   
   const actorUser = actor ? await getUser(actor) : undefined
   const isSuper = role === 'super_admin'
-  const sameOrg = actorUser ? actorUser.orgId === org_id : false
+  let sameOrg = actorUser ? actorUser.orgId === org_id : false
+  if (!sameOrg && actor) {
+    const orgs = await listUserOrganizations(actor)
+    if (orgs.some(o => o.id === org_id)) sameOrg = true
+  }
   const selfView = actor && member_id && actor === member_id
 
   if (!isSuper && !sameOrg) {
@@ -43,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (date_start && date_end) q = q.gte('created_at', new Date(date_start + 'T00:00:00')).lte('created_at', new Date(date_end + 'T23:59:59'))
   else if (range) q = q.gte('created_at', new Date(range.split('..')[0] + 'T00:00:00')).lte('created_at', new Date(range.split('..')[1] + 'T23:59:59'))
   const { data } = await q
-  const users = await listUsers(org_id)
+  const users = await listAllOrgMembers(org_id)
   const deps = await listDepartments(org_id)
   const nameMap = new Map(users.map(u=> [u.id, `${u.firstName} ${u.lastName}`]))
   const depMap = new Map(users.map(u=> [u.id, deps.find(d=> d.id === u.departmentId)?.name || '' ]))

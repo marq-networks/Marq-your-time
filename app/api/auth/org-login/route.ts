@@ -32,13 +32,14 @@ export async function POST(req: NextRequest) {
   const currentId = String(org?.id || orgId || '')
   const res = NextResponse.json({ success: true, current_org_id: currentId })
   const secure = process.env.NODE_ENV === 'production'
-  res.cookies.set('current_org_id', currentId, { path: '/', sameSite: 'lax', secure })
-  res.cookies.set('org_login', '1', { path: '/', sameSite: 'lax', secure })
+  const maxAge = 60 * 60 * 24 * 7 // 7 days
+  res.cookies.set('current_org_id', currentId, { path: '/', sameSite: 'lax', secure, maxAge })
+  res.cookies.set('org_login', '1', { path: '/', sameSite: 'lax', secure, maxAge })
   try {
     const actor = (req.cookies.get('current_user_id')?.value || req.headers.get('x-user-id') || '') as string
     if (actor) {
       try { await addOrgMembership(actor, currentId, 'admin') } catch {}
-      res.cookies.set('current_role', 'admin', { path: '/', sameSite: 'lax', secure })
+      res.cookies.set('current_role', 'admin', { path: '/', sameSite: 'lax', secure, maxAge })
     }
   } catch {}
   return res

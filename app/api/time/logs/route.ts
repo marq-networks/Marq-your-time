@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listDailyLogs, listUsers, listDepartments, listTeamMemberIds } from '@lib/db'
+import { listDailyLogs, listAllOrgMembers, listDepartments, listTeamMemberIds } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     if (allowedMemberId && !team.includes(allowedMemberId)) allowedMemberId = undefined
   }
   const data = await listDailyLogs({ orgId, date, memberId: allowedMemberId || undefined })
-  const users = await listUsers(orgId)
+  const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
   const deptMap = new Map(departments.map(d => [d.id, d.name]))
   const userMap = new Map(users.map(u => [u.id, { name: `${u.firstName} ${u.lastName}`, departmentId: u.departmentId || '', managerId: u.managerId || '', memberRoleId: u.memberRoleId || '' }]))
