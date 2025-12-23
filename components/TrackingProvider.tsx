@@ -24,6 +24,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const mouseCountRef = useRef(0)
   const clickCountRef = useRef(0)
   const keyCountRef = useRef(0)
+  const lastActivityRef = useRef(Date.now())
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -157,17 +158,17 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
   const startActivityLoop = (tid: string) => {
     if (activityTimer) return
-    const onMouse = () => { mouseCountRef.current += 1 }
-    const onClick = () => { clickCountRef.current += 1 }
-    const onKey = () => { keyCountRef.current += 1 }
-    window.addEventListener('mousemove', onMouse)
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
     
     const t = setInterval(async () => {
       const isFocused = document.hasFocus()
-      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0 || clickCountRef.current > 0
-      const isActive = isFocused ? hasActivity : true // Background tab workaround
+      // 5 minute idle threshold
+      const timeSinceActivity = Date.now() - lastActivityRef.current
+      const isIdle = timeSinceActivity > 5 * 60 * 1000
+      
+      // If focused, we are active unless we've been idle for > 5 mins.
+      // If not focused (background), we assume active (legacy workaround for external work),
+      // unless user explicitly wants strict tracking (future setting).
+      const isActive = isFocused ? !isIdle : true 
       
       const ev = {
         timestamp: Date.now(),
@@ -196,29 +197,42 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     }, 60 * 1000)
     
     setActivityTimer(t)
-    
-    // Return cleanup for the listeners? 
-    // The interval is stored in state, but listeners are global.
-    // We should probably remove listeners when stopping.
-    // For now, we'll handle listener removal in stopLocalTracking if we store the handlers.
-    // Actually, let's store handlers in refs or just leave them? 
-    // Leaving them is a small leak if we start/stop many times.
-    // Better to just add them once in useEffect? 
-    // Let's keep it simple for now, maybe move listeners to a useEffect dependent on trackingSessionId.
   }
 
   // Effect to manage event listeners based on tracking state
   useEffect(() => {
     if (!trackingSessionId) return
     
-    const onMouse = () => { mouseCountRef.current += 1 }
-    const onKey = () => { keyCountRef.current += 1 }
+    // Initialize last activity to now when tracking starts
+    lastActivityRef.current = Date.now()
+
+    const updateActivity = () => {
+      lastActivityRef.current = Date.now()
+    }
+
+    const onMouse = () => { 
+      mouseCountRef.current += 1 
+      updateActivity()
+    }
+    const onClick = () => {
+      clickCountRef.current += 1
+      updateActivity()
+    }
+    const onKey = () => { 
+      keyCountRef.current += 1 
+      updateActivity()
+    }
+    
     window.addEventListener('mousemove', onMouse)
+    window.addEventListener('mousedown', onClick)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', updateActivity) // Also track scroll as activity
 
     return () => {
       window.removeEventListener('mousemove', onMouse)
+      window.removeEventListener('mousedown', onClick)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', updateActivity)
     }
   }, [trackingSessionId])
 
