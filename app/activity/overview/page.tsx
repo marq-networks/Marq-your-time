@@ -10,6 +10,8 @@ type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
 type Department = { id: string, name: string }
 
+const PRIVILEGED_ROLES = ['admin','owner','super_admin','org_admin','hr','manager']
+
 function formatHM(mins: number) { const m = Math.max(0, Math.round(mins||0)); const h=Math.floor(m/60); const mm=String(m%60).padStart(2,'0'); return `${h}:${mm}` }
 
 export default function ActivityOverviewPage() {
@@ -54,19 +56,38 @@ export default function ActivityOverviewPage() {
       if (me?.departmentId) setDepartmentId(me.departmentId)
     }
   }
-  const loadOverview = async () => { if(!orgId) return; const url = `/api/activity/overview?org_id=${orgId}&date=${date}` + (departmentId? `&department_id=${departmentId}`:'') + (memberId? `&member_id=${memberId}`:''); const res = await fetch(url, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]); setTotals(d.totals||{ tracked:0, productive:0, unproductive:0, idle:0, screenshots:0 }) }
+  const loadOverview = async () => { 
+    if(!orgId) return; 
+    let useMemberId = memberId
+    // Force memberId to actorId for non-privileged users
+    if (role && !PRIVILEGED_ROLES.includes(role) && actorId) {
+      useMemberId = actorId
+    }
+    const url = `/api/activity/overview?org_id=${orgId}&date=${date}` + (departmentId? `&department_id=${departmentId}`:'') + (useMemberId? `&member_id=${useMemberId}`:''); 
+    const res = await fetch(url, { cache:'no-store' }); 
+    const d = await res.json(); 
+    setItems(d.items||[]); 
+    setTotals(d.totals||{ tracked:0, productive:0, unproductive:0, idle:0, screenshots:0 }) 
+  }
 
   useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r); const uid = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''; setActorId(uid) } catch {} }, [])
+  
+  useEffect(() => {
+    if (role && !PRIVILEGED_ROLES.includes(role) && actorId) {
+      setMemberId(actorId)
+    }
+  }, [role, actorId])
+
   useEffect(()=>{ loadOrgs() }, [role])
   useEffect(()=>{ if(orgId) { loadDepsUsers(orgId); } }, [orgId])
-  useEffect(()=>{ loadOverview() }, [orgId, date, departmentId, memberId])
+  useEffect(()=>{ loadOverview() }, [orgId, date, departmentId, memberId, role, actorId])
 
   const columns = ['Member','Department','Date','Worked','Tracked Active','Productive','Unproductive','Idle','Screenshots','Status']
   const rows = items.map(it => [ it.memberName, it.departmentName, it.date, formatHM(it.workedHours||0), formatHM(it.trackedActiveMinutes||0), formatHM(it.productiveMinutes||0), formatHM(it.unproductiveMinutes||0), formatHM(it.idleMinutes||0), String(it.screenshots||0), it.status ])
 
   return (
     <AppShell title="Activity Overview">
-      {(['admin','owner','super_admin','org_admin','hr','manager'].includes(role)) ? (
+      {(PRIVILEGED_ROLES.includes(role)) ? (
         <GlassCard title="Filters">
           <div className="grid grid-1">
             <div>

@@ -226,9 +226,26 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
   const tsIds = (ts||[]).map((r:any)=> r.id)
   const { data: ev } = await sb.from('activity_events').select('*').in('tracking_session_id', tsIds)
   const { data: shots } = await sb.from('screenshots').select('tracking_session_id').in('tracking_session_id', tsIds)
+  
+  // Deduplicate events by minute per session
+  const uniqueEventsMap = new Map<string, any>()
+  for (const e of (ev||[])) {
+    const d = new Date(e.timestamp)
+    const key = `${e.tracking_session_id}-${d.toISOString().slice(0, 16)}`
+    if (!uniqueEventsMap.has(key)) {
+        uniqueEventsMap.set(key, e)
+    } else {
+        const existing = uniqueEventsMap.get(key)
+        if (!existing.is_active && e.is_active) {
+            uniqueEventsMap.set(key, e)
+        }
+    }
+  }
+  const events = Array.from(uniqueEventsMap.values())
+
   type Key = string
   const agg: Map<Key, { active: Set<string>, idle: Set<string>, apps: Map<string, number>, urls: Map<string, number>, shots: number }> = new Map()
-  for (const e of (ev||[])) {
+  for (const e of events) {
     const tsRow = (ts||[]).find((t:any)=> t.id === e.tracking_session_id)
     if (!tsRow) continue
     const dt = new Date(e.timestamp)

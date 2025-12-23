@@ -30,6 +30,38 @@ export async function GET(req: NextRequest) {
     if (mids.length) q = q.in('member_id', mids)
   }
   const { data: rows } = await q
+  
+  let openQ = sb.from('time_sessions').select('id, member_id, date, start_time').eq('org_id', client.orgId).gte('date', date_start).lte('date', date_end).is('end_time', null)
+  if (member_ids.length) openQ = openQ.in('member_id', member_ids)
+  if (dept_ids.length) {
+    const { data: users } = await sb.from('users').select('id').eq('org_id', client.orgId).in('department_id', dept_ids)
+    const mids = (users || []).map((u: any) => String(u.id))
+    if (mids.length) openQ = openQ.in('member_id', mids)
+  }
+  const { data: openSessions } = await openQ
+  
+  const openMinutesMap = new Map<string, number>()
+  if (openSessions && openSessions.length > 0) {
+      const ids = openSessions.map((s:any) => s.id)
+      const { data: breaks } = await sb.from('break_sessions').select('time_session_id, start_time, end_time, total_minutes, is_paid').in('time_session_id', ids)
+      const now = Date.now()
+      for (const s of openSessions) {
+          const sBreaks = (breaks || []).filter((b:any) => b.time_session_id === s.id)
+          const startMs = new Date(s.start_time).getTime()
+          const totalMs = Math.max(0, now - startMs)
+          let unpaidBreakMs = 0
+          for (const b of sBreaks) {
+              if (!b.is_paid) {
+                  if (b.end_time) unpaidBreakMs += (Number(b.total_minutes || 0) * 60000)
+                  else unpaidBreakMs += Math.max(0, now - new Date(b.start_time).getTime())
+              }
+          }
+          const mins = Math.max(0, totalMs - unpaidBreakMs) / 60000
+          const key = `${s.member_id}|${s.date}`
+          openMinutesMap.set(key, (openMinutesMap.get(key) || 0) + mins)
+      }
+  }
+
   const { data: leaves } = await sb.from('leave_requests').select('*').eq('org_id', client.orgId).eq('status', 'approved').lte('start_date', date_end).gte('end_date', date_start)
   const leaveMap = new Map<string, boolean>()
   for (const l of leaves || []) {
@@ -40,17 +72,40 @@ export async function GET(req: NextRequest) {
       leaveMap.set(key, true)
     }
   }
+  
+  const processedKeys = new Set<string>()
   const items = (rows || []).map((r: any) => {
     const key = `${r.member_id}|${r.date}`
+    processedKeys.add(key)
+    const openMins = openMinutesMap.get(key) || 0
     const st = leaveMap.get(key) ? 'Leave' : (r.status === 'absent' ? 'Absent' : 'Present')
     return {
       member_id: r.member_id,
       date: r.date,
-      worked_minutes: Number(r.worked_minutes || 0),
+      worked_minutes: Number(r.worked_minutes || 0) + openMins,
       extra_minutes: Number(r.extra_minutes || 0),
       short_minutes: Number(r.short_minutes || 0),
       status: st
     }
   })
+  
+  if (openSessions) {
+      for (const s of openSessions) {
+          const key = `${s.member_id}|${s.date}`
+          if (!processedKeys.has(key)) {
+              const openMins = openMinutesMap.get(key) || 0
+              items.push({
+                  member_id: s.member_id,
+                  date: s.date,
+                  worked_minutes: openMins,
+                  extra_minutes: 0,
+                  short_minutes: 0,
+                  status: 'Present'
+              })
+              processedKeys.add(key)
+          }
+      }
+  }
+
   return NextResponse.json({ items })
 }

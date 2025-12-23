@@ -218,14 +218,24 @@ export default function MyDayPage() {
   }
 
   // Earnings calculation
-  const currentUser = members.find(m => m.id === memberId)
-  const monthlySalary = currentUser?.salary || 0
-  const workingHours = currentUser?.workingHoursPerDay || 8
-  const perMinuteRate = monthlySalary > 0 ? monthlySalary / (26 * workingHours * 60) : 0
-  const workedMinutes = (summary.sessions || []).reduce((acc: number, s: any) => acc + (s.totalMinutes || 0), 0)
-  const currentSessionMinutes = clockStart ? elapsedMs / 60000 : 0
-  const totalMinutes = workedMinutes + currentSessionMinutes
-  const earnings = totalMinutes * perMinuteRate
+   const currentUser = members.find(m => m.id === memberId)
+   const monthlySalary = currentUser?.salary || 0
+   const workingHours = currentUser?.workingHoursPerDay || 8
+   const perMinuteRate = monthlySalary > 0 ? monthlySalary / (26 * workingHours * 60) : 0
+   
+   const sessionsMs = (summary.sessions || []).reduce((acc: number, s: any) => {
+     if (s.endTime) return acc + (s.endTime - s.startTime)
+     return acc
+   }, 0) + (clockStart ? elapsedMs : 0)
+
+   const breaksMs = (summary.breaks || []).reduce((acc: number, b: any) => {
+     if (!b.isPaid && b.endTime) return acc + (b.endTime - b.startTime)
+     return acc
+   }, 0)
+
+   const totalWorkedMs = Math.max(0, sessionsMs - breaksMs)
+   const totalMinutes = totalWorkedMs / 60000
+   const earnings = (totalWorkedMs / 60000) * perMinuteRate
 
   if (role && !['employee','member'].includes(role)) {
     return (
@@ -269,7 +279,7 @@ export default function MyDayPage() {
 
       <div className="grid grid-3" style={{gap: 24, marginBottom: 24}}>
         <GlassCard title="Worked Today">
-          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700}}>{summary.today_hours}</div>
+          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700}}>{fmtClock(totalWorkedMs)}</div>
           <div className="subtitle">Total worked time</div>
         </GlassCard>
         

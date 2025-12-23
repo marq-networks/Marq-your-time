@@ -13,8 +13,31 @@ export async function GET(req: NextRequest) {
 }
 
 function aggregateTopApps(events: any[]) {
-  const map: Record<string, { minutes: number, category?: string }> = {}
+  // Deduplicate events by minute to prevent overcounting
+  const uniqueEventsMap = new Map<string, any>()
   for (const e of events) {
+      const d = new Date(e.timestamp)
+      const key = `${d.toISOString().slice(0, 16)}`
+      
+      if (!uniqueEventsMap.has(key)) {
+          uniqueEventsMap.set(key, e)
+      } else {
+          const existing = uniqueEventsMap.get(key)
+          // Prefer Active over Idle
+          if (!existing.isActive && e.isActive) {
+              uniqueEventsMap.set(key, e)
+          } else if (existing.isActive && e.isActive) {
+               // Prefer Productive over Unproductive
+               if (existing.category !== 'productive' && e.category === 'productive') {
+                   uniqueEventsMap.set(key, e)
+               }
+          }
+      }
+  }
+  const uniqueEvents = Array.from(uniqueEventsMap.values())
+
+  const map: Record<string, { minutes: number, category?: string }> = {}
+  for (const e of uniqueEvents) {
     const key = e.appName
     if (!map[key]) map[key] = { minutes: 0, category: e.category }
     if (e.isActive) map[key].minutes += 1

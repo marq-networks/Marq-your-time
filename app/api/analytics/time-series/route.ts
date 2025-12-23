@@ -15,13 +15,45 @@ export async function GET(req: NextRequest) {
 
   if (sb) {
     const { data: rows } = await sb.from('daily_time_summaries').select('*').eq('org_id', orgId).gte('date', start).lte('date', end)
+    
+    let openMinutesByDate = new Map<string, number>()
+    if (metric === 'worked') {
+        const { data: openSessions } = await sb.from('time_sessions').select('id, date, start_time').eq('org_id', orgId).gte('date', start).lte('date', end).is('end_time', null)
+        if (openSessions && openSessions.length > 0) {
+            const ids = openSessions.map((s:any) => s.id)
+            const { data: breaks } = await sb.from('break_sessions').select('time_session_id, start_time, end_time, total_minutes, is_paid').in('time_session_id', ids)
+            const now = Date.now()
+            for (const s of openSessions) {
+                const sBreaks = (breaks || []).filter((b:any) => b.time_session_id === s.id)
+                const startMs = new Date(s.start_time).getTime()
+                const totalMs = Math.max(0, now - startMs)
+                let unpaidBreakMs = 0
+                for (const b of sBreaks) {
+                    if (!b.is_paid) {
+                        if (b.end_time) unpaidBreakMs += (Number(b.total_minutes || 0) * 60000)
+                        else unpaidBreakMs += Math.max(0, now - new Date(b.start_time).getTime())
+                    }
+                }
+                const mins = Math.max(0, totalMs - unpaidBreakMs) / 60000
+                openMinutesByDate.set(s.date, (openMinutesByDate.get(s.date) || 0) + mins)
+            }
+        }
+    }
+
     const byDate: Record<string, any[]> = {}
     for (const r of (rows || []) as any[]) {
       const d = r.date
       ;(byDate[d] = byDate[d] || []).push(r)
     }
+    
+    if (metric === 'worked') {
+        for (const d of openMinutesByDate.keys()) {
+            if (!byDate[d]) byDate[d] = []
+        }
+    }
+
     points = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([d, arr]) => {
-      if (metric === 'worked') return { date: d, value: arr.reduce((s, r) => s + Number(r.worked_minutes || 0), 0) }
+      if (metric === 'worked') return { date: d, value: arr.reduce((s, r) => s + Number(r.worked_minutes || 0), 0) + (openMinutesByDate.get(d) || 0) }
       if (metric === 'extra') return { date: d, value: arr.reduce((s, r) => s + Number(r.extra_minutes || 0), 0) }
       if (metric === 'short') return { date: d, value: arr.reduce((s, r) => s + Number(r.short_minutes || 0), 0) }
       const scheduled = arr.filter(r => Number(r.scheduled_minutes || 0) > 0).length
