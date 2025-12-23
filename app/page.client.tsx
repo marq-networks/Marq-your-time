@@ -1,13 +1,15 @@
 "use client"
+import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import usePermission from '@lib/hooks/usePermission'
-import { useEffect, useRef, useState } from 'react'
+import { useTracking } from '@components/TrackingProvider'
 
 export default function DashboardClient() {
+  const tracking = useTracking()
   const canOrg = usePermission('manage_org').allowed
   const [orgs, setOrgs] = useState<{ id: string, orgName: string }[]>([])
   const [orgId, setOrgId] = useState('')
@@ -18,12 +20,7 @@ export default function DashboardClient() {
   const [role, setRole] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
   const [consentText, setConsentText] = useState('')
-  const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
-  const [activityTimer, setActivityTimer] = useState<any>(null)
-  const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
-  const mouseCountRef = useRef(0)
-  const keyCountRef = useRef(0)
-  const streamRef = useRef<MediaStream | null>(null)
+  const [tempTrackingId, setTempTrackingId] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -73,13 +70,13 @@ export default function DashboardClient() {
   const startSession = async () => {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    if (res.status === 403) {
-      const d = await res.json()
-      if (d.error === 'CHECKIN_COOLDOWN') {
-        alert('You cannot check in again within 12 hours of your last session.')
-        return
-      }
-    }
+    // if (res.status === 403) {
+    //   const d = await res.json()
+    //   if (d.error === 'CHECKIN_COOLDOWN') {
+    //     alert('You cannot check in again within 12 hours of your last session.')
+    //     return
+    //   }
+    // }
     const _ = await res.json(); loadSummary(memberId, orgId)
     await beginTracking()
   }
@@ -87,7 +84,7 @@ export default function DashboardClient() {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const _ = await res.json(); loadSummary(memberId, orgId)
-    await stopTrackingFlow()
+    await tracking.stopTracking()
   }
   const startBreak = async () => {
     if (!orgId || !memberId) return
@@ -104,133 +101,36 @@ export default function DashboardClient() {
     const res = await fetch('/api/tracking/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const data = await res.json()
     if (data.trackingAllowed && data.trackingSessionId) {
-      setTrackingSessionId(data.trackingSessionId)
       if (data.consentRequired) {
+        setTempTrackingId(data.trackingSessionId)
         setConsentText(String(data.consentText || ''))
         setConsentOpen(true)
       } else {
         // Automatically start if no consent required (unlikely but safe)
-        startActivityLoop()
+        const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
+        await tracking.startTracking(data.trackingSessionId, s.settings)
       }
     }
   }
   const acceptConsent = async () => {
-    if (!trackingSessionId) { setConsentOpen(false); return }
-    const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: true, consent_text: consentText }) })
+    if (!tempTrackingId) { setConsentOpen(false); return }
+    const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: tempTrackingId, accepted: true, consent_text: consentText }) })
     const data = await res.json()
     setConsentOpen(false)
     if (data.allowed) {
-      startActivityLoop()
       const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
-      if (s.settings?.allowScreenshots) {
-        await captureAndSendScreenshot()
-        const t = setInterval(captureAndSendScreenshot, 5 * 60 * 1000)
-        setScreenshotTimer(t)
-      }
+      await tracking.startTracking(tempTrackingId, s.settings)
     }
   }
   const rejectConsent = async () => {
-    if (!trackingSessionId) { setConsentOpen(false); return }
-    await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: false, consent_text: consentText }) })
+    if (!tempTrackingId) { setConsentOpen(false); return }
+    await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: tempTrackingId, accepted: false, consent_text: consentText }) })
+    await tracking.stopTracking()
     setConsentOpen(false)
   }
-  const startActivityLoop = () => {
-    if (activityTimer) return
-    const onMouse = () => { mouseCountRef.current += 1 }
-    const onKey = () => { keyCountRef.current += 1 }
-    window.addEventListener('mousemove', onMouse)
-    window.addEventListener('keydown', onKey)
-    const t = setInterval(async () => {
-      if (!trackingSessionId) return
-      const isFocused = document.hasFocus()
-      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0
-      const isActive = isFocused ? hasActivity : true
-      const ev = {
-        timestamp: Date.now(),
-        app_name: 'Web',
-        window_title: document.title || 'MARQ',
-        url: location.href,
-        is_active: isActive,
-        keyboard_activity_score: keyCountRef.current,
-        mouse_activity_score: mouseCountRef.current
-      }
-      keyCountRef.current = 0
-      mouseCountRef.current = 0
-      await fetch('/api/activity/batch', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, events: [ev] }) })
-    }, 60 * 1000)
-    setActivityTimer(t)
-  }
-  const stopTrackingFlow = async () => {
-    if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
-    if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(tr=>tr.stop()); streamRef.current = null }
-    if (videoRef.current) { try { videoRef.current.pause() } catch {} ; if (videoRef.current.parentElement) videoRef.current.parentElement.removeChild(videoRef.current); videoRef.current = null }
-    if (trackingSessionId) {
-      await fetch('/api/tracking/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId }) })
-    }
-    setTrackingSessionId(null)
-  }
-  const ensureStream = async () => {
-    if (streamRef.current) return streamRef.current
-    try {
-      const ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
-      streamRef.current = ms
-      if (!videoRef.current) {
-        const v = document.createElement('video')
-        v.style.position = 'fixed'
-        v.style.opacity = '0'
-        v.style.pointerEvents = 'none'
-        v.style.width = '1px'
-        v.style.height = '1px'
-        v.muted = true
-        v.playsInline = true as any
-        v.autoplay = true as any
-        v.srcObject = ms
-        document.body.appendChild(v)
-        videoRef.current = v
-        try { await v.play() } catch {}
-      } else {
-        videoRef.current.srcObject = ms
-        try { await videoRef.current.play() } catch {}
-      }
-      return ms
-    } catch {
-      return null
-    }
-  }
-  const captureAndSendScreenshot = async () => {
-    console.log('[Screenshot] Attempting capture...')
-    if (!trackingSessionId) return
-    const ms = await ensureStream()
-    if (!ms) return
-    const video = videoRef.current || document.createElement('video')
-    if (!video.srcObject) {
-      video.srcObject = ms
-    }
-    try { await video.play() } catch {}
-    
-    // Wait for dimensions
-    let attempts = 0
-    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
-      await new Promise(r => setTimeout(r, 200))
-      attempts++
-    }
-    
-    if ((video as any).requestVideoFrameCallback) {
-      await new Promise(r => (video as any).requestVideoFrameCallback(() => r(null)))
-    } else {
-      await new Promise(r => setTimeout(r, 1000))
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth || 1280
-    canvas.height = video.videoHeight || 720
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    const dataUrl = canvas.toDataURL('image/png', 0.8)
-    await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
-  }
-  useEffect(() => { return () => { stopTrackingFlow() } }, [])
+
+  // No useEffect cleanup for tracking here - handled by Provider or explicit Stop
+  
   return (
     <AppShell title="Dashboard">
       <div className="grid grid-3">

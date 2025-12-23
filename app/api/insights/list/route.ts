@@ -14,14 +14,21 @@ export async function GET(req: NextRequest) {
   const date_end = searchParams.get('date_end') || searchParams.get('dateEnd') || ''
   const limit = Number(searchParams.get('limit') || 200)
   if (!org_id) return NextResponse.json({ error: 'MISSING_ORG' }, { status: 400 })
-  const actor = (req.headers.get('x-user-id') || '').trim()
+  const actor = (req.headers.get('x-user-id') || searchParams.get('x_user_id') || '').trim()
   const role = (req.headers.get('x-role') || '').trim()
-  if (!actor && role !== 'super_admin') return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
+
+  if (!actor && role !== 'super_admin') {
+    return NextResponse.json({ error: 'FORBIDDEN', reason: 'MISSING_ACTOR' }, { status: 403 })
+  }
+  
   const actorUser = actor ? await getUser(actor) : undefined
   const isSuper = role === 'super_admin'
   const sameOrg = actorUser ? actorUser.orgId === org_id : false
   const selfView = actor && member_id && actor === member_id
-  if (!isSuper && !sameOrg) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
+
+  if (!isSuper && !sameOrg) {
+    return NextResponse.json({ error: 'FORBIDDEN', reason: 'ORG_MISMATCH', debug: { actor, org_id, userOrg: actorUser?.orgId } }, { status: 403 })
+  }
   if (!isSuper && !selfView) {
     const allowed = true
     if (!allowed) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })

@@ -1015,12 +1015,12 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (openRow) return mapTimeSessionFromRow(openRow)
 
-    // Check cooldown only if no open session exists
-    const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
-    if (last) {
-      const diff = now.getTime() - new Date(last.start_time).getTime()
-      if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
-    }
+    // Cooldown check removed as per user request
+    // const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
+    // if (last) {
+    //   const diff = now.getTime() - new Date(last.start_time).getTime()
+    //   if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
+    // }
 
     const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()

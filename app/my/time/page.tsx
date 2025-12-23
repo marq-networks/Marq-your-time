@@ -1,11 +1,12 @@
 "use client"
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { useTracking } from '@components/TrackingProvider'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -18,6 +19,7 @@ function formatHM(mins: number) {
 }
 
 export default function MyDayPage() {
+  const tracking = useTracking()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<User[]>([])
@@ -26,17 +28,8 @@ export default function MyDayPage() {
   const [role, setRole] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
   const [consentText, setConsentText] = useState('')
-  const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
-  const [trackingOn, setTrackingOn] = useState(false)
+  const [tempTrackingId, setTempTrackingId] = useState<string | null>(null)
   const [consentStatus, setConsentStatus] = useState<'unknown'|'granted'|'denied'>('unknown')
-  const [permissionGranted, setPermissionGranted] = useState(false)
-  const [activityTimer, setActivityTimer] = useState<any>(null)
-  const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
-  const [screenshotKickoff, setScreenshotKickoff] = useState<any>(null)
-  const mouseCountRef = useRef(0)
-  const keyCountRef = useRef(0)
-  const streamRef = useRef<MediaStream | null>(null)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
   const [clockStart, setClockStart] = useState<number | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [clockTimer, setClockTimer] = useState<any>(null)
@@ -98,7 +91,16 @@ export default function MyDayPage() {
       return { ...prev, session_open: true, sessions: [open, ...(prev.sessions || [])] }
     })
     startClock()
-    await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
+    const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
+    // if (res.status === 403) {
+    //   const d = await res.json()
+    //   if (d.error === 'CHECKIN_COOLDOWN') {
+    //     alert('You cannot check in again within 12 hours of your last session.')
+    //     setUiStarting(false)
+    //     setUiSessionOpen(false)
+    //     return
+    //   }
+    // }
     await beginTracking()
     await loadSummary(memberId, orgId)
     setUiStarting(false)
@@ -114,7 +116,7 @@ export default function MyDayPage() {
     })
     stopClock()
     await fetch('/api/time/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
-    await stopTrackingFlow()
+    await tracking.stopTracking()
     for (let i = 0; i < 6; i++) {
       const res = await fetch(`/api/time/today?member_id=${memberId}&org_id=${orgId}`, { cache: 'no-store' })
       const data = await res.json()
@@ -141,184 +143,45 @@ export default function MyDayPage() {
     const res = await fetch('/api/tracking/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
     const data = await res.json()
     if (data.trackingAllowed && data.trackingSessionId) {
-      setTrackingSessionId(data.trackingSessionId)
       if (data.consentRequired) {
+        setTempTrackingId(data.trackingSessionId)
         setConsentText(String(data.consentText || ''))
         setConsentOpen(true)
       } else {
         setConsentStatus('granted')
         try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'granted') } catch {}
+        // Get settings to know if screenshots enabled
+        const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
+        await tracking.startTracking(data.trackingSessionId, s.settings)
       }
     }
   }
 
   const acceptConsent = async () => {
-    if (!trackingSessionId) { setConsentOpen(false); return }
-    const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: true, consent_text: consentText }) })
+    if (!tempTrackingId) { setConsentOpen(false); return }
+    const res = await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: tempTrackingId, accepted: true, consent_text: consentText }) })
     const data = await res.json()
     if (!data.allowed) { setConsentOpen(false); return }
     setConsentStatus('granted')
     try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'granted') } catch {}
-    setTrackingOn(true)
     setUiSessionOpen(true)
-    startActivityLoop()
-    const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
-    if (s.settings?.allowScreenshots) {
-      const ms = await ensureStream()
-      if (ms) {
-        setPermissionGranted(true)
-        await captureAndSendScreenshot()
-        if (!screenshotTimer) {
-          const t = setInterval(captureAndSendScreenshot, 60 * 1000)
-          setScreenshotTimer(t)
-          console.log('screenshotTimerStarted')
-        }
-        setScreenshotKickoff(null)
-      } else {
-        setPermissionGranted(false)
-        console.log('permissionDeniedForScreenshots')
-      }
-    }
     startClock()
-    console.log('consentChanged', { consentStatus: 'granted', sessionRunning: true, trackingEnabled: true })
+    const s = await fetch(`/api/activity/today?member_id=${memberId}&org_id=${orgId}`, { cache:'no-store' }).then(r=>r.json())
+    await tracking.startTracking(tempTrackingId, s.settings)
     setConsentOpen(false)
   }
 
   const rejectConsent = async () => {
-    if (!trackingSessionId) { setConsentOpen(false); return }
-    await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, accepted: false, consent_text: consentText }) })
+    if (!tempTrackingId) { setConsentOpen(false); return }
+    await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: tempTrackingId, accepted: false, consent_text: consentText }) })
     setConsentStatus('denied')
     try { localStorage.setItem(`marq_consent_${orgId}_${memberId}`, 'denied') } catch {}
-    await stopTrackingFlow()
-    setTrackingOn(false)
-    console.log('consentChanged', { consentStatus: 'denied', sessionRunning: uiSessionOpen, trackingEnabled: false })
+    await tracking.stopTracking()
     setConsentOpen(false)
   }
 
-  const startActivityLoop = () => {
-    if (activityTimer) return
-    const onMouse = () => { mouseCountRef.current += 1 }
-    const onKey = () => { keyCountRef.current += 1 }
-    window.addEventListener('mousemove', onMouse)
-    window.addEventListener('keydown', onKey)
-    const t = setInterval(async () => {
-      if (!trackingSessionId) return
-      const ev = {
-        timestamp: Date.now(),
-        app_name: 'Web',
-        window_title: document.title || 'MARQ',
-        url: location.href,
-        is_active: document.hasFocus(),
-        keyboard_activity_score: keyCountRef.current,
-        mouse_activity_score: mouseCountRef.current
-      }
-      keyCountRef.current = 0
-      mouseCountRef.current = 0
-      await fetch('/api/activity/batch', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, events: [ev] }) })
-    }, 60 * 1000)
-    setActivityTimer(t)
-  }
-
-  /* TEST CHECKLIST
-    - Start Day -> Allow -> tracking continues; screenshots start if enabled and permission granted (Electron)
-    - Start Day -> Close -> tracking continues; no consent change
-    - Start Day -> Decline -> tracking stops; consent=denied
-  */
-  const stopTrackingFlow = async () => {
-    if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
-    if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
-    if (screenshotKickoff) { clearTimeout(screenshotKickoff); setScreenshotKickoff(null) }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(tr=>tr.stop()); streamRef.current = null }
-    if (videoRef.current) { try { videoRef.current.pause() } catch {} ; if (videoRef.current.parentElement) videoRef.current.parentElement.removeChild(videoRef.current); videoRef.current = null }
-    setTrackingOn(false)
-    if (trackingSessionId) {
-      await fetch('/api/tracking/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId }) })
-    }
-    setTrackingSessionId(null)
-    stopClock()
-  }
-
-  const ensureStream = async () => {
-    if (streamRef.current) return streamRef.current
-    try {
-      const ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
-      streamRef.current = ms
-      if (!videoRef.current) {
-        const v = document.createElement('video')
-        v.style.position = 'fixed'
-        v.style.opacity = '0'
-        v.style.pointerEvents = 'none'
-        v.style.width = '1px'
-        v.style.height = '1px'
-        v.muted = true
-        v.playsInline = true as any
-        v.autoplay = true as any
-        v.srcObject = ms
-        document.body.appendChild(v)
-        videoRef.current = v
-        try { await v.play() } catch {}
-      } else {
-        videoRef.current.srcObject = ms
-        try { await videoRef.current.play() } catch {}
-      }
-      return ms
-    } catch {
-      return null
-    }
-  }
-
-  const captureAndSendScreenshot = async () => {
-    console.log('[Screenshot] Attempting capture...')
-    if (!trackingSessionId) {
-      console.warn('[Screenshot] No tracking session ID')
-      return
-    }
-    const ms = await ensureStream()
-    if (!ms) {
-      console.warn('[Screenshot] No stream available')
-      return
-    }
-    const video = videoRef.current || document.createElement('video')
-    if (!video.srcObject) {
-      video.srcObject = ms
-    }
-    try { await video.play() } catch (e) { console.warn('[Screenshot] Video play warning:', e) }
-    
-    // Wait for dimensions
-    let attempts = 0
-    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
-      await new Promise(r => setTimeout(r, 200))
-      attempts++
-    }
-    if (video.videoWidth === 0) {
-      console.error('[Screenshot] Video dimensions zero after wait')
-      return
-    }
-
-    if ((video as any).requestVideoFrameCallback) {
-      await new Promise(r => (video as any).requestVideoFrameCallback(() => r(null)))
-    } else {
-      await new Promise(r => setTimeout(r, 1000))
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth || 1280
-    canvas.height = video.videoHeight || 720
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    const dataUrl = canvas.toDataURL('image/png')
-    console.log('[Screenshot] Captured size:', dataUrl.length)
-    
-    try {
-      const res = await fetch('/api/activity/screenshot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: trackingSessionId, timestamp: Date.now(), image: dataUrl }) })
-      const json = await res.json()
-      console.log('[Screenshot] Server response:', json)
-    } catch (e) {
-      console.error('[Screenshot] Upload failed:', e)
-    }
-  }
-
-  useEffect(() => { return () => { stopTrackingFlow() } }, [])
+  // No useEffect cleanup for tracking here - handled by Provider or explicit Stop
+  
   const startClock = () => {
     const open = (summary.sessions||[]).find((s:any)=>!s.endTime)
     const base = open ? Number(open.startTime) : Date.now()

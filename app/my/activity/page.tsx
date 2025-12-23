@@ -46,7 +46,7 @@ export default function MyActivityPage() {
   }
   const load = async (mid: string, oid: string) => { const res = await fetch(`/api/activity/today?member_id=${mid}&org_id=${oid}`, { cache: 'no-store' }); const d = await res.json(); setData(d) }
   const [insights, setInsights] = useState<any[]>([])
-  const loadInsights = async (mid: string, oid: string) => { const qs = new URLSearchParams({ org_id: oid, member_id: mid, limit: '5' }); const res = await fetch(`/api/insights/list?${qs.toString()}`, { cache: 'no-store', headers: { 'x-user-id': mid } }); const d = await res.json(); setInsights(d.insights || d.items || []) }
+  const loadInsights = async (mid: string, oid: string) => { const qs = new URLSearchParams({ org_id: oid, member_id: mid, limit: '5', x_user_id: mid }); const res = await fetch(`/api/insights/list?${qs.toString()}`, { cache: 'no-store', headers: { 'x-user-id': mid } }); const d = await res.json(); setInsights(d.insights || d.items || []) }
 
   useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch { } }, [])
   useEffect(() => {

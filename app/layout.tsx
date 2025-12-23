@@ -4,6 +4,7 @@ import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import TopNav from '@components/TopNav'
 import SideNav from '@components/SideNav'
+import TrackingProvider from '@components/TrackingProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -15,11 +16,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.className}>
       <body>
-        <div className="nav"><TopNav /></div>
-        <div className="layout">
-          <SideNav />
-          <div className="main container">{children}</div>
-        </div>
+        <TrackingProvider>
+          <div className="nav"><TopNav /></div>
+          <div className="layout">
+            <SideNav />
+            <div className="main container">{children}</div>
+          </div>
+        </TrackingProvider>
       </body>
     </html>
   )

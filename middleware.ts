@@ -10,7 +10,7 @@ export default function middleware(req: NextRequest) {
   const currentOrg = kv.get('current_org_id') || ''
   const currentUser = kv.get('current_user_id') || ''
   const currentRole = kv.get('current_role') || ''
-  if (currentUser && !headers.get('x-user-id')) headers.set('x-user-id', currentUser)
+  if (currentUser) headers.set('x-user-id', currentUser)
   if (currentOrg && !headers.get('x-org-id')) headers.set('x-org-id', currentOrg)
   if (currentRole && !headers.get('x-role')) headers.set('x-role', currentRole)
   const path = req.nextUrl.pathname || '/'

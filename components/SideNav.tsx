@@ -6,6 +6,7 @@ export default function SideNav() {
     <div className="side" style={{padding:16}}>
       <div style={{display:'grid',gap:8}}>
         <Link href="/" className="btn" style={{display:'block',textDecoration:'none'}}>Dashboard</Link>
+        <Link href="/my/time" className="btn" style={{display:'block',textDecoration:'none'}}>My Day</Link>
         <Link href="/org/list" className="btn" style={{display:'block',textDecoration:'none'}}>Orgs</Link>
         <Link href="/users" className="btn" style={{display:'block',textDecoration:'none'}}>Users</Link>
         <Link href="/departments" className="btn" style={{display:'block',textDecoration:'none'}}>Departments</Link>

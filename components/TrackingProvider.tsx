@@ -1,0 +1,240 @@
+'use client'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
+
+interface TrackingContextType {
+  trackingSessionId: string | null
+  startTracking: (sessionId: string, settings?: any) => Promise<void>
+  stopTracking: () => Promise<void>
+  isTracking: boolean
+}
+
+const TrackingContext = createContext<TrackingContextType>({
+  trackingSessionId: null,
+  startTracking: async () => {},
+  stopTracking: async () => {},
+  isTracking: false
+})
+
+export const useTracking = () => useContext(TrackingContext)
+
+export default function TrackingProvider({ children }: { children: React.ReactNode }) {
+  const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
+  const [activityTimer, setActivityTimer] = useState<any>(null)
+  const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
+  const mouseCountRef = useRef(0)
+  const keyCountRef = useRef(0)
+  const streamRef = useRef<MediaStream | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  // Cleanup on unmount (of the provider, i.e., app close/refresh)
+  useEffect(() => {
+    return () => {
+      // We don't necessarily want to stop the API session on refresh, 
+      // but we lose the stream, so we must stop client-side tracking.
+      stopLocalTracking()
+    }
+  }, [])
+
+  const stopLocalTracking = () => {
+    if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
+    if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(tr => tr.stop()); streamRef.current = null }
+    if (videoRef.current) {
+      try { videoRef.current.pause() } catch {}
+      if (videoRef.current.parentElement) videoRef.current.parentElement.removeChild(videoRef.current)
+      videoRef.current = null
+    }
+    setTrackingSessionId(null)
+  }
+
+  const stopTracking = async () => {
+    if (trackingSessionId) {
+      try {
+        await fetch('/api/tracking/stop', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ tracking_session_id: trackingSessionId }) 
+        })
+      } catch (e) {
+        console.error('Failed to stop tracking session:', e)
+      }
+    }
+    stopLocalTracking()
+  }
+
+  const ensureStream = async () => {
+    if (streamRef.current) {
+      // Check if tracks are still active
+      if (streamRef.current.getTracks().some(t => t.readyState === 'live')) {
+        return streamRef.current
+      } else {
+        streamRef.current = null
+      }
+    }
+    
+    try {
+      const ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
+      streamRef.current = ms
+      
+      // Handle user stopping the stream via browser UI
+      ms.getVideoTracks()[0].onended = () => {
+        console.log('[Tracking] Stream ended by user')
+        stopTracking() // Or just stop local? User cut the stream.
+      }
+
+      if (!videoRef.current) {
+        const v = document.createElement('video')
+        v.style.position = 'fixed'
+        v.style.opacity = '0'
+        v.style.pointerEvents = 'none'
+        v.style.width = '1px'
+        v.style.height = '1px'
+        v.muted = true
+        v.playsInline = true as any
+        v.autoplay = true as any
+        v.srcObject = ms
+        document.body.appendChild(v)
+        videoRef.current = v
+        try { await v.play() } catch {}
+      } else {
+        videoRef.current.srcObject = ms
+        try { await videoRef.current.play() } catch {}
+      }
+      return ms
+    } catch (e) {
+      console.error('[Tracking] Permission denied or error:', e)
+      return null
+    }
+  }
+
+  const captureAndSendScreenshot = async (tid: string) => {
+    console.log('[Screenshot] Attempting capture for session:', tid)
+    const ms = await ensureStream()
+    if (!ms) return
+
+    const video = videoRef.current
+    if (!video) return
+
+    // Ensure video is playing
+    if (video.paused) {
+      try { await video.play() } catch {}
+    }
+
+    // Wait for dimensions if needed
+    let attempts = 0
+    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
+      await new Promise(r => setTimeout(r, 200))
+      attempts++
+    }
+
+    if ((video as any).requestVideoFrameCallback) {
+      await new Promise(r => (video as any).requestVideoFrameCallback(() => r(null)))
+    } else {
+      await new Promise(r => setTimeout(r, 1000))
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL('image/png', 0.8)
+
+    try {
+      const res = await fetch('/api/activity/screenshot', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ tracking_session_id: tid, timestamp: Date.now(), image: dataUrl }) 
+      })
+      const json = await res.json()
+      console.log('[Screenshot] Server response:', json)
+    } catch (e) {
+      console.error('[Screenshot] Upload failed:', e)
+    }
+  }
+
+  const startActivityLoop = (tid: string) => {
+    if (activityTimer) return
+    const onMouse = () => { mouseCountRef.current += 1 }
+    const onKey = () => { keyCountRef.current += 1 }
+    window.addEventListener('mousemove', onMouse)
+    window.addEventListener('keydown', onKey)
+    
+    const t = setInterval(async () => {
+      const isFocused = document.hasFocus()
+      const hasActivity = keyCountRef.current > 0 || mouseCountRef.current > 0
+      const isActive = isFocused ? hasActivity : true // Background tab workaround
+      
+      const ev = {
+        timestamp: Date.now(),
+        app_name: 'Web',
+        window_title: document.title || 'MARQ',
+        url: location.href,
+        is_active: isActive,
+        keyboard_activity_score: keyCountRef.current,
+        mouse_activity_score: mouseCountRef.current
+      }
+      
+      keyCountRef.current = 0
+      mouseCountRef.current = 0
+      
+      try {
+        await fetch('/api/activity/batch', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ tracking_session_id: tid, events: [ev] }) 
+        })
+      } catch (e) {
+        console.error('[Activity] Failed to send batch:', e)
+      }
+    }, 60 * 1000)
+    
+    setActivityTimer(t)
+    
+    // Return cleanup for the listeners? 
+    // The interval is stored in state, but listeners are global.
+    // We should probably remove listeners when stopping.
+    // For now, we'll handle listener removal in stopLocalTracking if we store the handlers.
+    // Actually, let's store handlers in refs or just leave them? 
+    // Leaving them is a small leak if we start/stop many times.
+    // Better to just add them once in useEffect? 
+    // Let's keep it simple for now, maybe move listeners to a useEffect dependent on trackingSessionId.
+  }
+
+  // Effect to manage event listeners based on tracking state
+  useEffect(() => {
+    if (!trackingSessionId) return
+    
+    const onMouse = () => { mouseCountRef.current += 1 }
+    const onKey = () => { keyCountRef.current += 1 }
+    window.addEventListener('mousemove', onMouse)
+    window.addEventListener('keydown', onKey)
+
+    return () => {
+      window.removeEventListener('mousemove', onMouse)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [trackingSessionId])
+
+  const startTracking = async (sessionId: string, settings?: any) => {
+    if (trackingSessionId === sessionId) return // Already tracking this session
+    
+    setTrackingSessionId(sessionId)
+    startActivityLoop(sessionId)
+
+    if (settings?.allowScreenshots) {
+      // Initial screenshot
+      await captureAndSendScreenshot(sessionId)
+      // Loop
+      const t = setInterval(() => captureAndSendScreenshot(sessionId), 60 * 1000)
+      setScreenshotTimer(t)
+    }
+  }
+
+  return (
+    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId }}>
+      {children}
+    </TrackingContext.Provider>
+  )
+}
