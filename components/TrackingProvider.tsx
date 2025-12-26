@@ -39,7 +39,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
   const stopLocalTracking = () => {
     if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
-    if (screenshotTimer) { clearInterval(screenshotTimer); setScreenshotTimer(null) }
+    if (screenshotTimer) { clearTimeout(screenshotTimer); setScreenshotTimer(null) }
     if (streamRef.current) { streamRef.current.getTracks().forEach(tr => tr.stop()); streamRef.current = null }
     if (videoRef.current) {
       try { videoRef.current.pause() } catch {}
@@ -161,14 +161,17 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     
     const t = setInterval(async () => {
       const isFocused = document.hasFocus()
-      // 5 minute idle threshold
+      // 1 minute idle threshold
       const timeSinceActivity = Date.now() - lastActivityRef.current
-      const isIdle = timeSinceActivity > 5 * 60 * 1000
+      const isIdle = timeSinceActivity > 1 * 60 * 1000
       
-      // If focused, we are active unless we've been idle for > 5 mins.
-      // If not focused (background), we assume active (legacy workaround for external work),
-      // unless user explicitly wants strict tracking (future setting).
-      const isActive = isFocused ? !isIdle : true 
+      // If focused, we are active unless we've been idle for > 1 min.
+      // If not focused (background), we use a stricter check:
+      // We allow "external work" (e.g. Excel) but if there is NO interaction with the browser 
+      // for 5 minutes, we assume the user is truly idle/away.
+      const backgroundGracePeriod = 5 * 60 * 1000
+      const isBackgroundActive = timeSinceActivity < backgroundGracePeriod
+      const isActive = isFocused ? !isIdle : isBackgroundActive 
       
       const ev = {
         timestamp: Date.now(),
@@ -245,9 +248,17 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     if (settings?.allowScreenshots) {
       // Initial screenshot
       await captureAndSendScreenshot(sessionId)
-      // Loop
-      const t = setInterval(() => captureAndSendScreenshot(sessionId), 60 * 1000)
-      setScreenshotTimer(t)
+      
+      // Random interval between 0 and 20 minutes
+      const scheduleNext = () => {
+        const delay = Math.floor(Math.random() * 20 * 60 * 1000)
+        const t = setTimeout(async () => {
+          await captureAndSendScreenshot(sessionId)
+          scheduleNext()
+        }, delay)
+        setScreenshotTimer(t)
+      }
+      scheduleNext()
     }
   }
 

@@ -71,8 +71,13 @@ export default function MyActivityPage() {
   const privacyLines = [`Activity tracking: ${data.settings.allowActivityTracking ? 'On' : 'Off'}`, `Screenshots: ${data.settings.allowScreenshots ? 'On' : 'Off'}`]
   
   const totalClicks = (data.events || []).reduce((acc: number, e: any) => acc + (e.clickCount || 0), 0)
-  const idleMinutes = (data.events || []).filter((e: any) => !e.isActive).length
-  const activeMinutes = (data.events || []).length - idleMinutes
+  const totalSessionMinutes = (data.sessions || []).reduce((acc: number, s: any) => {
+    const start = new Date(s.startTime).getTime()
+    const end = s.endTime ? new Date(s.endTime).getTime() : Date.now()
+    return acc + Math.max(0, (end - start) / 1000 / 60)
+  }, 0)
+  const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
+  const idleMinutes = Math.max(0, Math.floor(totalSessionMinutes) - activeMinutes)
 
   return (
     <AppShell title="My Activity">

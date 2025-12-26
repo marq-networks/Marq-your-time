@@ -7,8 +7,8 @@ import Toast from '@components/Toast'
 
 type LoginResponse = {
   mfaRequired?: boolean
-  memberships?: { role: 'owner'|'admin'|'manager'|'member' }[]
-  role?: 'owner'|'admin'|'manager'|'member'
+  memberships?: { role: 'owner'|'admin'|'manager'|'member'|'employee' }[]
+  role?: 'owner'|'admin'|'manager'|'member'|'employee'
 }
 
 export default function LoginForm() {
@@ -51,6 +51,16 @@ export default function LoginForm() {
         return
       }
       const memberships = Array.isArray(data.memberships) ? data.memberships : []
+      
+      // If the user is strictly an employee (member) in all organizations, redirect to My Day
+      const isEmployeeOnly = memberships.length > 0 && memberships.every(m => m.role === 'member' || m.role === 'employee')
+      if (isEmployeeOnly) {
+        const role = memberships[0].role
+        try { document.cookie = `current_role=${role}; path=/; SameSite=Lax` } catch {}
+        router.push('/my/time')
+        return
+      }
+
       if (memberships.length > 1) {
         router.push('/org/select')
         return

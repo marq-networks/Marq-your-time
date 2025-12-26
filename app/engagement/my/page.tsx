@@ -26,7 +26,7 @@ export default function MyEngagementPage() {
   useEffect(()=>{ if(orgId){ loadMembers(orgId); loadSurveys(orgId) } }, [orgId])
   useEffect(()=>{ if(activeSurveyId){ loadDetail(activeSurveyId) } }, [activeSurveyId])
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
+  const loadOrgs = async () => { const res = await fetch('/api/orgs/my', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]); if (!memberId && d.items?.length) setMemberId(d.items[0].id) }
   const loadSurveys = async (oid: string) => { const r = await fetch(`/api/surveys/list?org_id=${oid}`, { cache:'no-store' }); const d = await r.json(); const now = Date.now(); setSurveys((d.items||[]).filter((s:any)=> !s.closes_at || s.closes_at > now)) }
   const loadDetail = async (sid: string) => { const r = await fetch(`/api/surveys/detail?survey_id=${sid}`, { cache:'no-store' }); const d = await r.json(); setDetail(d); setAnswers({}) }

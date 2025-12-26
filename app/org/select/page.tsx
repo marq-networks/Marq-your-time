@@ -13,20 +13,27 @@ export default function OrgSelectPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const load = async () => {
-    const r = await fetch('/api/org/list', { cache:'no-store' })
-    const d = await r.json()
-    setOrgs(d.items||[])
-    if (!orgId && d.items?.length) setOrgId(d.items[0].id)
-  }
-
-  const submit = async () => {
-    if (!orgId) { setError('Select an organization'); return }
+  const submit = async (oid?: string) => {
+    const target = oid || orgId
+    if (!target) { setError('Select an organization'); return }
     setLoading(true)
     setError('')
-    const r = await fetch('/api/orgs/switch', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-user-id':'demo-user' }, body: JSON.stringify({ org_id: orgId }) })
+    const r = await fetch('/api/orgs/switch', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ org_id: target }) })
     if (!r.ok) { setError('Unable to switch organization'); setLoading(false); return }
     window.location.href = '/'
+  }
+
+  const load = async () => {
+    const r = await fetch('/api/orgs/my', { cache:'no-store' })
+    const d = await r.json()
+    const list = d.items || []
+    setOrgs(list)
+    if (list.length === 1) {
+       setOrgId(list[0].id)
+       submit(list[0].id)
+    } else if (!orgId && list.length) {
+       setOrgId(list[0].id)
+    }
   }
 
   useEffect(()=>{ load() }, [])

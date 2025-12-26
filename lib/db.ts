@@ -133,7 +133,7 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
       date,
       work_pattern_id: null,
       scheduled_minutes: scheduled,
-      worked_minutes: workedAfterFixedBreak,
+      worked_minutes: Math.min(workedAfterFixedBreak, scheduled > 0 ? scheduled : workedAfterFixedBreak),
       paid_break_minutes: paidBreak,
       unpaid_break_minutes: unpaidBreak,
       extra_minutes: extra,
@@ -184,7 +184,7 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
     date,
     workPatternId: undefined,
     scheduledMinutes: scheduled,
-    workedMinutes: workedAfterFixedBreak,
+    workedMinutes: Math.min(workedAfterFixedBreak, scheduled > 0 ? scheduled : workedAfterFixedBreak),
     paidBreakMinutes: paidBreak,
     unpaidBreakMinutes: unpaidBreak,
     extraMinutes: extra,
@@ -1197,10 +1197,36 @@ export async function stopBreak(params: { timeSessionId?: string, memberId?: str
 export async function getTodaySummary(input: { memberId: string, orgId: string }) {
   const now = new Date()
   const today = dateISO(now)
+
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    // Auto-close stale sessions (> 16 hours)
+    const { data: openRows } = await sb.from('time_sessions').select('*').eq('member_id', input.memberId).eq('org_id', input.orgId).eq('status', 'open')
+    if (openRows && openRows.length > 0) {
+       for (const sess of openRows) {
+          const start = new Date(sess.start_time).getTime()
+          const duration = now.getTime() - start
+          // 16 hours = 57,600,000 ms
+          if (duration > 57600000) {
+             // Cap at 12 hours (43,200,000 ms)
+             const newEnd = new Date(start + 43200000)
+             await sb.from('time_sessions').update({
+               status: 'closed',
+               end_time: newEnd,
+               total_minutes: 720,
+               updated_at: now
+             }).eq('id', sess.id)
+             // Also recompute for that day
+             await recomputeDaily(input.memberId, input.orgId, sess.date)
+          }
+       }
+    }
+  }
+
   const daily = await recomputeDaily(input.memberId, input.orgId, today)
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
-    const { data: sessRows } = await sb.from('time_sessions').select('*').eq('member_id', input.memberId).eq('org_id', input.orgId).eq('date', today).order('start_time', { ascending: true })
+    const { data: sessRows } = await sb.from('time_sessions').select('*').eq('member_id', input.memberId).eq('org_id', input.orgId).or(`date.eq.${today},status.eq.open`).order('start_time', { ascending: true })
     const { data: brRows } = await sb.from('break_sessions').select('*').in('time_session_id', (sessRows || []).map((r: any) => r.id)).order('start_time', { ascending: true })
     const openSession = (sessRows || []).find((r: any) => r.status === 'open')
     const openBreak = (brRows || []).find((r: any) => r.end_time === null)
@@ -1214,7 +1240,7 @@ export async function getTodaySummary(input: { memberId: string, orgId: string }
       breaks: (brRows || []).map(mapBreakSessionFromRow)
     }
   }
-  const sessions = timeSessions.filter(s => s.memberId === input.memberId && s.orgId === input.orgId && s.date === today).sort((a,b)=>a.startTime-b.startTime)
+  const sessions = timeSessions.filter(s => s.memberId === input.memberId && s.orgId === input.orgId && (s.date === today || s.status === 'open')).sort((a,b)=>a.startTime-b.startTime)
   const breaks = breakSessions.filter(b => sessions.some(s => s.id === b.timeSessionId)).sort((a,b)=>a.startTime-b.startTime)
   const openSession = sessions.find(s => s.status === 'open') || null
   const openBreak = breaks.find(b => !b.endTime) || null
@@ -1883,7 +1909,7 @@ export async function listActivityToday(memberId: string, orgId: string) {
   const today = dateISO(new Date())
   const sb = isSupabaseConfigured() ? supabaseServer() : null
   if (sb) {
-    const { data: sessRows } = await sb!.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).eq('date', today)
+    const { data: sessRows } = await sb!.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).or(`date.eq.${today},status.eq.open`)
     const ids = (sessRows || []).map((r: any) => r.id)
     const { data: tsRows } = await sb!.from('tracking_sessions').select('*').in('time_session_id', ids)
     const tsActive = (tsRows || []).find((r: any) => r.consent_given && !r.ended_at)
@@ -1905,7 +1931,7 @@ export async function listActivityToday(memberId: string, orgId: string) {
       screenshots: (scRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), storagePath: toPublicUrl(r.storage_path), thumbnailPath: toPublicUrl(r.thumbnail_path), blurLevel: Number(r.blur_level), wasMasked: !!r.was_masked, createdAt: new Date(r.created_at).getTime() }))
     }
   }
-  const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && s.date === today)
+  const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && (s.date === today || s.status === 'open'))
   const tsRows = trackingSessions.filter(t => sessions.some(s => s.id === t.timeSessionId))
   const tsActive = tsRows.find(t => t.consentGiven && !t.endedAt)
   const settings = await getPrivacySettings(memberId, orgId)

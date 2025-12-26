@@ -27,28 +27,32 @@ export async function GET(req: NextRequest) {
   let items = (data.summaries || []).map(s => {
     // Check for open session to add real-time duration
     const openSession = (data.sessions || []).find((sess: any) => sess.memberId === s.memberId && sess.status === 'open')
-    let worked = s.workedMinutes
+    
+    // Reconstruct total worked time because workedMinutes might be capped at scheduled in DB
+    let totalWorked = s.workedMinutes + (s.extraMinutes || 0)
     if (openSession) {
       const currentDuration = Math.max(0, (now - openSession.startTime) / 60000)
-      worked += currentDuration
+      totalWorked += currentDuration
     }
     
     // Recalculate status/extra/short based on new worked time
     const scheduled = s.scheduledMinutes
     let extra = 0
     let short = 0
+    let workedDisplay = totalWorked
     let status = s.status
     
     if (scheduled === 0) {
-      status = worked > 0 ? 'normal' : 'unconfigured'
-    } else if (worked === 0) {
+      status = totalWorked > 0 ? 'normal' : 'unconfigured'
+    } else if (totalWorked === 0) {
       status = 'absent'
-    } else if (worked > scheduled) {
+    } else if (totalWorked > scheduled) {
       status = 'extra'
-      extra = worked - scheduled
-    } else if (worked < scheduled) {
+      extra = totalWorked - scheduled
+      workedDisplay = scheduled
+    } else if (totalWorked < scheduled) {
       status = 'short'
-      short = scheduled - worked
+      short = scheduled - totalWorked
     }
     
     // Holiday logic override from db.ts recomputeDaily
@@ -56,7 +60,7 @@ export async function GET(req: NextRequest) {
 
     return {
       ...s,
-      workedMinutes: worked,
+      workedMinutes: workedDisplay,
       extraMinutes: extra,
       shortMinutes: short,
       status,

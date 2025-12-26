@@ -234,8 +234,18 @@ export default function MyDayPage() {
    }, 0)
 
    const totalWorkedMs = Math.max(0, sessionsMs - breaksMs)
-   const totalMinutes = totalWorkedMs / 60000
-   const earnings = (totalWorkedMs / 60000) * perMinuteRate
+  // Ensure we don't show impossibly large numbers if dates are messed up
+  const safeWorkedMs = (totalWorkedMs > 86400000) ? 0 : totalWorkedMs
+  const totalMinutes = safeWorkedMs / 60000
+  const earnings = (safeWorkedMs / 60000) * perMinuteRate
+  const [showOvertimeWarning, setShowOvertimeWarning] = useState(false)
+  const [showLimitWarning, setShowLimitWarning] = useState(false)
+
+  useEffect(() => {
+    // 8 hours = 480 mins, 12 hours = 720 mins
+    if (totalMinutes >= 720 && !showLimitWarning) setShowLimitWarning(true)
+    else if (totalMinutes >= 480 && !showOvertimeWarning && !showLimitWarning) setShowOvertimeWarning(true)
+  }, [totalMinutes, showOvertimeWarning, showLimitWarning])
 
   if (role && !['employee','member'].includes(role)) {
     return (
@@ -252,6 +262,19 @@ export default function MyDayPage() {
 
   return (
     <AppShell title="My Day">
+      {showOvertimeWarning && (
+        <div className="glass-panel" style={{marginBottom:16, padding:16, background:'rgba(255,165,0,0.15)', border:'1px solid rgba(255,165,0,0.3)', color:'#FFC107', display:'flex', alignItems:'center', gap:12}}>
+          <div style={{fontSize:20}}>⚠️</div>
+          <div>You have exceeded 8 hours of work today. You are now in overtime.</div>
+          <GlassButton variant="secondary" onClick={()=>setShowOvertimeWarning(false)} style={{marginLeft:'auto', height:32, fontSize:12}}>Dismiss</GlassButton>
+        </div>
+      )}
+      {showLimitWarning && (
+        <div className="glass-panel" style={{marginBottom:16, padding:16, background:'rgba(255,59,48,0.15)', border:'1px solid rgba(255,59,48,0.3)', color:'#FF3B30', display:'flex', alignItems:'center', gap:12}}>
+          <div style={{fontSize:20}}>🛑</div>
+          <div><strong>Maximum Limit Reached:</strong> You have worked over 12 hours today. Please end your day immediately.</div>
+        </div>
+      )}
       <div className="grid grid-2" style={{marginBottom: 24}}>
           <div>
             <div className="label">Organization</div>
@@ -279,13 +302,13 @@ export default function MyDayPage() {
 
       <div className="grid grid-3" style={{gap: 24, marginBottom: 24}}>
         <GlassCard title="Worked Today">
-          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700}}>{fmtClock(totalWorkedMs)}</div>
+          <div className="title" style={{fontSize: '2.5rem', fontWeight: 700}}>{fmtClock(safeWorkedMs)}</div>
           <div className="subtitle">Total worked time</div>
         </GlassCard>
         
         <GlassCard title="Live Clock">
            <div className="title" style={{fontSize: '2.5rem', fontWeight: 700, color: uiSessionOpen ? 'var(--primary)' : 'inherit'}}>
-             {clockStart ? fmtClock(elapsedMs) : '00:00:00'}
+             {clockStart ? fmtClock(Math.min(elapsedMs, 86400000)) : '00:00:00'}
            </div>
            <div className="subtitle">{uiSessionOpen ? 'Session Active' : 'Session Inactive'}</div>
            <div style={{marginTop: 16}}>
