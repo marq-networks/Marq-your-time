@@ -6,15 +6,13 @@ interface TrackingContextType {
   startTracking: (sessionId: string, settings?: any) => Promise<void>
   stopTracking: () => Promise<void>
   isTracking: boolean
-  localStats: { keys: number, clicks: number, mouse: number }
 }
 
 const TrackingContext = createContext<TrackingContextType>({
   trackingSessionId: null,
   startTracking: async () => {},
   stopTracking: async () => {},
-  isTracking: false,
-  localStats: { keys: 0, clicks: 0, mouse: 0 }
+  isTracking: false
 })
 
 export const useTracking = () => useContext(TrackingContext)
@@ -23,7 +21,6 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
   const [activityTimer, setActivityTimer] = useState<any>(null)
   const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
-  const [localStats, setLocalStats] = useState({ keys: 0, clicks: 0, mouse: 0 })
   const mouseCountRef = useRef(0)
   const clickCountRef = useRef(0)
   const keyCountRef = useRef(0)
@@ -192,7 +189,6 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       clickCountRef.current = 0
       
       try {
-        console.log('[Activity] Sending batch:', ev)
         await fetch('/api/activity/batch', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
@@ -201,7 +197,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       } catch (e) {
         console.error('[Activity] Failed to send batch:', e)
       }
-    }, 10 * 1000)
+    }, 60 * 1000)
     
     setActivityTimer(t)
   }
@@ -225,9 +221,8 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       clickCountRef.current += 1
       updateActivity()
     }
-    const onKey = (e: KeyboardEvent) => { 
+    const onKey = () => { 
       keyCountRef.current += 1 
-      // console.log('[Activity] Key press:', e.key)
       updateActivity()
     }
     
@@ -242,24 +237,6 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('scroll', updateActivity)
     }
-  }, [trackingSessionId])
-
-  // Sync refs to local state for UI feedback
-  useEffect(() => {
-    if (!trackingSessionId) {
-      setLocalStats({ keys: 0, clicks: 0, mouse: 0 })
-      return
-    }
-    
-    const t = setInterval(() => {
-      setLocalStats({
-        keys: keyCountRef.current,
-        clicks: clickCountRef.current,
-        mouse: mouseCountRef.current
-      })
-    }, 1000)
-    
-    return () => clearInterval(t)
   }, [trackingSessionId])
 
   const startTracking = async (sessionId: string, settings?: any) => {
@@ -302,7 +279,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   }, [])
 
   return (
-    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats }}>
+    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId }}>
       {children}
     </TrackingContext.Provider>
   )
