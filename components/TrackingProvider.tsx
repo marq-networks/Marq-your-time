@@ -1,6 +1,16 @@
 'use client'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
+declare global {
+  interface Window {
+    electronAPI?: {
+      onActivityUpdate: (cb: (stats: any) => void) => void
+      startTracking: () => void
+      stopTracking: () => void
+    }
+  }
+}
+
 interface TrackingContextType {
   trackingSessionId: string | null
   startTracking: (sessionId: string, settings?: any) => Promise<void>
@@ -63,6 +73,9 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
   const stopLocalTracking = () => {
     clearTimers()
+    if (window.electronAPI) {
+      window.electronAPI.stopTracking()
+    }
     if (streamRef.current) { streamRef.current.getTracks().forEach(tr => tr.stop()); streamRef.current = null }
     if (videoRef.current) {
       try { videoRef.current.pause() } catch {}
@@ -261,6 +274,21 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
     const updateActivity = () => {
       lastActivityRef.current = Date.now()
+    }
+
+    // Use Electron global tracking if available
+    if (window.electronAPI) {
+      console.log('[Tracking] Using Electron global hooks')
+      window.electronAPI.startTracking()
+      window.electronAPI.onActivityUpdate((stats: any) => {
+        keyCountRef.current += stats.keyboard
+        mouseCountRef.current += stats.mouse
+        clickCountRef.current += stats.clicks
+        updateActivity()
+      })
+      return () => {
+        window.electronAPI?.stopTracking()
+      }
     }
 
     const onMouse = () => { 
