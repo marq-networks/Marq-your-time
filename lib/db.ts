@@ -1926,6 +1926,7 @@ export async function listActivityToday(memberId: string, orgId: string) {
     }
     return {
       trackingOn: !!tsActive,
+      trackingSessionId: tsActive ? tsActive.id : undefined,
       settings,
       events: (evRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), appName: r.app_name, windowTitle: r.window_title, url: r.url ?? undefined, category: r.category ?? undefined, isActive: !!r.is_active, keyboardActivityScore: r.keyboard_activity_score ?? undefined, mouseActivityScore: r.mouse_activity_score ?? undefined, clickCount: r.click_count ?? undefined, createdAt: new Date(r.created_at).getTime() })),
       screenshots: (scRows || []).map(r => ({ id: r.id, trackingSessionId: r.tracking_session_id, timestamp: new Date(r.timestamp).getTime(), storagePath: toPublicUrl(r.storage_path), thumbnailPath: toPublicUrl(r.thumbnail_path), blurLevel: Number(r.blur_level), wasMasked: !!r.was_masked, createdAt: new Date(r.created_at).getTime() }))
@@ -1937,7 +1938,7 @@ export async function listActivityToday(memberId: string, orgId: string) {
   const settings = await getPrivacySettings(memberId, orgId)
   const evs = activityEvents.filter(e => tsRows.some(t => t.id === e.trackingSessionId))
   const scs = screenshots.filter(s => tsRows.some(t => t.id === s.trackingSessionId))
-  return { trackingOn: !!tsActive, settings, events: evs, screenshots: scs }
+  return { trackingOn: !!tsActive, trackingSessionId: tsActive ? tsActive.id : undefined, settings, events: evs, screenshots: scs }
 }
 
 export async function getPrivacySettings(memberId: string, orgId: string): Promise<MemberPrivacySettings> {

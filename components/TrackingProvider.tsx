@@ -6,13 +6,15 @@ interface TrackingContextType {
   startTracking: (sessionId: string, settings?: any) => Promise<void>
   stopTracking: () => Promise<void>
   isTracking: boolean
+  localStats: { keys: number, clicks: number, mouse: number }
 }
 
 const TrackingContext = createContext<TrackingContextType>({
   trackingSessionId: null,
   startTracking: async () => {},
   stopTracking: async () => {},
-  isTracking: false
+  isTracking: false,
+  localStats: { keys: 0, clicks: 0, mouse: 0 }
 })
 
 export const useTracking = () => useContext(TrackingContext)
@@ -27,6 +29,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const lastActivityRef = useRef(Date.now())
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [localStats, setLocalStats] = useState({ keys: 0, clicks: 0, mouse: 0 })
 
   // Cleanup on unmount (of the provider, i.e., app close/refresh)
   useEffect(() => {
@@ -37,9 +40,29 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     }
   }, [])
 
-  const stopLocalTracking = () => {
+  useEffect(() => {
+    if (!trackingSessionId) {
+      setLocalStats({ keys: 0, clicks: 0, mouse: 0 })
+      return
+    }
+    const t = setInterval(() => {
+      setLocalStats({
+        keys: keyCountRef.current,
+        clicks: clickCountRef.current,
+        mouse: mouseCountRef.current
+      })
+    }, 1000)
+    return () => clearInterval(t)
+  }, [trackingSessionId])
+
+
+  const clearTimers = () => {
     if (activityTimer) { clearInterval(activityTimer); setActivityTimer(null) }
     if (screenshotTimer) { clearTimeout(screenshotTimer); setScreenshotTimer(null) }
+  }
+
+  const stopLocalTracking = () => {
+    clearTimers()
     if (streamRef.current) { streamRef.current.getTracks().forEach(tr => tr.stop()); streamRef.current = null }
     if (videoRef.current) {
       try { videoRef.current.pause() } catch {}
@@ -173,29 +196,56 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       const isBackgroundActive = timeSinceActivity < backgroundGracePeriod
       const isActive = isFocused ? !isIdle : isBackgroundActive 
       
+      const currentKeys = keyCountRef.current
+      const currentMouse = mouseCountRef.current
+      const currentClicks = clickCountRef.current
+      
+      // If no activity, skip batch (optional, but saves bandwidth)
+      // But we need to send "heartbeat" if active? 
+      // The logic below sends even if counts are 0, which is fine (to update is_active status).
+      
       const ev = {
         timestamp: Date.now(),
         app_name: 'Web',
         window_title: document.title || 'MARQ',
         url: location.href,
         is_active: isActive,
-        keyboard_activity_score: keyCountRef.current,
-        mouse_activity_score: mouseCountRef.current,
-        click_count: clickCountRef.current
+        keyboard_activity_score: currentKeys,
+        mouse_activity_score: currentMouse,
+        click_count: currentClicks
       }
       
+      // Optimistically reset refs
       keyCountRef.current = 0
       mouseCountRef.current = 0
       clickCountRef.current = 0
       
       try {
-        await fetch('/api/activity/batch', { 
+        const res = await fetch('/api/activity/batch', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ tracking_session_id: tid, events: [ev] }) 
         })
+        if (!res.ok) {
+           // If 403, session is invalid/ended. Stop tracking to prevent infinite loops.
+           if (res.status === 403) {
+             console.error('[Activity] Tracking session invalid (403), stopping.')
+             stopLocalTracking()
+             return
+           }
+
+           // If other error, restore counts so we don't lose data
+           console.warn('[Activity] Batch upload failed, restoring counts', res.status)
+           keyCountRef.current += currentKeys
+           mouseCountRef.current += currentMouse
+           clickCountRef.current += currentClicks
+        }
       } catch (e) {
         console.error('[Activity] Failed to send batch:', e)
+        // Restore counts on network error
+        keyCountRef.current += currentKeys
+        mouseCountRef.current += currentMouse
+        clickCountRef.current += currentClicks
       }
     }, 60 * 1000)
     
@@ -226,22 +276,25 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       updateActivity()
     }
     
-    window.addEventListener('mousemove', onMouse)
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', updateActivity) // Also track scroll as activity
+    window.addEventListener('mousemove', onMouse, true)
+    window.addEventListener('mousedown', onClick, true)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('scroll', updateActivity, true) // Also track scroll as activity
 
     return () => {
-      window.removeEventListener('mousemove', onMouse)
-      window.removeEventListener('mousedown', onClick)
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', updateActivity)
+      window.removeEventListener('mousemove', onMouse, true)
+      window.removeEventListener('mousedown', onClick, true)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('scroll', updateActivity, true)
     }
   }, [trackingSessionId])
 
   const startTracking = async (sessionId: string, settings?: any) => {
     if (trackingSessionId === sessionId) return // Already tracking this session
     
+    // clear any existing timers to prevent zombie loops
+    clearTimers()
+
     setTrackingSessionId(sessionId)
     startActivityLoop(sessionId)
 
@@ -279,7 +332,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   }, [])
 
   return (
-    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId }}>
+    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats }}>
       {children}
     </TrackingContext.Provider>
   )

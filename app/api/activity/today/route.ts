@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const base = await listActivityToday(memberId, orgId)
   const time = await getTodaySummary({ memberId, orgId })
   const apps = aggregateTopApps(base.events || [])
-  return NextResponse.json({ trackingOn: base.trackingOn, settings: base.settings, sessions: time.sessions, breaks: time.breaks, events: base.events, topApps: apps, screenshots: base.settings.allowScreenshots ? base.screenshots : [] })
+  return NextResponse.json({ trackingOn: base.trackingOn, trackingSessionId: base.trackingSessionId, settings: base.settings, sessions: time.sessions, breaks: time.breaks, events: base.events, topApps: apps, screenshots: base.settings.allowScreenshots ? base.screenshots : [] })
 }
 
 function aggregateTopApps(events: any[]) {

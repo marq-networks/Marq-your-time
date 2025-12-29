@@ -7,6 +7,7 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { useTracking } from '@components/TrackingProvider'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -14,6 +15,7 @@ type User = { id: string, firstName: string, lastName: string }
 function formatHM(mins: number) { const m = Math.max(0, Math.round(mins || 0)); const h = Math.floor(m / 60); const mm = String(m % 60).padStart(2, '0'); return `${h}:${mm}` }
 
 export default function MyActivityPage() {
+  const { isTracking, localStats, startTracking } = useTracking()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<User[]>([])
@@ -62,15 +64,27 @@ export default function MyActivityPage() {
   useEffect(() => { if (orgId && memberId) { load(memberId, orgId); loadInsights(memberId, orgId) } }, [orgId, memberId])
   useEffect(() => {
     let t: any = null
-    if (orgId && memberId && (data.trackingOn || data.settings.allowScreenshots)) {
+    if (orgId && memberId && (data.trackingOn || isTracking || data.settings.allowScreenshots)) {
       t = setInterval(() => load(memberId, orgId), 3000)
     }
     return () => { if (t) clearInterval(t) }
-  }, [orgId, memberId, data.trackingOn, data.settings?.allowScreenshots])
+  }, [orgId, memberId, data.trackingOn, isTracking, data.settings?.allowScreenshots])
+
+  // Auto-connect if server says tracking is on but we are not tracking locally
+  useEffect(() => {
+    if (data.trackingOn && !isTracking && data.trackingSessionId) {
+      console.log('Auto-connecting to active session:', data.trackingSessionId)
+      startTracking(data.trackingSessionId, data.settings)
+    }
+  }, [data.trackingOn, isTracking, data.trackingSessionId])
 
   const privacyLines = [`Activity tracking: ${data.settings.allowActivityTracking ? 'On' : 'Off'}`, `Screenshots: ${data.settings.allowScreenshots ? 'On' : 'Off'}`]
   
+  const currentUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+
   const totalClicks = (data.events || []).reduce((acc: number, e: any) => acc + (e.clickCount || 0), 0)
+  const totalKeys = (data.events || []).reduce((acc: number, e: any) => acc + (e.keyboardActivityScore || 0), 0)
+  
   const totalSessionMinutes = (data.sessions || []).reduce((acc: number, s: any) => {
     const start = new Date(s.startTime).getTime()
     const end = s.endTime ? new Date(s.endTime).getTime() : Date.now()
@@ -78,6 +92,13 @@ export default function MyActivityPage() {
   }, 0)
   const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
   const idleMinutes = Math.max(0, Math.floor(totalSessionMinutes) - activeMinutes)
+
+  const showLocalStats = isTracking
+  const pendingKeys = showLocalStats ? localStats.keys : 0
+  const pendingClicks = showLocalStats ? localStats.clicks : 0
+  
+  const totalInteractions = totalClicks + totalKeys
+  const pendingInteractions = pendingClicks + pendingKeys
 
   return (
     <AppShell title="My Activity">
@@ -117,8 +138,18 @@ export default function MyActivityPage() {
       </div>
       <div className='mt-10'>
         <div style={{marginBottom: 20}}>
-          <GlassCard title="Activity Stats">
-             <div className="grid grid-3" style={{ textAlign: 'center' }}>
+          <GlassCard title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              Activity Stats
+              {showLocalStats && (
+                <span className="badge" style={{ background: '#22c55e', color: 'white', border: 'none' }}>LIVE</span>
+              )}
+              {!showLocalStats && data.trackingOn && (
+                <span className="badge" style={{ background: '#eab308', color: 'white', border: 'none' }}>CONNECTING...</span>
+              )}
+            </div>
+          }>
+             <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
                 <div>
                    <div className="label">Active Time</div>
                    <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(activeMinutes)}</div>
@@ -128,8 +159,25 @@ export default function MyActivityPage() {
                    <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(idleMinutes)}</div>
                 </div>
                 <div>
-                   <div className="label">Total Clicks</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{totalClicks}</div>
+                   <div className="label">Total Interactions</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                     {totalInteractions}
+                     {pendingInteractions > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingInteractions})</span>}
+                   </div>
+                </div>
+                <div>
+                   <div className="label">Mouse Clicks</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                     {totalClicks}
+                     {pendingClicks > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingClicks})</span>}
+                   </div>
+                </div>
+                <div>
+                   <div className="label">Keyboard Keys</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                     {totalKeys}
+                     {pendingKeys > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingKeys})</span>}
+                   </div>
                 </div>
              </div>
           </GlassCard>
