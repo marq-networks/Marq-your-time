@@ -1912,7 +1912,10 @@ export async function listActivityToday(memberId: string, orgId: string) {
     const { data: sessRows } = await sb!.from('time_sessions').select('*').eq('member_id', memberId).eq('org_id', orgId).or(`date.eq.${today},status.eq.open`)
     const ids = (sessRows || []).map((r: any) => r.id)
     const { data: tsRows } = await sb!.from('tracking_sessions').select('*').in('time_session_id', ids)
-    const tsActive = (tsRows || []).find((r: any) => r.consent_given && !r.ended_at)
+    const tsActive = (tsRows || []).find((r: any) => {
+      const parent = (sessRows || []).find((s: any) => s.id === r.time_session_id)
+      return r.consent_given && !r.ended_at && parent && parent.status === 'open'
+    })
     const { data: evRows } = await sb!.from('activity_events').select('*').in('tracking_session_id', (tsRows || []).map((r: any) => r.id))
     const { data: scRows } = await sb!.from('screenshots').select('*').in('tracking_session_id', (tsRows || []).map((r: any) => r.id))
     const settings = await getPrivacySettings(memberId, orgId)
@@ -1934,7 +1937,10 @@ export async function listActivityToday(memberId: string, orgId: string) {
   }
   const sessions = timeSessions.filter(s => s.memberId === memberId && s.orgId === orgId && (s.date === today || s.status === 'open'))
   const tsRows = trackingSessions.filter(t => sessions.some(s => s.id === t.timeSessionId))
-  const tsActive = tsRows.find(t => t.consentGiven && !t.endedAt)
+  const tsActive = tsRows.find(t => {
+    const parent = sessions.find(s => s.id === t.timeSessionId)
+    return t.consentGiven && !t.endedAt && parent && parent.status === 'open'
+  })
   const settings = await getPrivacySettings(memberId, orgId)
   const evs = activityEvents.filter(e => tsRows.some(t => t.id === e.trackingSessionId))
   const scs = screenshots.filter(s => tsRows.some(t => t.id === s.trackingSessionId))
