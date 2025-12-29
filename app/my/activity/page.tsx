@@ -7,6 +7,7 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { useTracking } from '@components/TrackingProvider'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -18,9 +19,11 @@ export default function MyActivityPage() {
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<User[]>([])
   const [memberId, setMemberId] = useState('')
+  const [currentUserId, setCurrentUserId] = useState('')
   const [data, setData] = useState<any>({ trackingOn: false, settings: { allowActivityTracking: false, allowScreenshots: false, maskPersonalWindows: true }, sessions: [], breaks: [], events: [], topApps: [], screenshots: [] })
   const [shot, setShot] = useState<any | undefined>(undefined)
   const [role, setRole] = useState('')
+  const { localStats, isTracking } = useTracking()
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -53,6 +56,7 @@ export default function MyActivityPage() {
     try {
       const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
       const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      if (cookieUserId) setCurrentUserId(cookieUserId)
       if (!orgId && cookieOrgId) setOrgId(cookieOrgId)
       if (!memberId && cookieUserId) setMemberId(cookieUserId)
     } catch {}
@@ -62,15 +66,18 @@ export default function MyActivityPage() {
   useEffect(() => { if (orgId && memberId) { load(memberId, orgId); loadInsights(memberId, orgId) } }, [orgId, memberId])
   useEffect(() => {
     let t: any = null
-    if (orgId && memberId && (data.trackingOn || data.settings.allowScreenshots)) {
+    // If tracking is on (either from server or locally started), or screenshots enabled, poll more frequently.
+    // We check `isTracking` (local) to ensure instant feedback loop activation when user starts tracking.
+    if (orgId && memberId && (data.trackingOn || isTracking || data.settings.allowScreenshots)) {
       t = setInterval(() => load(memberId, orgId), 3000)
     }
     return () => { if (t) clearInterval(t) }
-  }, [orgId, memberId, data.trackingOn, data.settings?.allowScreenshots])
+  }, [orgId, memberId, data.trackingOn, isTracking, data.settings?.allowScreenshots])
 
   const privacyLines = [`Activity tracking: ${data.settings.allowActivityTracking ? 'On' : 'Off'}`, `Screenshots: ${data.settings.allowScreenshots ? 'On' : 'Off'}`]
   
   const totalClicks = (data.events || []).reduce((acc: number, e: any) => acc + (e.clickCount || 0), 0)
+  const totalKeys = (data.events || []).reduce((acc: number, e: any) => acc + (e.keyboardActivityScore || 0), 0)
   const totalSessionMinutes = (data.sessions || []).reduce((acc: number, s: any) => {
     const start = new Date(s.startTime).getTime()
     const end = s.endTime ? new Date(s.endTime).getTime() : Date.now()
@@ -78,6 +85,10 @@ export default function MyActivityPage() {
   }, 0)
   const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
   const idleMinutes = Math.max(0, Math.floor(totalSessionMinutes) - activeMinutes)
+
+  const showLocalStats = isTracking && (memberId === currentUserId)
+  const pendingKeys = showLocalStats ? localStats.keys : 0
+  const pendingClicks = showLocalStats ? localStats.clicks : 0
 
   return (
     <AppShell title="My Activity">
@@ -118,7 +129,7 @@ export default function MyActivityPage() {
       <div className='mt-10'>
         <div style={{marginBottom: 20}}>
           <GlassCard title="Activity Stats">
-             <div className="grid grid-3" style={{ textAlign: 'center' }}>
+             <div className="grid grid-4" style={{ textAlign: 'center' }}>
                 <div>
                    <div className="label">Active Time</div>
                    <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(activeMinutes)}</div>
@@ -128,8 +139,18 @@ export default function MyActivityPage() {
                    <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(idleMinutes)}</div>
                 </div>
                 <div>
-                   <div className="label">Total Clicks</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{totalClicks}</div>
+                   <div className="label">Mouse Clicks</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                     {totalClicks}
+                     {pendingClicks > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingClicks})</span>}
+                   </div>
+                </div>
+                <div>
+                   <div className="label">Key Presses</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                     {totalKeys}
+                     {pendingKeys > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingKeys})</span>}
+                   </div>
                 </div>
              </div>
           </GlassCard>
