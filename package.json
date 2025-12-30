@@ -16,7 +16,7 @@
     "appId": "com.marq.tracker",
     "productName": "Marq Tracker",
     "directories": {
-      "output": "dist"
+      "output": "dist_final"
     },
     "files": [
       "electron/**/*",
