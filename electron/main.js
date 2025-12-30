@@ -23,8 +23,14 @@ function createWindow() {
     }
   })
 
-  // In production, this might load a file, but for now we keep localhost
-  mainWindow.loadURL('http://localhost:3000')
+  // CHANGE THIS: The URL of your deployed Next.js app
+  // When you build the app for others, it will use this URL.
+  // When running locally (npm run electron), it uses localhost.
+  const PROD_URL = 'https://your-deployed-app-url.vercel.app' 
+  const devUrl = 'http://localhost:3000'
+  const appUrl = app.isPackaged ? PROD_URL : devUrl
+
+  mainWindow.loadURL(appUrl)
 }
 
 app.whenReady().then(() => {

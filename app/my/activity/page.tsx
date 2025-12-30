@@ -25,15 +25,13 @@ export default function MyActivityPage() {
   const [role, setRole] = useState('')
 
   const loadOrgs = async () => {
-    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const endpoint = '/api/orgs/my'
     const res = await fetch(endpoint, { cache: 'no-store' })
     const d = await res.json()
     const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
     setOrgs(items)
-    if (!orgId && items.length) {
-      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
-      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
-      setOrgId(preferred)
+    if (items.length > 0 && !orgId) {
+      setOrgId(items[0].id)
     }
   }
   const loadMembers = async (oid: string) => {
