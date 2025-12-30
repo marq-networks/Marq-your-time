@@ -1,0 +1,94 @@
+[33mcommit d21a6770de4c68f5ca80997a160f700be8ea822b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: marqnetworks <135626933+marqnetwork@users.noreply.github.com>
+Date:   Tue Dec 30 23:12:54 2025 +0500
+
+    fix
+
+ .gitignore                                     |      1 [32m+[m
+ dist_new/builder-debug.yml                     |     18 [32m+[m
+ dist_new/builder-effective-config.yaml         |     13 [32m+[m
+ dist_new/win-unpacked/LICENSE.electron.txt     |     21 [32m+[m
+ dist_new/win-unpacked/LICENSES.chromium.html   | 170109 [32m++++++++++++++++++++++[m
+ dist_new/win-unpacked/Marq Tracker.exe         |    Bin [31m0[m -> [32m180654592[m bytes
+ dist_new/win-unpacked/chrome_100_percent.pak   |    Bin [31m0[m -> [32m151856[m bytes
+ dist_new/win-unpacked/chrome_200_percent.pak   |    Bin [31m0[m -> [32m228784[m bytes
+ dist_new/win-unpacked/d3dcompiler_47.dll       |    Bin [31m0[m -> [32m4916728[m bytes
+ dist_new/win-unpacked/ffmpeg.dll               |    Bin [31m0[m -> [32m2682880[m bytes
+ dist_new/win-unpacked/icudtl.dat               |    Bin [31m0[m -> [32m10468208[m bytes
+ dist_new/win-unpacked/libEGL.dll               |    Bin [31m0[m -> [32m481280[m bytes
+ dist_new/win-unpacked/libGLESv2.dll            |    Bin [31m0[m -> [32m8058368[m bytes
+ dist_new/win-unpacked/locales/af.pak           |    Bin [31m0[m -> [32m506356[m bytes
+ dist_new/win-unpacked/locales/am.pak           |    Bin [31m0[m -> [32m819416[m bytes
+ dist_new/win-unpacked/locales/ar.pak           |    Bin [31m0[m -> [32m895255[m bytes
+ dist_new/win-unpacked/locales/bg.pak           |    Bin [31m0[m -> [32m935663[m bytes
+ dist_new/win-unpacked/locales/bn.pak           |    Bin [31m0[m -> [32m1205172[m bytes
+ dist_new/win-unpacked/locales/ca.pak           |    Bin [31m0[m -> [32m569420[m bytes
+ dist_new/win-unpacked/locales/cs.pak           |    Bin [31m0[m -> [32m585782[m bytes
+ dist_new/win-unpacked/locales/da.pak           |    Bin [31m0[m -> [32m530869[m bytes
+ dist_new/win-unpacked/locales/de.pak           |    Bin [31m0[m -> [32m566548[m bytes
+ dist_new/win-unpacked/locales/el.pak           |    Bin [31m0[m -> [32m1026002[m bytes
+ dist_new/win-unpacked/locales/en-GB.pak        |    Bin [31m0[m -> [32m461229[m bytes
+ dist_new/win-unpacked/locales/en-US.pak        |    Bin [31m0[m -> [32m464976[m bytes
+ dist_new/win-unpacked/locales/es-419.pak       |    Bin [31m0[m -> [32m560477[m bytes
+ dist_new/win-unpacked/locales/es.pak           |    Bin [31m0[m -> [32m560252[m bytes
+ dist_new/win-unpacked/locales/et.pak           |    Bin [31m0[m -> [32m509763[m bytes
+ dist_new/win-unpacked/locales/fa.pak           |    Bin [31m0[m -> [32m833338[m bytes
+ dist_new/win-unpacked/locales/fi.pak           |    Bin [31m0[m -> [32m520334[m bytes
+ dist_new/win-unpacked/locales/fil.pak          |    Bin [31m0[m -> [32m587316[m bytes
+ dist_new/win-unpacked/locales/fr.pak           |    Bin [31m0[m -> [32m605481[m bytes
+ dist_new/win-unpacked/locales/gu.pak           |    Bin [31m0[m -> [32m1185837[m bytes
+ dist_new/win-unpacked/locales/he.pak           |    Bin [31m0[m -> [32m730552[m bytes
+ dist_new/win-unpacked/locales/hi.pak           |    Bin [31m0[m -> [32m1250519[m bytes
+ dist_new/win-unpacked/locales/hr.pak           |    Bin [31m0[m -> [32m564867[m bytes
+ dist_new/win-unpacked/locales/hu.pak           |    Bin [31m0[m -> [32m609356[m bytes
+ dist_new/win-unpacked/locales/id.pak           |    Bin [31m0[m -> [32m502619[m bytes
+ dist_new/win-unpacked/locales/it.pak           |    Bin [31m0[m -> [32m552542[m bytes
+ dist_new/win-unpacked/locales/ja.pak           |    Bin [31m0[m -> [32m675318[m bytes
+ dist_new/win-unpacked/locales/kn.pak           |    Bin [31m0[m -> [32m1357144[m bytes
+ dist_new/win-unpacked/locales/ko.pak           |    Bin [31m0[m -> [32m570453[m bytes
+ dist_new/win-unpacked/locales/lt.pak           |    Bin [31m0[m -> [32m611793[m bytes
+ dist_new/win-unpacked/locales/lv.pak           |    Bin [31m0[m -> [32m611054[m bytes
+ dist_new/win-unpacked/locales/ml.pak           |    Bin [31m0[m -> [32m1413072[m bytes
+ dist_new/win-unpacked/locales/mr.pak           |    Bin [31m0[m -> [32m1163258[m bytes
+ dist_new/win-unpacked/locales/ms.pak           |    Bin [31m0[m -> [32m527342[m bytes
+ dist_new/win-unpacked/locales/nb.pak           |    Bin [31m0[m -> [32m511244[m bytes
+ dist_new/win-unpacked/locales/nl.pak           |    Bin [31m0[m -> [32m528498[m bytes
+ dist_new/win-unpacked/locales/pl.pak           |    Bin [31m0[m -> [32m588206[m bytes
+ dist_new/win-unpacked/locales/pt-BR.pak        |    Bin [31m0[m -> [32m553054[m bytes
+ dist_new/win-unpacked/locales/pt-PT.pak        |    Bin [31m0[m -> [32m556959[m bytes
+ dist_new/win-unpacked/locales/ro.pak           |    Bin [31m0[m -> [32m576488[m bytes
+ dist_new/win-unpacked/locales/ru.pak           |    Bin [31m0[m -> [32m946319[m bytes
+ dist_new/win-unpacked/locales/sk.pak           |    Bin [31m0[m -> [32m594641[m bytes
+ dist_new/win-unpacked/locales/sl.pak           |    Bin [31m0[m -> [32m570309[m bytes
+ dist_new/win-unpacked/locales/sr.pak           |    Bin [31m0[m -> [32m879888[m bytes
+ dist_new/win-unpacked/locales/sv.pak           |    Bin [31m0[m -> [32m513761[m bytes
+ dist_new/win-unpacked/locales/sw.pak           |    Bin [31m0[m -> [32m541716[m bytes
+ dist_new/win-unpacked/locales/ta.pak           |    Bin [31m0[m -> [32m1404121[m bytes
+ dist_new/win-unpacked/locales/te.pak           |    Bin [31m0[m -> [32m1295502[m bytes
+ dist_new/win-unpacked/locales/th.pak           |    Bin [31m0[m -> [32m1088236[m bytes
+ dist_new/win-unpacked/locales/tr.pak           |    Bin [31m0[m -> [32m552864[m bytes
+ dist_new/win-unpacked/locales/uk.pak           |    Bin [31m0[m -> [32m946047[m bytes
+ dist_new/win-unpacked/locales/ur.pak           |    Bin [31m0[m -> [32m828391[m bytes
+ dist_new/win-unpacked/locales/vi.pak           |    Bin [31m0[m -> [32m655246[m bytes
+ dist_new/win-unpacked/locales/zh-CN.pak        |    Bin [31m0[m -> [32m471950[m bytes
+ dist_new/win-unpacked/locales/zh-TW.pak        |    Bin [31m0[m -> [32m466903[m bytes
+ dist_new/win-unpacked/resources.pak            |    Bin [31m0[m -> [32m5547917[m bytes
+ dist_new/win-unpacked/resources/app-update.yml |      4 [32m+[m
+ dist_new/win-unpacked/resources/app.asar       |    Bin [31m0[m -> [32m100538242[m bytes
+ dist_new/win-unpacked/snapshot_blob.bin        |    Bin [31m0[m -> [32m310242[m bytes
+ dist_new/win-unpacked/v8_context_snapshot.bin  |    Bin [31m0[m -> [32m662053[m bytes
+ dist_new/win-unpacked/vk_swiftshader.dll       |    Bin [31m0[m -> [32m5475328[m bytes
+ dist_new/win-unpacked/vk_swiftshader_icd.json  |      1 [32m+[m
+ dist_new/win-unpacked/vulkan-1.dll             |    Bin [31m0[m -> [32m961024[m bytes
+ electron/main.js                               |      8 [32m+[m[31m-[m
+ package.json                                   |      2 [32m+[m[31m-[m
+ 78 files changed, 170175 insertions(+), 2 deletions(-)
+
+[33mcommit 58c44f9e00f57f7d9b21f78d62560178c67cd315[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: marqnetworks <135626933+marqnetwork@users.noreply.github.com>
+Date:   Tue Dec 30 20:43:39 2025 +0500
+
+    fix
+
+ package.json | 3 [32m++[m[31m-[m
+ 1 file changed, 2 insertions(+), 1 deletion(-)
