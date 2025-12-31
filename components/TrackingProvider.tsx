@@ -197,15 +197,15 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     
     const t = setInterval(async () => {
       const isFocused = document.hasFocus()
-      // 1 minute idle threshold
+      // 10 minutes idle threshold
       const timeSinceActivity = Date.now() - lastActivityRef.current
-      const isIdle = timeSinceActivity > 1 * 60 * 1000
+      const isIdle = timeSinceActivity > 10 * 60 * 1000
       
-      // If focused, we are active unless we've been idle for > 1 min.
+      // If focused, we are active unless we've been idle for > 10 min.
       // If not focused (background), we use a stricter check:
       // We allow "external work" (e.g. Excel) but if there is NO interaction with the browser 
-      // for 5 minutes, we assume the user is truly idle/away.
-      const backgroundGracePeriod = 5 * 60 * 1000
+      // for 10 minutes, we assume the user is truly idle/away.
+      const backgroundGracePeriod = 10 * 60 * 1000
       const isBackgroundActive = timeSinceActivity < backgroundGracePeriod
       const isActive = isFocused ? !isIdle : isBackgroundActive 
       
