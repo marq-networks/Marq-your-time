@@ -1033,29 +1033,12 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   const now = new Date()
   const today = dateISO(now)
   
-  // 12-hour cooldown check
-  if (isSupabaseConfigured()) {
-    const sb = supabaseServer()
-    // Check if there is ANY session started within the last 12 hours
-    const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
-    if (last) {
-      const diff = now.getTime() - new Date(last.start_time).getTime()
-      // If last session started less than 12 hours ago, prevent new check-in
-      if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
-    }
-  }
-
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (openRow) return mapTimeSessionFromRow(openRow)
 
     // Cooldown check removed as per user request
-    // const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
-    // if (last) {
-    //   const diff = now.getTime() - new Date(last.start_time).getTime()
-    //   if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
-    // }
 
     const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()
@@ -1067,9 +1050,7 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   const openExisting = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
   if (openExisting) return openExisting
 
-  // Check cooldown
-  const last = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId).sort((a,b)=>b.startTime-a.startTime)[0]
-  if (last && (now.getTime() - last.startTime < 12 * 60 * 60 * 1000)) return 'CHECKIN_COOLDOWN'
+  // Cooldown check removed
 
   const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)

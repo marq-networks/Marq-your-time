@@ -70,13 +70,6 @@ export default function DashboardClient() {
   const startSession = async () => {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    // if (res.status === 403) {
-    //   const d = await res.json()
-    //   if (d.error === 'CHECKIN_COOLDOWN') {
-    //     alert('You cannot check in again within 12 hours of your last session.')
-    //     return
-    //   }
-    // }
     const _ = await res.json(); loadSummary(memberId, orgId)
     await beginTracking()
   }

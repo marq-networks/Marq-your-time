@@ -92,18 +92,6 @@ export default function MyDayPage() {
     })
     startClock()
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    if (res.status === 403) {
-      const d = await res.json()
-      if (d.error === 'CHECKIN_COOLDOWN') {
-        alert('You cannot check in again within 12 hours of your last session.')
-        setUiStarting(false)
-        setUiSessionOpen(false)
-        stopClock()
-        // Revert summary state
-        loadSummary(memberId, orgId)
-        return
-      }
-    }
     await beginTracking()
     await loadSummary(memberId, orgId)
     setUiStarting(false)
