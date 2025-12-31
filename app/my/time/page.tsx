@@ -36,6 +36,7 @@ export default function MyDayPage() {
   const [uiSessionOpen, setUiSessionOpen] = useState(false)
   const [uiStarting, setUiStarting] = useState(false)
   const [uiEnding, setUiEnding] = useState(false)
+  const [uiBreakLoading, setUiBreakLoading] = useState(false)
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -119,13 +120,17 @@ export default function MyDayPage() {
   }
   const startBreak = async () => {
     if (!orgId || !memberId) return
+    setUiBreakLoading(true)
     await fetch('/api/time/break/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, label: 'Break' }) })
-    loadSummary(memberId, orgId)
+    await loadSummary(memberId, orgId)
+    setUiBreakLoading(false)
   }
   const endBreak = async () => {
     if (!orgId || !memberId) return
+    setUiBreakLoading(true)
     await fetch('/api/time/break/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
-    loadSummary(memberId, orgId)
+    await loadSummary(memberId, orgId)
+    setUiBreakLoading(false)
   }
 
   const beginTracking = async () => {
@@ -301,9 +306,9 @@ export default function MyDayPage() {
            <div className="subtitle">{uiSessionOpen ? 'Session Active' : 'Session Inactive'}</div>
            <div style={{marginTop: 16}}>
              {!uiSessionOpen ? (
-                <GlassButton variant="primary" onClick={startDay} style={{width: '100%'}}>Start Day</GlassButton>
+                <GlassButton variant="primary" onClick={startDay} style={{width: '100%'}} disabled={uiStarting}>Start Day</GlassButton>
               ) : (
-                <GlassButton variant="secondary" onClick={endDay} style={{width: '100%'}}>End Day</GlassButton>
+                <GlassButton variant="secondary" onClick={endDay} style={{width: '100%'}} disabled={uiEnding}>End Day</GlassButton>
               )}
            </div>
         </GlassCard>
@@ -334,9 +339,9 @@ export default function MyDayPage() {
             <div className="subtitle" style={{marginBottom: 12}}>Break Management</div>
             <div className="row" style={{gap:12}}>
             {!summary.break_open ? (
-              <GlassButton onClick={startBreak} disabled={!uiSessionOpen}>Take Break</GlassButton>
+              <GlassButton onClick={startBreak} disabled={!uiSessionOpen || uiBreakLoading}>Take Break</GlassButton>
             ) : (
-              <GlassButton onClick={endBreak}>End Break</GlassButton>
+              <GlassButton onClick={endBreak} disabled={uiBreakLoading}>End Break</GlassButton>
             )}
           </div>
          </GlassCard>

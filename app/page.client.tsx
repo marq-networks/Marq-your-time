@@ -21,6 +21,9 @@ export default function DashboardClient() {
   const [consentOpen, setConsentOpen] = useState(false)
   const [consentText, setConsentText] = useState('')
   const [tempTrackingId, setTempTrackingId] = useState<string | null>(null)
+  const [loadingCheckIn, setLoadingCheckIn] = useState(false)
+  const [loadingCheckOut, setLoadingCheckOut] = useState(false)
+  const [loadingBreak, setLoadingBreak] = useState(false)
 
   useEffect(() => {
     try {
@@ -69,25 +72,33 @@ export default function DashboardClient() {
 
   const startSession = async () => {
     if (!orgId || !memberId) return
+    setLoadingCheckIn(true)
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    const _ = await res.json(); loadSummary(memberId, orgId)
+    const _ = await res.json(); await loadSummary(memberId, orgId)
     await beginTracking()
+    setLoadingCheckIn(false)
   }
   const stopSession = async () => {
     if (!orgId || !memberId) return
+    setLoadingCheckOut(true)
     const res = await fetch('/api/time/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
-    const _ = await res.json(); loadSummary(memberId, orgId)
+    const _ = await res.json(); await loadSummary(memberId, orgId)
     await tracking.stopTracking()
+    setLoadingCheckOut(false)
   }
   const startBreak = async () => {
     if (!orgId || !memberId) return
+    setLoadingBreak(true)
     const res = await fetch('/api/time/break/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, label: 'Break' }) })
-    const _ = await res.json(); loadSummary(memberId, orgId)
+    const _ = await res.json(); await loadSummary(memberId, orgId)
+    setLoadingBreak(false)
   }
   const stopBreak = async () => {
     if (!orgId || !memberId) return
+    setLoadingBreak(true)
     const res = await fetch('/api/time/break/stop', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId }) })
-    const _ = await res.json(); loadSummary(memberId, orgId)
+    const _ = await res.json(); await loadSummary(memberId, orgId)
+    setLoadingBreak(false)
   }
   const beginTracking = async () => {
     if (!orgId || !memberId) return
@@ -176,14 +187,14 @@ export default function DashboardClient() {
           {(['employee','member'].includes(role)) && (
             <div className="row" style={{gap:12}}>
               {!summary.session_open ? (
-                <GlassButton variant="primary" onClick={startSession}>Check In</GlassButton>
+                <GlassButton variant="primary" onClick={startSession} disabled={loadingCheckIn}>Check In</GlassButton>
               ) : (
-                <GlassButton variant="secondary" onClick={stopSession}>Check Out</GlassButton>
+                <GlassButton variant="secondary" onClick={stopSession} disabled={loadingCheckOut}>Check Out</GlassButton>
               )}
               {!summary.break_open ? (
-                <GlassButton onClick={startBreak}>Start Break</GlassButton>
+                <GlassButton onClick={startBreak} disabled={!summary.session_open || loadingBreak}>Start Break</GlassButton>
               ) : (
-                <GlassButton onClick={stopBreak}>End Break</GlassButton>
+                <GlassButton onClick={stopBreak} disabled={loadingBreak}>End Break</GlassButton>
               )}
             </div>
           )}

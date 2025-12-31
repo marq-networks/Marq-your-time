@@ -122,7 +122,7 @@ export default function MyActivityPage() {
 
   const totalWorkedMinutes = Math.max(0, totalSessionMinutes - totalBreakMinutes)
 
-  const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
+  const activeMinutes = new Set((data.events || []).filter((e: any) => e.isActive).map((e: any) => { const d = new Date(e.timestamp); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}` })).size
   const idleMinutes = Math.max(0, Math.floor(totalWorkedMinutes) - activeMinutes)
   
   // Calculate display seconds
