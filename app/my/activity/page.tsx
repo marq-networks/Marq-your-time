@@ -13,6 +13,13 @@ type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
 
 function formatHM(mins: number) { const m = Math.max(0, Math.round(mins || 0)); const h = Math.floor(m / 60); const mm = String(m % 60).padStart(2, '0'); return `${h}:${mm}` }
+function formatHMS(seconds: number) { 
+  const s = Math.max(0, Math.round(seconds || 0)); 
+  const h = Math.floor(s / 3600); 
+  const m = Math.floor((s % 3600) / 60); 
+  const sec = s % 60; 
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` 
+}
 
 export default function MyActivityPage() {
   const { isTracking, localStats, startTracking } = useTracking()
@@ -23,6 +30,12 @@ export default function MyActivityPage() {
   const [data, setData] = useState<any>({ trackingOn: false, settings: { allowActivityTracking: false, allowScreenshots: false, maskPersonalWindows: true }, sessions: [], breaks: [], events: [], topApps: [], screenshots: [] })
   const [shot, setShot] = useState<any | undefined>(undefined)
   const [role, setRole] = useState('')
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const loadOrgs = async () => {
     const endpoint = '/api/orgs/my'
@@ -85,13 +98,40 @@ export default function MyActivityPage() {
   
   const totalSessionMinutes = (data.sessions || []).reduce((acc: number, s: any) => {
     const start = new Date(s.startTime).getTime()
-    const end = s.endTime ? new Date(s.endTime).getTime() : Date.now()
+    const end = s.endTime ? new Date(s.endTime).getTime() : now
     return acc + Math.max(0, (end - start) / 1000 / 60)
   }, 0)
+
+  const totalBreakMinutes = (data.breaks || []).reduce((acc: number, b: any) => {
+     // Only count unpaid breaks as deduction from worked time? 
+     // My Day subtracts unpaid breaks from "Worked Today".
+     // But for "Activity", if a break is happening, it's not "Active" work.
+     // We should probably deduct ALL breaks from the "Work Session" duration to get "Potential Work Time".
+     // However, "My Day" only deducts UNPAID breaks for salary calculation.
+     // But for "Worked Today" time display, does it deduct paid breaks?
+     // Let's check My Day again.
+     // "totalWorkedMs = sessionsMs - breaksMs" where breaksMs is ONLY !b.isPaid.
+     // So Paid Breaks count as Work Time.
+     if (!b.isPaid) {
+       const start = new Date(b.startTime).getTime()
+       const end = b.endTime ? new Date(b.endTime).getTime() : now
+       return acc + Math.max(0, (end - start) / 1000 / 60)
+     }
+     return acc
+  }, 0)
+
+  const totalWorkedMinutes = Math.max(0, totalSessionMinutes - totalBreakMinutes)
+
   const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
-  const idleMinutes = Math.max(0, Math.floor(totalSessionMinutes) - activeMinutes)
+  const idleMinutes = Math.max(0, Math.floor(totalWorkedMinutes) - activeMinutes)
+  
+  // Calculate display seconds
+  const totalWorkedSeconds = totalWorkedMinutes * 60
+  const idleSeconds = idleMinutes * 60
+  const activeSeconds = Math.max(0, totalWorkedSeconds - idleSeconds)
 
   const showLocalStats = isTracking
+
   const pendingKeys = showLocalStats ? localStats.keys : 0
   const pendingClicks = showLocalStats ? localStats.clicks : 0
   
@@ -148,33 +188,37 @@ export default function MyActivityPage() {
             </div>
           }>
              <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
-                <div>
-                   <div className="label">Active Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(activeMinutes)}</div>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Total Worked</div>
+                   <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary)' }}>{formatHMS(totalWorkedSeconds)}</div>
                 </div>
-                <div>
-                   <div className="label">Idle Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(idleMinutes)}</div>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Active Time</div>
+                   <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'monospace', color: 'var(--foreground)' }}>{formatHMS(activeSeconds)}</div>
                 </div>
-                <div>
-                   <div className="label">Total Interactions</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Idle Time</div>
+                   <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'monospace', color: '#888' }}>{formatHMS(idleSeconds)}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Total Interactions</div>
+                   <div style={{ fontSize: 32, fontWeight: 700 }}>
                      {totalInteractions}
-                     {pendingInteractions > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingInteractions})</span>}
+                     {pendingInteractions > 0 && <span style={{fontSize: 20, color: '#888', marginLeft: 8, fontWeight: 500}}>(+{pendingInteractions})</span>}
                    </div>
                 </div>
-                <div>
-                   <div className="label">Mouse Clicks</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Mouse Clicks</div>
+                   <div style={{ fontSize: 32, fontWeight: 700 }}>
                      {totalClicks}
-                     {pendingClicks > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingClicks})</span>}
+                     {pendingClicks > 0 && <span style={{fontSize: 20, color: '#888', marginLeft: 8, fontWeight: 500}}>(+{pendingClicks})</span>}
                    </div>
                 </div>
-                <div>
-                   <div className="label">Keyboard Keys</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
+                <div style={{ background: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 16 }}>
+                   <div className="label" style={{ marginBottom: 4 }}>Keyboard Keys</div>
+                   <div style={{ fontSize: 32, fontWeight: 700 }}>
                      {totalKeys}
-                     {pendingKeys > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingKeys})</span>}
+                     {pendingKeys > 0 && <span style={{fontSize: 20, color: '#888', marginLeft: 8, fontWeight: 500}}>(+{pendingKeys})</span>}
                    </div>
                 </div>
              </div>

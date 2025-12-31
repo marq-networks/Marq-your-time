@@ -100,7 +100,7 @@ export default function TopBar({ title }: { title: string }) {
         {(['member','employee'].includes(role)) && <span className="tag-pill">{orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || ''}</span>}
       </div>
       <div className="row" style={{gap:12, alignItems:'center'}}>
-        {orgs.length > 1 && (
+        {orgs.length > 1 && !['employee', 'member'].includes(role) && (
           <div className="row" style={{alignItems:'center',gap:8}}>
             <span className="tag-pill accent">Org</span>
             <GlassSelect value={current} onChange={(e:any)=> onSwitch(e.target.value)} style={{ minWidth: 180 }}>
