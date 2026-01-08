@@ -94,19 +94,24 @@ export default function MyActivityPage() {
   }, 0)
 
   // Calculate active minutes
-  // TrackingProvider handles the 10-minute threshold (events become isActive=false after 10 mins).
-  // Calculate active minutes
   // We apply "True Retroactive Idle":
   // 1. Identify "Zombie Active" events (active=true but no input).
   // 2. If a chain of Zombie events leads to an Idle event or exceeds 10 mins, mark them as Idle.
   const sortedEvents = (data.events || []).slice().sort((a: any, b: any) => a.timestamp - b.timestamp)
   
+  const appMinutesMap: Record<string, { minutes: number, category?: string }> = {}
+  const addAppMinute = (event: any, minutes = 1) => {
+      const name = event.appName || event.app_name || 'Web'
+      if (!appMinutesMap[name]) appMinutesMap[name] = { minutes: 0, category: event.category }
+      appMinutesMap[name].minutes += minutes
+  }
+
   let adjustedActiveCount = 0
-  let zombieChainCount = 0
+  let zombieChain: any[] = []
 
   for (const e of sortedEvents) {
     if (!e.isActive) {
-      zombieChainCount = 0
+      zombieChain = []
       continue
     }
 
@@ -116,10 +121,16 @@ export default function MyActivityPage() {
                      (e.mouseActivityScore || 0) === 0
     
     if (isZombie) {
-      zombieChainCount++
+      zombieChain.push(e)
     } else {
-      adjustedActiveCount += zombieChainCount
-      zombieChainCount = 0
+      // Redeem zombie chain
+      for (const z of zombieChain) {
+          addAppMinute(z)
+          adjustedActiveCount++
+      }
+      zombieChain = []
+      
+      addAppMinute(e)
       adjustedActiveCount++ 
     }
   }
@@ -136,34 +147,45 @@ export default function MyActivityPage() {
     const gap = Math.max(0, (now - effectiveLastEventTime) / 1000 / 60)
     
     // Check if pending zombie chain + gap exceeds 10 mins
-     // If the last event was already inactive, zombieChainCount is 0, so we just check gap (which shouldn't matter as it's idle)
-     // Actually if last event was inactive, gap should be Idle.
-     // My logic: if lastEvent was inactive, zombieChainCount is 0. 
-     // gap < 10 -> active? NO. If last event inactive, gap is Idle.
-     // I need to check lastEvent.isActive for the gap.
-     
-     // FIX: Check local real-time stats to see if user is CURRENTLY active.
-     // If user is typing right now, the gap is Active, regardless of last event.
      const hasLocalActivity = (localStats.keys > 0 || localStats.clicks > 0 || localStats.mouse > 0)
      const isLastActive = (!lastEvent || lastEvent.isActive || hasLocalActivity)
      
      if (isLastActive) {
-        if (zombieChainCount + gap < 10) {
-          adjustedActiveCount += zombieChainCount
+        if (zombieChain.length + gap < 10) {
+          // Redeem zombie chain
+          for (const z of zombieChain) {
+              addAppMinute(z)
+              adjustedActiveCount++
+          }
           tailCorrection = gap
+          
+          if (lastEvent) {
+             addAppMinute(lastEvent, gap)
+          } else {
+             // If no last event but open session (just started?), attribute to Web
+             if (!appMinutesMap['Web']) appMinutesMap['Web'] = { minutes: 0 }
+             appMinutesMap['Web'].minutes += gap
+          }
         }
      } else {
         // Last event inactive. Gap is idle. Zombie chain is already discarded.
      }
    } else {
      // Closed session
-     if (zombieChainCount < 10) {
-        adjustedActiveCount += zombieChainCount
+     if (zombieChain.length < 10) {
+        for (const z of zombieChain) {
+            addAppMinute(z)
+            adjustedActiveCount++
+        }
      }
    }
  
    const activeMinutes = adjustedActiveCount + tailCorrection
    const idleMinutes = Math.max(0, totalSessionMinutes - activeMinutes)
+   
+   const clientTopApps = Object.entries(appMinutesMap)
+      .map(([app, v]) => ({ app, minutes: v.minutes, category: v.category }))
+      .sort((a, b) => b.minutes - a.minutes)
  
    const showLocalStats = isTracking
    const pendingKeys = showLocalStats ? localStats.keys : 0
@@ -205,7 +227,7 @@ export default function MyActivityPage() {
            <div className="subtitle" style={{ marginTop: 6 }}>MARQ only logs active apps, websites, and work-related screen snapshots. Nothing is recorded outside your working hours.</div>
          </GlassCard>
          <GlassCard title="Top Apps Today">
-           <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(data.topApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
+           <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(clientTopApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
          </GlassCard>
        </div>
        <div className='mt-10'>
