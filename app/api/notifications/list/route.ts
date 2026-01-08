@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   const memberId = searchParams.get('member_id') || searchParams.get('memberId') || undefined
   const limit = Number(searchParams.get('limit') || '50')
   const cursor = searchParams.get('cursor') || undefined
-  const { items, nextCursor } = await listNotifications({ orgId, memberId, limit, cursor })
+  const unreadOnly = searchParams.get('unread_only') === 'true'
+  const { items, nextCursor } = await listNotifications({ orgId, memberId, limit, cursor, unreadOnly })
   return NextResponse.json({ items, nextCursor })
 }

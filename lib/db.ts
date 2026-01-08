@@ -593,13 +593,14 @@ function mapNotificationFromRow(row: any): NotificationItem {
   return { id: row.id, orgId: row.org_id, memberId: row.member_id ?? undefined, type: row.type, title: row.title, message: row.message, meta: row.meta ?? undefined, isRead: !!row.is_read, createdAt: new Date(row.created_at).getTime() }
 }
 
-export async function listNotifications(params: { orgId?: string, memberId?: string, limit?: number, cursor?: string }) {
+export async function listNotifications(params: { orgId?: string, memberId?: string, limit?: number, cursor?: string, unreadOnly?: boolean }) {
   const limit = Math.max(1, Math.min(200, params.limit || 50))
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(limit)
     if (params.orgId) q = q.eq('org_id', params.orgId)
     if (params.memberId) q = q.eq('member_id', params.memberId)
+    if (params.unreadOnly) q = q.eq('is_read', false)
     if (params.cursor) q = q.lt('created_at', new Date(params.cursor))
     const { data } = await q
     const items = (data || []).map(mapNotificationFromRow)
@@ -609,6 +610,7 @@ export async function listNotifications(params: { orgId?: string, memberId?: str
   let arr = notifications.slice().sort((a,b)=>b.createdAt - a.createdAt)
   if (params.orgId) arr = arr.filter(n => n.orgId === params.orgId)
   if (params.memberId) arr = arr.filter(n => n.memberId === params.memberId)
+  if (params.unreadOnly) arr = arr.filter(n => !n.isRead)
   if (params.cursor) arr = arr.filter(n => n.createdAt < new Date(params.cursor as string).getTime())
   const items = arr.slice(0, limit)
   const nextCursor = items.length ? new Date(items[items.length-1].createdAt).toISOString() : null

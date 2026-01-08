@@ -13,8 +13,8 @@ export default function NotificationsBell() {
   const [pos, setPos] = useState<{ top: number, right: number } | null>(null)
   const [mounted, setMounted] = useState(false)
 
-  const load = async () => { const res = await fetch('/api/notifications/list?limit=10', { cache:'no-store' }); const d = await res.json(); setItems(d.items || []) }
-  const markAll = async () => { await fetch('/api/notifications/mark-all-read', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: null }) }); setItems(items.map(i=>({ ...i, isRead: true })))}
+  const load = async () => { const res = await fetch('/api/notifications/list?limit=10&unread_only=true', { cache:'no-store' }); const d = await res.json(); setItems(d.items || []) }
+  const markAll = async () => { await fetch('/api/notifications/mark-all-read', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: null }) }); setItems([])}
   useEffect(()=>{ load() }, [])
   useEffect(()=>{ setMounted(true) }, [])
   useEffect(()=>{
@@ -62,22 +62,28 @@ export default function NotificationsBell() {
       </button>
       {open && mounted && createPortal(
         <div ref={panelRef} className="glass-panel" style={{ position:'fixed', right: pos?.right ?? 20, top: pos?.top ?? 72, width:360, maxWidth:'90vw', padding:12, borderRadius:'var(--radius-large)', zIndex: 99999 }}>
-          <div style={{ display:'grid', gap:8 }}>
-            {(items || []).map(i=> (
-              <div key={i.id} style={{ display:'grid', gridTemplateColumns:'10px 1fr auto', gap:8, alignItems:'center', background:'rgba(255,255,255,0.28)', padding:'8px 10px', borderRadius:18 }}>
-                <div style={{ width:10, height:10, borderRadius:999, background: i.isRead ? 'transparent' : '#39FF14' }} />
-                <div>
-                  <div style={{ fontWeight:600 }}>{i.title}</div>
-                  <div style={{ fontSize:12, color:'rgba(31,31,31,0.7)' }}>{i.message}</div>
-                </div>
-                {i.meta?.url && <GlassButton variant="primary" href={i.meta.url} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Open</GlassButton>}
+          {items.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', opacity: 0.7 }}>No notifications</div>
+          ) : (
+            <>
+              <div style={{ display:'grid', gap:8 }}>
+                {(items || []).map(i=> (
+                  <div key={i.id} style={{ display:'grid', gridTemplateColumns:'10px 1fr auto', gap:8, alignItems:'center', background:'rgba(255,255,255,0.28)', padding:'8px 10px', borderRadius:18 }}>
+                    <div style={{ width:10, height:10, borderRadius:999, background: i.isRead ? 'transparent' : '#39FF14' }} />
+                    <div>
+                      <div style={{ fontWeight:600 }}>{i.title}</div>
+                      <div style={{ fontSize:12, color:'rgba(31,31,31,0.7)' }}>{i.message}</div>
+                    </div>
+                    {i.meta?.url && <GlassButton variant="primary" href={i.meta.url} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Open</GlassButton>}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="row" style={{ justifyContent:'space-between', marginTop:8 }}>
-            <GlassButton variant="secondary" onClick={markAll}>Mark all read</GlassButton>
-            <GlassButton variant="primary" href="/notifications" style={{ background:'#39FF14', borderColor:'#39FF14' }}>View all</GlassButton>
-          </div>
+              <div className="row" style={{ justifyContent:'space-between', marginTop:8 }}>
+                <GlassButton variant="secondary" onClick={markAll}>Mark all read</GlassButton>
+                <GlassButton variant="primary" href="/notifications" style={{ background:'#39FF14', borderColor:'#39FF14' }}>View all</GlassButton>
+              </div>
+            </>
+          )}
         </div>,
         document.body
       )}
