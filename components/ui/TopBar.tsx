@@ -110,7 +110,7 @@ export default function TopBar({ title, profileImage }: { title: string, profile
         {(['member','employee'].includes(role)) && <span className="tag-pill">{orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || ''}</span>}
       </div>
       <div className="row" style={{gap:12, alignItems:'center'}}>
-        {orgs.length > 1 && !['member','employee'].includes(role) && canOrg && (
+        {orgs.length > 1 && !['member','employee', 'super_admin'].includes(role) && canOrg && (
           <div className="row" style={{alignItems:'center',gap:8}}>
             <span className="tag-pill accent">Org</span>
             <GlassSelect value={current} onChange={(e:any)=> onSwitch(e.target.value)} style={{ minWidth: 180 }}>
@@ -119,12 +119,14 @@ export default function TopBar({ title, profileImage }: { title: string, profile
           </div>
         )}
         <NotificationsBell />
-        <Link href="/profile" className="user-pill">
-          <div className="avatar" style={{ overflow: 'hidden' }}>
-            {finalUserImage && !orgSession && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
-          </div>
-          <div className="user-name">{orgSession ? (orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization') : (userName || 'User')}</div>
-        </Link>
+        {role !== 'super_admin' && (
+          <Link href="/profile" className="user-pill">
+            <div className="avatar" style={{ overflow: 'hidden' }}>
+              {finalUserImage && !orgSession && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+            </div>
+            <div className="user-name">{orgSession ? (orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization') : (userName || 'User')}</div>
+          </Link>
+        )}
       </div>
     </div>
   )

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import AuthTabs from '../components/AuthTabs'
 import Toast from '@components/Toast'
 import '../login/styles.css'
 
@@ -31,6 +32,7 @@ export default function OrgLoginPage() {
               <div className="login-brand">MARQ</div>
               <div className="login-tagline">Organization Sign In</div>
             </div>
+            <AuthTabs />
             <div className="field">
               <label className="label">Organization Name</label>
               <input className="input" value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="Your org name" />

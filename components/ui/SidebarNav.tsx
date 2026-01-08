@@ -69,26 +69,26 @@ export default function SidebarNav() {
         </div>
         {items.filter(i => {
           if (i.label === 'Orgs') return (overrideRole === 'super_admin')
-          if (i.label === 'Users') return canUsers
+          if (i.label === 'Users') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Roles') return canUsers && canSettings
           if (i.label === 'Settings') return canSettings
           if (i.label === 'Integrations API') return canSettings
           if (i.label === 'API Docs') return canSettings
           if (i.label === 'Members') return canUsers
           if (i.label === 'My Day') return ['employee','member'].includes(overrideRole)
-          if (i.label === 'My Activity') return true
-          if (i.label === 'My Earnings') return true
-          if (i.label === 'Time Logs') return canReports || canTime
-          if (i.label === 'Leave') return true
-          if (i.label === 'Leave Approvals') return canUsers
+          if (i.label === 'My Activity') return overrideRole !== 'super_admin'
+          if (i.label === 'My Earnings') return overrideRole !== 'super_admin'
+          if (i.label === 'Time Logs') return (canReports || canTime) && overrideRole !== 'super_admin'
+          if (i.label === 'Leave') return overrideRole !== 'super_admin'
+          if (i.label === 'Leave Approvals') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
           if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing Plans') return ['admin','owner','super_admin'].includes(overrideRole)
-          if (i.label === 'Offline Sync') return ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Offline Sync') return ['admin','owner'].includes(overrideRole)
           if (i.label === 'Dashboard') return true
-          if (i.label === 'Departments') return canUsers
+          if (i.label === 'Departments') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Reports') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'My Engagement') return ['admin','owner','super_admin'].includes(overrideRole)

@@ -133,13 +133,14 @@ export default function DashboardClient() {
   
   return (
     <AppShell title="Dashboard">
-      <div className="grid grid-3">
+      <div className={role === 'super_admin' ? "grid grid-1" : "grid grid-3"}>
         <GlassCard title="Quick Actions">
           <div className="row" style={{gap:12, flexWrap:'wrap'}}>
             {mounted && role==='super_admin' && <GlassButton variant="primary" href="/org/create">Create Organization</GlassButton>}
             {mounted && role==='super_admin' && <GlassButton href="/org/list">View Organizations</GlassButton>}
           </div>
         </GlassCard>
+        {role !== 'super_admin' && (
         <GlassCard title="Today's Hours">
           <div className="grid grid-2" style={{marginBottom:12}}>
             <div>
@@ -200,6 +201,8 @@ export default function DashboardClient() {
             </div>
           )}
         </GlassCard>
+        )}
+        {role !== 'super_admin' && (
         <GlassCard title="Today Log">
           <div className="subtitle">Sessions and Breaks</div>
           <div>
@@ -220,6 +223,7 @@ export default function DashboardClient() {
             ))}
           </div>
         </GlassCard>
+        )}
       </div>
       <GlassModal open={consentOpen} onClose={()=>setConsentOpen(false)} title="Activity Tracking">
         <div className="subtitle">{consentText}</div>
