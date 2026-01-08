@@ -26,38 +26,80 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
 
+  const resizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.src = URL.createObjectURL(file)
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX_SIZE = 500
+        let width = img.width
+        let height = img.height
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width
+            width = MAX_SIZE
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height
+            height = MAX_SIZE
+          }
+        }
+
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height)
+            const base64 = canvas.toDataURL('image/jpeg', 0.7)
+            resolve(base64)
+        } else {
+            reject(new Error('Canvas context not available'))
+        }
+      }
+      img.onerror = reject
+    })
+  }
+
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
 
     setUploading(true)
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const base64 = String(reader.result || '')
-      const oldImage = user.profileImage
+    const oldImage = user.profileImage
+    
+    try {
+        const base64 = await resizeImage(file)
       
-      // Optimistic update
-      setUser({ ...user, profileImage: base64 })
+        // Optimistic update
+        setUser({ ...user, profileImage: base64 })
 
-      try {
         const res = await fetch(`/api/user/${user.id}/update`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ profileImage: base64 })
         })
         if (!res.ok) {
+            const errText = await res.text()
+            console.error('Update failed:', res.status, errText)
+            let errMsg = res.statusText
+            try {
+                const json = JSON.parse(errText)
+                if (json.error) errMsg = json.error
+                if (json.message) errMsg += `: ${json.message}`
+            } catch {}
             setUser({ ...user, profileImage: oldImage })
-            alert('Failed to update profile image')
+            alert(`Failed to update profile image: ${errMsg}`)
         }
-      } catch (e) {
-        setUser({ ...user, profileImage: oldImage })
+    } catch (e) {
         console.error(e)
+        setUser({ ...user, profileImage: oldImage })
         alert('Failed to update profile image')
-      } finally {
+    } finally {
         setUploading(false)
-      }
     }
-    reader.readAsDataURL(file)
   }
 
   useEffect(() => {

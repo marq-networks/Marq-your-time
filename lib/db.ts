@@ -2750,7 +2750,7 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       if (mrRow.org_id !== row.org_id) return 'ORG_MISMATCH_MEMBER_ROLE'
     }
     const now = new Date()
-    const { data, error } = await sb.from('users').update({
+    const updatePayload: any = {
       department_id: patch.departmentId ?? row.department_id ?? null,
       role_id: patch.roleId ?? row.role_id ?? null,
       manager_id: patch.managerId !== undefined ? (patch.managerId || null) : (row.manager_id ?? null),
@@ -2759,13 +2759,25 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       working_days: patch.workingDays ?? row.working_days,
       working_hours_per_day: patch.workingHoursPerDay ?? row.working_hours_per_day ?? null,
       status: patch.status ?? row.status,
-      theme_bg_main: patch.themeBgMain ?? row.theme_bg_main ?? null,
-      theme_accent: patch.themeAccent ?? row.theme_accent ?? null,
-      layout_type: patch.layoutType ?? row.layout_type ?? null,
       profile_image: patch.profileImage ?? row.profile_image ?? null,
       updated_at: now
-    }).eq('id', id).select('*').single()
-    if (error) return 'DB_ERROR'
+    }
+
+    if (patch.themeBgMain !== undefined || row.theme_bg_main !== undefined) {
+      updatePayload.theme_bg_main = patch.themeBgMain ?? row.theme_bg_main ?? null
+    }
+    if (patch.themeAccent !== undefined || row.theme_accent !== undefined) {
+      updatePayload.theme_accent = patch.themeAccent ?? row.theme_accent ?? null
+    }
+    if (patch.layoutType !== undefined || row.layout_type !== undefined) {
+      updatePayload.layout_type = patch.layoutType ?? row.layout_type ?? null
+    }
+
+    const { data, error } = await sb.from('users').update(updatePayload).eq('id', id).select('*').single()
+    if (error) {
+        console.error('updateUser DB Error:', error)
+        return `DB_ERROR: ${error.message}`
+    }
     if (patch.roleId && patch.roleId !== row.role_id) {
       const { data: newRole } = await sb.from('roles').select('*').eq('id', patch.roleId).single()
       const { data: prevRole } = await sb.from('roles').select('*').eq('id', row.role_id).single()
