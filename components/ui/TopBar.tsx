@@ -13,10 +13,11 @@ function getCookie(name: string) {
   return m ? decodeURIComponent(m.split('=').slice(1).join('=')) : ''
 }
 
-export default function TopBar({ title }: { title: string }) {
+export default function TopBar({ title, profileImage }: { title: string, profileImage?: string }) {
   const [orgs, setOrgs] = useState<OrgItem[]>([])
   const [current, setCurrent] = useState<string>('')
   const [userName, setUserName] = useState<string>('')
+  const [userImage, setUserImage] = useState<string>('')
   const [orgName, setOrgName] = useState<string>('')
   const [orgLogo, setOrgLogo] = useState<string>('')
   const [orgSession, setOrgSession] = useState<boolean>(false)
@@ -57,11 +58,14 @@ export default function TopBar({ title }: { title: string }) {
       try {
         const userId = getCookie('current_user_id') || ''
         if (!userId) return
-        const res = await fetch(`/api/user/${userId}`, { cache:'no-store' })
+        const res = await fetch(`/api/user/${userId}?_t=${Date.now()}`, { cache:'no-store' })
         const d = await res.json()
         const u = d.user || {}
+        setUserImage(u.profileImage || '')
         setUserTheme({ bg: u.themeBgMain || undefined, accent: u.themeAccent || undefined, layout: u.layoutType || undefined })
-      } catch {}
+      } catch (e) {
+        console.error('TopBar: fetch error', e)
+      }
     })()
   }, [])
   useEffect(() => {
@@ -93,11 +97,14 @@ export default function TopBar({ title }: { title: string }) {
     } catch {}
   }
 
+  const finalUserImage = profileImage !== undefined ? profileImage : userImage
+
   return (
     <div className="topbar glass-panel" style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderRadius:'var(--radius-large)',overflow:'visible',position:'relative'}}>
       <div className="page-title" style={{display:'flex',alignItems:'center',gap:12}}>
         <div style={{width:32,height:32,borderRadius:10,background:'#111',border:'1px solid var(--border)',overflow:'hidden'}}>
           {orgSession && orgLogo && <img src={orgLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+          {!orgSession && finalUserImage && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
         </div>
         <div>{title}</div>
         {(['member','employee'].includes(role)) && <span className="tag-pill">{orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || ''}</span>}
@@ -113,7 +120,9 @@ export default function TopBar({ title }: { title: string }) {
         )}
         <NotificationsBell />
         <Link href="/profile" className="user-pill">
-          <div className="avatar" />
+          <div className="avatar" style={{ overflow: 'hidden' }}>
+            {finalUserImage && !orgSession && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+          </div>
           <div className="user-name">{orgSession ? (orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization') : (userName || 'User')}</div>
         </Link>
       </div>

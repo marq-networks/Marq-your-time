@@ -2600,9 +2600,14 @@ export async function getUser(id: string) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data, error } = await sb.from('users').select('*').eq('id', id).single()
-    if (error || !data) return undefined
+    if (error) {
+      console.error('getUser: Supabase error', error)
+      return undefined
+    }
+    if (!data) return undefined
     return mapUserFromRow(data)
   }
+  console.warn('getUser: Supabase not configured, falling back to memory')
   return users.find(u => u.id === id)
 }
 
@@ -2759,7 +2764,7 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       working_days: patch.workingDays ?? row.working_days,
       working_hours_per_day: patch.workingHoursPerDay ?? row.working_hours_per_day ?? null,
       status: patch.status ?? row.status,
-      profile_image: patch.profileImage ?? row.profile_image ?? null,
+      profile_image: patch.profileImage !== undefined ? patch.profileImage : (row.profile_image ?? null),
       updated_at: now
     }
 

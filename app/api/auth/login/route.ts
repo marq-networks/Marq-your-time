@@ -53,6 +53,8 @@ export async function POST(req: NextRequest) {
   const maxAge = 60 * 60 * 24 * 7 // 7 days
   res.cookies.set('current_user_id', String(user.id), { path: '/', sameSite: 'lax', secure, maxAge })
   res.cookies.set('current_role', sessionRole, { path: '/', sameSite: 'lax', secure, maxAge })
+  // Clear org_login cookie on fresh login to prevent stuck state
+  res.cookies.set('org_login', '', { path: '/', sameSite: 'lax', secure, maxAge: 0 })
   if (orgs.length === 1 && !requireOrgLogin) {
     res.cookies.set('current_org_id', orgs[0].id, { path: '/', sameSite: 'lax', secure, maxAge })
   }

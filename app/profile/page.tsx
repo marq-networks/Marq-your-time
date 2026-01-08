@@ -26,7 +26,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
 
-  const resizeImage = (file: File): Promise<string> => {
+  const resizeImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image()
       img.src = URL.createObjectURL(file)
@@ -53,8 +53,10 @@ export default function ProfilePage() {
         const ctx = canvas.getContext('2d')
         if (ctx) {
             ctx.drawImage(img, 0, 0, width, height)
-            const base64 = canvas.toDataURL('image/jpeg', 0.7)
-            resolve(base64)
+            canvas.toBlob((blob) => {
+              if (blob) resolve(blob)
+              else reject(new Error('Canvas conversion failed'))
+            }, 'image/jpeg', 0.7)
         } else {
             reject(new Error('Canvas context not available'))
         }
@@ -71,15 +73,18 @@ export default function ProfilePage() {
     const oldImage = user.profileImage
     
     try {
-        const base64 = await resizeImage(file)
-      
-        // Optimistic update
-        setUser({ ...user, profileImage: base64 })
+        const blob = await resizeImage(file)
+        
+        // Optimistic update with local object URL
+        const previewUrl = URL.createObjectURL(blob)
+        setUser({ ...user, profileImage: previewUrl })
 
-        const res = await fetch(`/api/user/${user.id}/update`, {
+        const formData = new FormData()
+        formData.append('file', blob, 'profile.jpg')
+
+        const res = await fetch(`/api/user/${user.id}/upload-image`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ profileImage: base64 })
+          body: formData
         })
         if (!res.ok) {
             const errText = await res.text()
@@ -92,6 +97,12 @@ export default function ProfilePage() {
             } catch {}
             setUser({ ...user, profileImage: oldImage })
             alert(`Failed to update profile image: ${errMsg}`)
+        } else {
+            // Update with the final URL from server
+            const data = await res.json()
+            if (data.url) {
+                setUser({ ...user, profileImage: data.url })
+            }
         }
     } catch (e) {
         console.error(e)
@@ -110,7 +121,7 @@ export default function ProfilePage() {
             setLoading(false)
             return
         }
-        const res = await fetch(`/api/user/${userId}`)
+        const res = await fetch(`/api/user/${userId}`, { cache: 'no-store' })
         const data = await res.json()
         if (data.user) {
           setUser(data.user)
@@ -125,7 +136,7 @@ export default function ProfilePage() {
   }, [])
 
   return (
-    <AppShell title="My Profile">
+    <AppShell title="My Profile" userImage={user?.profileImage}>
       <GlassCard title="Profile Details">
         {loading ? (
            <div>Loading...</div>
