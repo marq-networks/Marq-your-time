@@ -2721,7 +2721,7 @@ export async function createUser(input: Omit<User, 'id'|'createdAt'|'updatedAt'|
   return user
 }
 
-export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'managerId'|'memberRoleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'|'themeBgMain'|'themeAccent'|'layoutType'>>) {
+export async function updateUser(id: string, patch: Partial<Pick<User,'departmentId'|'roleId'|'managerId'|'memberRoleId'|'salary'|'workingDays'|'workingHoursPerDay'|'status'|'themeBgMain'|'themeAccent'|'layoutType'|'profileImage'>>) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: row, error: gErr } = await sb.from('users').select('*').eq('id', id).single()
@@ -2762,6 +2762,7 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
       theme_bg_main: patch.themeBgMain ?? row.theme_bg_main ?? null,
       theme_accent: patch.themeAccent ?? row.theme_accent ?? null,
       layout_type: patch.layoutType ?? row.layout_type ?? null,
+      profile_image: patch.profileImage ?? row.profile_image ?? null,
       updated_at: now
     }).eq('id', id).select('*').single()
     if (error) return 'DB_ERROR'
@@ -2795,12 +2796,31 @@ export async function updateUser(id: string, patch: Partial<Pick<User,'departmen
   if (patch.themeBgMain !== undefined) u.themeBgMain = patch.themeBgMain
   if (patch.themeAccent !== undefined) u.themeAccent = patch.themeAccent
   if (patch.layoutType !== undefined) u.layoutType = patch.layoutType
+  if (patch.profileImage !== undefined) u.profileImage = patch.profileImage
   u.updatedAt = Date.now()
   if (patch.roleId && patch.roleId !== prev.roleId) {
     const newRole = roles.find(r => r.id === patch.roleId)
     const prevRole = roles.find(r => r.id === prev.roleId)
     permAudit.push({ orgId: u.orgId, actorUserId: (global as any).currentActorUserId ?? null, targetUserId: u.id, actionType: 'role_changed', previousRole: prevRole ? { id: prevRole.id, name: prevRole.name } : null, previousPermissions: prevRole?.permissions ?? [], newRole: newRole ? { id: newRole.id, name: newRole.name } : null, newPermissions: newRole?.permissions ?? [], createdAt: Date.now() })
   }
+  return u
+}
+
+export async function updateUserPassword(id: string, passwordHash: string) {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const now = new Date()
+    const { data, error } = await sb.from('users').update({
+      password_hash: passwordHash,
+      updated_at: now
+    }).eq('id', id).select('*').single()
+    if (error) return 'DB_ERROR'
+    return mapUserFromRow(data)
+  }
+  const u = users.find(x => x.id === id)
+  if (!u) return undefined
+  u.passwordHash = passwordHash
+  u.updatedAt = Date.now()
   return u
 }
 

@@ -14,6 +14,8 @@ type User = { id: string, firstName: string, lastName: string }
 
 function formatHM(mins: number) { const m = Math.max(0, Math.round(mins || 0)); const h = Math.floor(m / 60); const mm = String(m % 60).padStart(2, '0'); return `${h}:${mm}` }
 
+function formatHMS(mins: number) { const sec = Math.max(0, Math.round(mins * 60)); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = sec % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` }
+
 export default function MyActivityPage() {
   const { isTracking, localStats, startTracking } = useTracking()
   const [orgs, setOrgs] = useState<Org[]>([])
@@ -90,73 +92,143 @@ export default function MyActivityPage() {
     const end = s.endTime ? new Date(s.endTime).getTime() : Date.now()
     return acc + Math.max(0, (end - start) / 1000 / 60)
   }, 0)
-  const activeMinutes = (data.events || []).filter((e: any) => e.isActive).length
-  const idleMinutes = Math.max(0, Math.floor(totalSessionMinutes) - activeMinutes)
 
-  const showLocalStats = isTracking
-  const pendingKeys = showLocalStats ? localStats.keys : 0
-  const pendingClicks = showLocalStats ? localStats.clicks : 0
+  // Calculate active minutes
+  // TrackingProvider handles the 10-minute threshold (events become isActive=false after 10 mins).
+  // Calculate active minutes
+  // We apply "True Retroactive Idle":
+  // 1. Identify "Zombie Active" events (active=true but no input).
+  // 2. If a chain of Zombie events leads to an Idle event or exceeds 10 mins, mark them as Idle.
+  const sortedEvents = (data.events || []).slice().sort((a: any, b: any) => a.timestamp - b.timestamp)
   
-  const totalInteractions = totalClicks + totalKeys
-  const pendingInteractions = pendingClicks + pendingKeys
+  let adjustedActiveCount = 0
+  let zombieChainCount = 0
 
-  return (
-    <AppShell title="My Activity">
-      <div className="grid grid-2">
-        <GlassCard title="Privacy & Tracking">
-          <div className="grid grid-2" style={{ marginBottom: 12 }}>
-            <div>
-              <div className="label">Organization</div>
-              {(['employee', 'member'].includes(role)) ? (
-                <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
-              ) : (
-                <GlassSelect value={orgId} onChange={(e: any) => setOrgId(e.target.value)}>
-                  <option value="">Select org</option>
-                  {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
-                </GlassSelect>
-              )}
-            </div>
-            <div>
-              <div className="label">Me</div>
-              {(['employee', 'member'].includes(role)) ? (
-                <span className="tag-pill">{members.find(m => m.id === memberId) ? `${members.find(m => m.id === memberId)!.firstName} ${members.find(m => m.id === memberId)!.lastName}` : 'Me'}</span>
-              ) : (
-                <GlassSelect value={memberId} onChange={(e: any) => setMemberId(e.target.value)}>
-                  <option value="">Select member</option>
-                  {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-                </GlassSelect>
-              )}
-            </div>
-          </div>
-          <div className="subtitle">{privacyLines.join(' • ')}</div>
-          <div className="subtitle" style={{ marginTop: 8 }}>Tracking is {data.trackingOn ? 'ON' : 'OFF'}</div>
-          <div className="subtitle" style={{ marginTop: 6 }}>MARQ only logs active apps, websites, and work-related screen snapshots. Nothing is recorded outside your working hours.</div>
-        </GlassCard>
-        <GlassCard title="Top Apps Today">
-          <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(data.topApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
-        </GlassCard>
-      </div>
-      <div className='mt-10'>
-        <div style={{marginBottom: 20}}>
-          <GlassCard title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              Activity Stats
-              {showLocalStats && (
-                <span className="badge" style={{ background: '#22c55e', color: 'white', border: 'none' }}>LIVE</span>
-              )}
-              {!showLocalStats && data.trackingOn && (
-                <span className="badge" style={{ background: '#eab308', color: 'white', border: 'none' }}>CONNECTING...</span>
-              )}
-            </div>
-          }>
-             <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
-                <div>
+  for (const e of sortedEvents) {
+    if (!e.isActive) {
+      zombieChainCount = 0
+      continue
+    }
+
+    // Check for "Zombie" (Active but no input)
+    const isZombie = (e.keyboardActivityScore || 0) === 0 && 
+                     (e.clickCount || 0) === 0 && 
+                     (e.mouseActivityScore || 0) === 0
+    
+    if (isZombie) {
+      zombieChainCount++
+    } else {
+      adjustedActiveCount += zombieChainCount
+      zombieChainCount = 0
+      adjustedActiveCount++ 
+    }
+  }
+
+  let tailCorrection = 0
+  const openSession = (data.sessions || []).find((s: any) => !s.endTime)
+  
+  if (openSession) {
+    const lastEvent = sortedEvents.length > 0 ? sortedEvents[sortedEvents.length - 1] : null
+    const lastTs = lastEvent ? lastEvent.timestamp : 0
+    const now = Date.now()
+    const sessionStart = new Date(openSession.startTime).getTime()
+    const effectiveLastEventTime = Math.max(lastTs, sessionStart)
+    const gap = Math.max(0, (now - effectiveLastEventTime) / 1000 / 60)
+    
+    // Check if pending zombie chain + gap exceeds 10 mins
+     // If the last event was already inactive, zombieChainCount is 0, so we just check gap (which shouldn't matter as it's idle)
+     // Actually if last event was inactive, gap should be Idle.
+     // My logic: if lastEvent was inactive, zombieChainCount is 0. 
+     // gap < 10 -> active? NO. If last event inactive, gap is Idle.
+     // I need to check lastEvent.isActive for the gap.
+     
+     // FIX: Check local real-time stats to see if user is CURRENTLY active.
+     // If user is typing right now, the gap is Active, regardless of last event.
+     const hasLocalActivity = (localStats.keys > 0 || localStats.clicks > 0 || localStats.mouse > 0)
+     const isLastActive = (!lastEvent || lastEvent.isActive || hasLocalActivity)
+     
+     if (isLastActive) {
+        if (zombieChainCount + gap < 10) {
+          adjustedActiveCount += zombieChainCount
+          tailCorrection = gap
+        }
+     } else {
+        // Last event inactive. Gap is idle. Zombie chain is already discarded.
+     }
+   } else {
+     // Closed session
+     if (zombieChainCount < 10) {
+        adjustedActiveCount += zombieChainCount
+     }
+   }
+ 
+   const activeMinutes = adjustedActiveCount + tailCorrection
+   const idleMinutes = Math.max(0, totalSessionMinutes - activeMinutes)
+ 
+   const showLocalStats = isTracking
+   const pendingKeys = showLocalStats ? localStats.keys : 0
+   const pendingClicks = showLocalStats ? localStats.clicks : 0
+   
+   const totalInteractions = totalClicks + totalKeys
+   const pendingInteractions = pendingClicks + pendingKeys
+ 
+   return (
+     <AppShell title="My Activity">
+       <div className="grid grid-2">
+         <GlassCard title="Privacy & Tracking">
+           <div className="grid grid-2" style={{ marginBottom: 12 }}>
+             <div>
+               <div className="label">Organization</div>
+               {(['employee', 'member'].includes(role)) ? (
+                 <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+               ) : (
+                 <GlassSelect value={orgId} onChange={(e: any) => setOrgId(e.target.value)}>
+                   <option value="">Select org</option>
+                   {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                 </GlassSelect>
+               )}
+             </div>
+             <div>
+               <div className="label">Me</div>
+               {(['employee', 'member'].includes(role)) ? (
+                 <span className="tag-pill">{members.find(m => m.id === memberId) ? `${members.find(m => m.id === memberId)!.firstName} ${members.find(m => m.id === memberId)!.lastName}` : 'Me'}</span>
+               ) : (
+                 <GlassSelect value={memberId} onChange={(e: any) => setMemberId(e.target.value)}>
+                   <option value="">Select member</option>
+                   {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+                 </GlassSelect>
+               )}
+             </div>
+           </div>
+           <div className="subtitle">{privacyLines.join(' • ')}</div>
+           <div className="subtitle" style={{ marginTop: 8 }}>Tracking is {data.trackingOn ? 'ON' : 'OFF'}</div>
+           <div className="subtitle" style={{ marginTop: 6 }}>MARQ only logs active apps, websites, and work-related screen snapshots. Nothing is recorded outside your working hours.</div>
+         </GlassCard>
+         <GlassCard title="Top Apps Today">
+           <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(data.topApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
+         </GlassCard>
+       </div>
+       <div className='mt-10'>
+         <div style={{marginBottom: 20}}>
+           <GlassCard title={
+             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+               Activity Stats
+               {showLocalStats && (
+                 <span className="badge" style={{ background: '#22c55e', color: 'white', border: 'none' }}>LIVE</span>
+               )}
+               {!showLocalStats && data.trackingOn && (
+                 <span className="badge" style={{ background: '#eab308', color: 'white', border: 'none' }}>CONNECTING...</span>
+               )}
+             </div>
+           }>
+              <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
+                 <div>
                    <div className="label">Active Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(activeMinutes)}</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHMS(activeMinutes)}</div>
                 </div>
                 <div>
                    <div className="label">Idle Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHM(idleMinutes)}</div>
+                   <div style={{ fontSize: 24, fontWeight: 600 }}>{Math.round(idleMinutes)} m</div>
                 </div>
                 <div>
                    <div className="label">Total Interactions</div>

@@ -56,7 +56,7 @@ export default function DashboardClient() {
     setSummary(data)
   }
   useEffect(() => { loadOrgs() }, [])
-  useEffect(() => { setMounted(true); try { const r = document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || ''; setRole(r.toLowerCase()) } catch {} }, [])
+  useEffect(() => { setMounted(true); try { const r = document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || ''; setRole(decodeURIComponent(r).toLowerCase()) } catch {} }, [])
   useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
   useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
 
@@ -144,7 +144,7 @@ export default function DashboardClient() {
           <div className="grid grid-2" style={{marginBottom:12}}>
             <div>
               <div className="label">Organization</div>
-              {(['employee','member'].includes(role)) ? (
+              {(['employee','member'].includes(role) || !canOrg || orgs.length <= 1) ? (
                 <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
               ) : (
                 <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
@@ -179,6 +179,11 @@ export default function DashboardClient() {
               <div className="subtitle">Short</div>
               <div className="title" style={{color:'var(--orange)'}}>{fmt(summary.short_time)}</div>
             </div>
+            {tracking.idleDuration > 0 && (
+              <div style={{marginTop: 8}}>
+                 <div className="subtitle" style={{color: 'var(--orange)'}}>Idle: {fmt(Math.floor(tracking.idleDuration / 60000))}</div>
+              </div>
+            )}
           </div>
           {(['employee','member'].includes(role)) && (
             <div className="row" style={{gap:12}}>

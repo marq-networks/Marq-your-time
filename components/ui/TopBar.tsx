@@ -1,8 +1,10 @@
 'use client'
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import NotificationsBell from './NotificationsBell'
 import GlassSelect from './GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import usePermission from '@lib/hooks/usePermission'
 
 type OrgItem = { id: string, orgName: string }
 
@@ -21,6 +23,7 @@ export default function TopBar({ title }: { title: string }) {
   const [role, setRole] = useState<string>('')
   const [userTheme, setUserTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
   const [orgTheme, setOrgTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
+  const canOrg = usePermission('manage_org').allowed
 
   const loadOrgs = async () => {
     try {
@@ -100,7 +103,7 @@ export default function TopBar({ title }: { title: string }) {
         {(['member','employee'].includes(role)) && <span className="tag-pill">{orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || ''}</span>}
       </div>
       <div className="row" style={{gap:12, alignItems:'center'}}>
-        {orgs.length > 1 && (
+        {orgs.length > 1 && !['member','employee'].includes(role) && canOrg && (
           <div className="row" style={{alignItems:'center',gap:8}}>
             <span className="tag-pill accent">Org</span>
             <GlassSelect value={current} onChange={(e:any)=> onSwitch(e.target.value)} style={{ minWidth: 180 }}>
@@ -109,10 +112,10 @@ export default function TopBar({ title }: { title: string }) {
           </div>
         )}
         <NotificationsBell />
-        <div className="user-pill">
+        <Link href="/profile" className="user-pill">
           <div className="avatar" />
           <div className="user-name">{orgSession ? (orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization') : (userName || 'User')}</div>
-        </div>
+        </Link>
       </div>
     </div>
   )

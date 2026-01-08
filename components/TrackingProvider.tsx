@@ -17,6 +17,7 @@ interface TrackingContextType {
   stopTracking: () => Promise<void>
   isTracking: boolean
   localStats: { keys: number, clicks: number, mouse: number }
+  idleDuration: number
 }
 
 const TrackingContext = createContext<TrackingContextType>({
@@ -24,7 +25,8 @@ const TrackingContext = createContext<TrackingContextType>({
   startTracking: async () => {},
   stopTracking: async () => {},
   isTracking: false,
-  localStats: { keys: 0, clicks: 0, mouse: 0 }
+  localStats: { keys: 0, clicks: 0, mouse: 0 },
+  idleDuration: 0,
 })
 
 export const useTracking = () => useContext(TrackingContext)
@@ -40,6 +42,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [localStats, setLocalStats] = useState({ keys: 0, clicks: 0, mouse: 0 })
+  const [idleDuration, setIdleDuration] = useState(0)
 
   // Cleanup on unmount (of the provider, i.e., app close/refresh)
   useEffect(() => {
@@ -61,6 +64,12 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
         clicks: clickCountRef.current,
         mouse: mouseCountRef.current
       })
+      const timeSinceActivity = Date.now() - lastActivityRef.current
+      if (timeSinceActivity > 10 * 60 * 1000) {
+        setIdleDuration(timeSinceActivity)
+      } else {
+        setIdleDuration(0)
+      }
     }, 1000)
     return () => clearInterval(t)
   }, [trackingSessionId])
@@ -197,9 +206,9 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     
     const t = setInterval(async () => {
       const isFocused = document.hasFocus()
-      // 1 minute idle threshold
+      // 10 minutes idle threshold
       const timeSinceActivity = Date.now() - lastActivityRef.current
-      const isIdle = timeSinceActivity > 1 * 60 * 1000
+      const isIdle = timeSinceActivity > 10 * 60 * 1000
       
       // If focused, we are active unless we've been idle for > 1 min.
       // If not focused (background), we use a stricter check:
@@ -360,7 +369,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   }, [])
 
   return (
-    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats }}>
+    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats, idleDuration }}>
       {children}
     </TrackingContext.Provider>
   )

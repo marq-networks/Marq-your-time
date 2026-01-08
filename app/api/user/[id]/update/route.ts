@@ -7,14 +7,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const allowed = actor ? await checkPermission(actor, 'manage_users') : false
   const self = actor && actor === params.id
   const patchKeys = Object.keys(patch || {})
-  const onlyTheme =
+  const selfAllowedFields = ['themeBgMain', 'themeAccent', 'layoutType', 'profileImage']
+  const isSelfUpdate =
     patchKeys.length > 0 &&
-    patchKeys.every(k => ['themeBgMain','themeAccent','layoutType'].includes(k))
+    patchKeys.every(k => selfAllowedFields.includes(k))
   if (!allowed && !self) {
     return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You do not have permission to perform this action.' }, { status: 403 })
   }
-  if (!allowed && self && !onlyTheme) {
-    return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You may only update your display settings.' }, { status: 403 })
+  if (!allowed && self && !isSelfUpdate) {
+    return NextResponse.json({ success: false, error: 'FORBIDDEN', message: 'You may only update your display settings or profile photo.' }, { status: 403 })
   }
   if (actor && patch.roleId) {
     const target = await getUser(params.id)

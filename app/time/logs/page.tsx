@@ -102,10 +102,14 @@ export default function TimeLogsPage() {
         <div className="grid grid-3">
           <div>
             <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
-              <option value="">Select org</option>
-              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
+            {['employee', 'member'].includes(role) ? (
+              <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+            ) : (
+              <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
+                <option value="">Select org</option>
+                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+              </GlassSelect>
+            )}
           </div>
           <div>
             <div className="label">Date</div>
