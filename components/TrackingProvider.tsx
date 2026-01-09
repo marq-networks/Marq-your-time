@@ -7,6 +7,7 @@ declare global {
       onActivityUpdate: (cb: (stats: any) => void) => void
       startTracking: () => void
       stopTracking: () => void
+      getSources: () => Promise<any[]>
     }
   }
 }
@@ -120,7 +121,30 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     }
     
     try {
-      const ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
+      let ms: MediaStream
+      
+      if (window.electronAPI && window.electronAPI.getSources) {
+        const sources = await window.electronAPI.getSources()
+        const source = sources[0] // Main screen usually
+        if (!source) throw new Error('No electron screen source found')
+        
+        ms = await (navigator.mediaDevices as any).getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: source.id,
+              minWidth: 1280,
+              maxWidth: 4000,
+              minHeight: 720,
+              maxHeight: 4000
+            }
+          }
+        })
+      } else {
+        ms = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false })
+      }
+
       streamRef.current = ms
       
       // Handle user stopping the stream via browser UI

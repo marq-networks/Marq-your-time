@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron')
 const path = require('path')
 const { uIOhook, UiohookKey } = require('uiohook-napi')
 
@@ -51,6 +51,14 @@ ipcMain.on('start-tracking', () => {
 
 ipcMain.on('stop-tracking', () => {
   trackingActive = false
+})
+
+ipcMain.handle('get-sources', async () => {
+  const sources = await desktopCapturer.getSources({ types: ['screen'] })
+  return sources.map(source => ({
+    id: source.id,
+    name: source.name
+  }))
 })
 
 // Send stats every second
