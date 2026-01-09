@@ -1,13 +1,14 @@
 'use client'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
-declare global {
+  declare global {
   interface Window {
     electronAPI?: {
       onActivityUpdate: (cb: (stats: any) => void) => void
       startTracking: () => void
       stopTracking: () => void
       getSources: () => Promise<any[]>
+      captureScreen: () => Promise<string | null>
     }
   }
 }
@@ -176,6 +177,27 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
   const captureAndSendScreenshot = async (tid: string) => {
     console.log('[Screenshot] Attempting capture for session:', tid)
+
+    // Electron optimized path
+    if (window.electronAPI && window.electronAPI.captureScreen) {
+      try {
+        const dataUrl = await window.electronAPI.captureScreen()
+        if (dataUrl) {
+          const res = await fetch('/api/activity/screenshot', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ tracking_session_id: tid, timestamp: Date.now(), image: dataUrl }) 
+          })
+          const json = await res.json()
+          console.log('[Screenshot] Server response (Electron):', json)
+          return
+        }
+      } catch (e) {
+        console.error('[Screenshot] Electron capture failed:', e)
+      }
+      // Fallback to web method if electron method fails for some reason
+    }
+
     const ms = await ensureStream()
     if (!ms) return
 

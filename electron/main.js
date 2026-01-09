@@ -61,6 +61,18 @@ ipcMain.handle('get-sources', async () => {
   }))
 })
 
+ipcMain.handle('capture-screen', async () => {
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.size
+  
+  const sources = await desktopCapturer.getSources({ 
+    types: ['screen'], 
+    thumbnailSize: { width, height } 
+  })
+  return sources[0]?.thumbnail.toDataURL() || null
+})
+
 // Send stats every second
 setInterval(() => {
   if (trackingActive && mainWindow) {
