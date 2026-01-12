@@ -63,16 +63,19 @@ ipcMain.handle('get-sources', async () => {
 
 ipcMain.handle('capture-screen', async () => {
   try {
-    const { screen } = require('electron')
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const width = primaryDisplay.size.width * primaryDisplay.scaleFactor
-    const height = primaryDisplay.size.height * primaryDisplay.scaleFactor
-    
+    // Request a reasonable resolution (1080p) to ensure performance and reliability
     const sources = await desktopCapturer.getSources({ 
       types: ['screen'], 
-      thumbnailSize: { width: Math.round(width), height: Math.round(height) } 
+      thumbnailSize: { width: 1920, height: 1080 } 
     })
-    return sources[0]?.thumbnail.toDataURL() || null
+    
+    // Find the primary display or fallback to the first one
+    const primarySource = sources[0]
+    
+    if (primarySource && primarySource.thumbnail) {
+      return primarySource.thumbnail.toDataURL()
+    }
+    return null
   } catch (e) {
     console.error('Screen capture error:', e)
     return null

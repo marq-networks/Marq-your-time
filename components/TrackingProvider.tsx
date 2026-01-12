@@ -196,24 +196,36 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
         console.error('[Screenshot] Electron capture failed:', e)
       }
       // Fallback to web method if electron method fails for some reason
+      console.warn('[Screenshot] Electron capture failed or returned null, falling back to stream')
     }
 
     const ms = await ensureStream()
-    if (!ms) return
+    if (!ms) {
+      console.error('[Screenshot] Failed to get stream for screenshot')
+      return
+    }
 
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      console.error('[Screenshot] Video element missing')
+      return
+    }
 
     // Ensure video is playing
     if (video.paused) {
-      try { await video.play() } catch {}
+      try { await video.play() } catch (e) { console.error('[Screenshot] Video play failed:', e) }
     }
 
     // Wait for dimensions if needed
     let attempts = 0
-    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 10) {
+    while ((video.videoWidth === 0 || video.videoHeight === 0) && attempts < 20) {
       await new Promise(r => setTimeout(r, 200))
       attempts++
+    }
+
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.error('[Screenshot] Video dimensions are zero after wait')
+      return
     }
 
     if ((video as any).requestVideoFrameCallback) {
