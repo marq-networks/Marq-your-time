@@ -23,7 +23,33 @@ export default function OfflineSyncPage() {
   const [openQueueId, setOpenQueueId] = useState<string|null>(null)
   const [items, setItems] = useState<{ item_index: number, payload_type: string, payload: any }[]>([])
 
-  useEffect(() => { (async () => { const res = await fetch('/api/org/list'); const j = await res.json(); setOrgs(j.orgs || []) })() }, [])
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/org/list')
+        const j = await res.json()
+        const list = j.items || j.orgs || []
+        setOrgs(list)
+        
+        // Auto-select if only one, or fallback to cookie if empty (e.g. non-admin)
+        if (list.length > 0) {
+          // If previously selected org is not in list, select first? Or keep empty?
+          // Let's not force select unless list has 1 item
+          if (list.length === 1) setOrgId(list[0].id)
+        } else {
+          // Fallback: Try to get from cookie
+          const matches = document.cookie.match(/current_org_id=([^;]+)/)
+          if (matches && matches[1]) {
+            const oid = matches[1]
+            setOrgs([{ id: oid, orgName: 'Current Org' }])
+            setOrgId(oid)
+          }
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    })()
+  }, [])
 
   const loadStatus = async () => {
     if (!orgId) return

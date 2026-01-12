@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   const now = new Date()
   const { data: queue, error: qErr } = await sb.from('agent_sync_queues').insert({ device_id, member_id, org_id, local_batch_id, batch_type, item_count: items.length, status: 'pending', received_at: now }).select('*').single()
-  if (qErr) return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+  if (qErr) return NextResponse.json({ error: 'DB_ERROR', details: qErr.message || String(qErr) }, { status: 500 })
 
   const queue_id = queue.id as string
   const conflicts: { id: string, type: string }[] = []
