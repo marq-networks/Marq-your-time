@@ -17,7 +17,7 @@ function formatHM(mins: number) { const m = Math.max(0, Math.round(mins || 0)); 
 function formatHMS(mins: number) { const sec = Math.max(0, Math.round(mins * 60)); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = sec % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` }
 
 export default function MyActivityPage() {
-  const { isTracking, localStats, startTracking } = useTracking()
+  const { isTracking, localStats, startTracking, lastError } = useTracking()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<User[]>([])
@@ -243,40 +243,45 @@ export default function MyActivityPage() {
                )}
              </div>
            }>
-              <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
-                 <div>
-                   <div className="label">Active Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHMS(activeMinutes)}</div>
-                </div>
+             <div className="grid grid-3" style={{ textAlign: 'center', gap: '20px' }}>
                 <div>
-                   <div className="label">Idle Time</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>{Math.round(idleMinutes)} m</div>
-                </div>
-                <div>
-                   <div className="label">Total Interactions</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
-                     {totalInteractions}
-                     {pendingInteractions > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingInteractions})</span>}
-                   </div>
-                </div>
-                <div>
-                   <div className="label">Mouse Clicks</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
-                     {totalClicks}
-                     {pendingClicks > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingClicks})</span>}
-                   </div>
-                </div>
-                <div>
-                   <div className="label">Keyboard Keys</div>
-                   <div style={{ fontSize: 24, fontWeight: 600 }}>
-                     {totalKeys}
-                     {pendingKeys > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingKeys})</span>}
-                   </div>
-                </div>
-             </div>
-          </GlassCard>
-        </div>
-        <GlassCard title="Today Timeline">
+                  <div className="label">Active Time</div>
+                  <div style={{ fontSize: 24, fontWeight: 600 }}>{formatHMS(activeMinutes)}</div>
+               </div>
+               <div>
+                  <div className="label">Idle Time</div>
+                  <div style={{ fontSize: 24, fontWeight: 600 }}>{Math.round(idleMinutes)} m</div>
+               </div>
+               <div>
+                  <div className="label">Total Interactions</div>
+                  <div style={{ fontSize: 24, fontWeight: 600 }}>
+                    {totalInteractions}
+                    {pendingInteractions > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingInteractions})</span>}
+                  </div>
+               </div>
+               <div>
+                  <div className="label">Mouse Clicks</div>
+                  <div style={{ fontSize: 24, fontWeight: 600 }}>
+                    {totalClicks}
+                    {pendingClicks > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingClicks})</span>}
+                  </div>
+               </div>
+               <div>
+                  <div className="label">Keyboard Keys</div>
+                  <div style={{ fontSize: 24, fontWeight: 600 }}>
+                    {totalKeys}
+                    {pendingKeys > 0 && <span style={{fontSize: 16, color: '#888', marginLeft: 4}}>(+{pendingKeys})</span>}
+                  </div>
+               </div>
+            </div>
+            {lastError && (
+              <div style={{ marginTop: 20, padding: 10, background: '#fee2e2', color: '#dc2626', borderRadius: 8, fontSize: 14 }}>
+                <strong>Screenshot Error:</strong> {lastError}
+              </div>
+            )}
+         </GlassCard>
+       </div>
+       <GlassCard title="Today Timeline">
           <div className="subtitle">Work sessions and breaks</div>
           <div>
             {(data.sessions || []).map((s: any) => (

@@ -14,3 +14,7 @@ yarn-error.log*
 
 # OS
 .DS_Store
+
+# Build output
+dist/
+

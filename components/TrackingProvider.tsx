@@ -8,7 +8,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
       startTracking: () => void
       stopTracking: () => void
       getSources: () => Promise<any[]>
-      captureScreen: () => Promise<string | null>
+      captureScreen: () => Promise<{ dataUrl?: string, error?: string } | null>
     }
   }
 }
@@ -20,6 +20,7 @@ interface TrackingContextType {
   isTracking: boolean
   localStats: { keys: number, clicks: number, mouse: number }
   idleDuration: number
+  lastError: string | null
 }
 
 const TrackingContext = createContext<TrackingContextType>({
@@ -29,12 +30,14 @@ const TrackingContext = createContext<TrackingContextType>({
   isTracking: false,
   localStats: { keys: 0, clicks: 0, mouse: 0 },
   idleDuration: 0,
+  lastError: null,
 })
 
 export const useTracking = () => useContext(TrackingContext)
 
 export default function TrackingProvider({ children }: { children: React.ReactNode }) {
   const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<string | null>(null)
   const [activityTimer, setActivityTimer] = useState<any>(null)
   const [screenshotTimer, setScreenshotTimer] = useState<any>(null)
   const mouseCountRef = useRef(0)
@@ -143,6 +146,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       }
 
       streamRef.current = ms
+      setLastError(null)
       
       // Handle user stopping the stream via browser UI
       ms.getVideoTracks()[0].onended = () => {
@@ -171,6 +175,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       return ms
     } catch (e) {
       console.error('[Tracking] Permission denied or error:', e)
+      setLastError('Stream error: ' + (e as any).message)
       return null
     }
   }
@@ -181,19 +186,25 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     // Electron optimized path
     if (window.electronAPI && window.electronAPI.captureScreen) {
       try {
-        const dataUrl = await window.electronAPI.captureScreen()
-        if (dataUrl) {
+        const result = await window.electronAPI.captureScreen()
+        if (result && result.dataUrl) {
           const res = await fetch('/api/activity/screenshot', { 
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ tracking_session_id: tid, timestamp: Date.now(), image: dataUrl }) 
+            body: JSON.stringify({ tracking_session_id: tid, timestamp: Date.now(), image: result.dataUrl }) 
           })
           const json = await res.json()
           console.log('[Screenshot] Server response (Electron):', json)
+          setLastError(null)
           return
+        } else if (result && result.error) {
+            setLastError('Electron capture error: ' + result.error)
+        } else {
+            setLastError('Electron capture returned unexpected null/empty')
         }
       } catch (e) {
         console.error('[Screenshot] Electron capture failed:', e)
+        setLastError('Electron capture threw: ' + (e as any).message)
       }
       // Fallback to web method if electron method fails for some reason
       console.warn('[Screenshot] Electron capture failed or returned null, falling back to stream')
@@ -202,18 +213,20 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
     const ms = await ensureStream()
     if (!ms) {
       console.error('[Screenshot] Failed to get stream for screenshot')
+      // Error already set in ensureStream
       return
     }
 
     const video = videoRef.current
     if (!video) {
       console.error('[Screenshot] Video element missing')
+      setLastError('Video element missing')
       return
     }
 
     // Ensure video is playing
     if (video.paused) {
-      try { await video.play() } catch (e) { console.error('[Screenshot] Video play failed:', e) }
+      try { await video.play() } catch (e) { console.error('[Screenshot] Video play failed:', e); setLastError('Video play failed: ' + (e as any).message) }
     }
 
     // Wait for dimensions if needed
@@ -225,6 +238,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       console.error('[Screenshot] Video dimensions are zero after wait')
+      setLastError('Video dimensions zero')
       return
     }
 
@@ -250,8 +264,10 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       })
       const json = await res.json()
       console.log('[Screenshot] Server response:', json)
+      setLastError(null)
     } catch (e) {
       console.error('[Screenshot] Upload failed:', e)
+      setLastError('Upload failed: ' + (e as any).message)
     }
   }
 
@@ -423,7 +439,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   }, [])
 
   return (
-    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats, idleDuration }}>
+    <TrackingContext.Provider value={{ trackingSessionId, startTracking, stopTracking, isTracking: !!trackingSessionId, localStats, idleDuration, lastError }}>
       {children}
     </TrackingContext.Provider>
   )

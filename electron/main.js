@@ -24,7 +24,11 @@ function createWindow() {
   })
 
   // In production, this might load a file, but for now we keep localhost
-  mainWindow.loadURL('http://localhost:3000')
+  const url = app.isPackaged 
+    ? 'http://localhost:3000' // In a real production build, this would point to the deployed URL or a local server
+    : 'http://localhost:3000'
+  
+  mainWindow.loadURL(url)
 }
 
 app.whenReady().then(() => {
@@ -72,13 +76,17 @@ ipcMain.handle('capture-screen', async () => {
     // Find the primary display or fallback to the first one
     const primarySource = sources[0]
     
-    if (primarySource && primarySource.thumbnail) {
-      return primarySource.thumbnail.toDataURL()
+    if (primarySource) {
+      if (primarySource.thumbnail) {
+        return { dataUrl: primarySource.thumbnail.toDataURL() }
+      } else {
+        return { error: 'Source found but no thumbnail' }
+      }
     }
-    return null
+    return { error: 'No screen sources found' }
   } catch (e) {
     console.error('Screen capture error:', e)
-    return null
+    return { error: e.message }
   }
 })
 
