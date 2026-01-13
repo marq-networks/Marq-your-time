@@ -123,6 +123,11 @@ export interface TimeSession {
   id: string
   memberId: string
   orgId: string
+  projectId?: string
+  taskId?: string
+  projectName?: string
+  clientName?: string
+  taskTitle?: string
   date: string
   startTime: number
   endTime?: number
@@ -566,4 +571,58 @@ export interface AIInsightSnapshot {
   summary?: string
   metadata?: any
   createdAt: number
+}
+
+export interface Client {
+  id: string
+  orgId: string
+  name: string
+  email?: string
+  address?: string
+  currency: string
+  status: 'active' | 'archived'
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Project {
+  id: string
+  orgId: string
+  clientId?: string
+  name: string
+  code?: string
+  description?: string
+  status: 'active' | 'completed' | 'on_hold' | 'archived'
+  budgetType: 'hours' | 'money' | 'none'
+  budgetValue: number
+  startDate?: string
+  endDate?: string
+  managerId?: string
+  isBillable: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectMember {
+  projectId: string
+  userId: string
+  role: string
+  rate?: number
+  createdAt: number
+}
+
+export interface Task {
+  id: string
+  orgId: string
+  projectId: string
+  title: string
+  description?: string
+  status: 'todo' | 'in_progress' | 'review' | 'done'
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  assigneeId?: string
+  reporterId?: string
+  dueDate?: string
+  estimatedHours?: number
+  createdAt: number
+  updatedAt: number
 }

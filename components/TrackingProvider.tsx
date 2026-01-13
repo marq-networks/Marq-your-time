@@ -1,7 +1,15 @@
 'use client'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { saveOfflineActivity, getOfflineActivity, clearOfflineActivity } from '@lib/client-db'
 
-  declare global {
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+declare global {
   interface Window {
     electronAPI?: {
       onActivityUpdate: (cb: (stats: any) => void) => void
@@ -325,24 +333,124 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
              stopLocalTracking()
              return
            }
-
-           // If other error, restore counts so we don't lose data
-           console.warn('[Activity] Batch upload failed, restoring counts', res.status)
-           keyCountRef.current += currentKeys
-           mouseCountRef.current += currentMouse
-           clickCountRef.current += currentClicks
+           throw new Error('Batch upload failed with status ' + res.status)
         }
       } catch (e) {
-        console.error('[Activity] Failed to send batch:', e)
-        // Restore counts on network error
-        keyCountRef.current += currentKeys
-        mouseCountRef.current += currentMouse
-        clickCountRef.current += currentClicks
+        console.error('[Activity] Failed to send batch, saving offline:', e)
+        // Save to IndexedDB for later sync
+        // We attach the tracking_session_id although offline sync might need to reconstruct it
+        await saveOfflineActivity({ ...ev, tracking_session_id: tid })
       }
     }, 60 * 1000)
     
     setActivityTimer(t)
   }
+
+  // Sync Manager
+  useEffect(() => {
+    const sync = async () => {
+      if (!navigator.onLine) return
+      try {
+        const offlineItems = await getOfflineActivity()
+        if (offlineItems.length === 0) return
+        
+        console.log('[Sync] Found', offlineItems.length, 'offline items. Syncing...')
+        
+        // We need to fetch memberId/orgId to construct the batch payload
+        // We can get them from cookies or an API call.
+        const getCookie = (name: string) => document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)')?.[2]
+        let memberId = getCookie('current_user_id')
+        let orgId = getCookie('current_org_id')
+
+        if (!memberId || !orgId) {
+          // Fallback to localStorage
+          memberId = localStorage.getItem('marq_member_id') || undefined
+          orgId = localStorage.getItem('marq_org_id') || undefined
+        }
+        
+        if (!memberId || !orgId) {
+          console.error('[Sync] Cannot sync: Missing member/org ID')
+          return
+        }
+
+        // Group by 10-minute blocks or just one big batch?
+        // Let's send one big batch for simplicity, the backend handles splitting if needed?
+        // Actually backend `offline/batch` creates ONE time_session per batch item set.
+        // So if we have 60 items (1 hour), we should ideally send them as one session.
+        
+        // Find time range
+        const timestamps = offlineItems.map((i: any) => i.timestamp)
+        const minTime = Math.min(...timestamps)
+        const maxTime = Math.max(...timestamps)
+        // Add 1 minute to maxTime for the end of the last interval
+        const start = new Date(minTime)
+        const end = new Date(maxTime + 60000) 
+        
+        const deviceId = 'web-client-' + memberId.slice(0,8)
+        const localBatchId = uuid()
+
+        // 1. Time Batch
+        const timePayload = {
+          local_batch_id: localBatchId + '-time',
+          batch_type: 'time',
+          device_id: deviceId,
+          member_id: memberId,
+          org_id: orgId,
+          items: [{
+            local_session_id: uuid(),
+            started_at: start.toISOString(),
+            ended_at: end.toISOString(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+          }]
+        }
+
+        // 2. Activity Batch
+        const activityPayload = {
+          local_batch_id: localBatchId + '-act',
+          batch_type: 'activity',
+          device_id: deviceId,
+          member_id: memberId,
+          org_id: orgId,
+          items: offlineItems.map((item: any) => ({
+            timestamp: new Date(item.timestamp).toISOString(),
+            app_name: item.app_name,
+            window_title: item.window_title,
+            is_active: item.is_active,
+            keyboard_activity_score: item.keyboard_activity_score,
+            mouse_activity_score: item.mouse_activity_score,
+            click_count: item.click_count
+          }))
+        }
+        
+        // Send Time
+        await fetch('/api/agent/offline/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer web-offline-sync' },
+          body: JSON.stringify(timePayload)
+        })
+        
+        // Send Activity
+        await fetch('/api/agent/offline/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer web-offline-sync' },
+          body: JSON.stringify(activityPayload)
+        })
+        
+        // Clear DB
+        await clearOfflineActivity(offlineItems.map((i: any) => i.id))
+        console.log('[Sync] Successfully synced offline data')
+        
+      } catch (e) {
+        console.error('[Sync] Failed:', e)
+      }
+    }
+
+    window.addEventListener('online', sync)
+    // Also try to sync on mount if online
+    sync()
+    
+    return () => window.removeEventListener('online', sync)
+  }, [])
 
   // Effect to manage event listeners based on tracking state
   useEffect(() => {
@@ -427,6 +535,10 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
       try {
         const res = await fetch('/api/tracking/current')
         const data = await res.json()
+        
+        if (data.memberId) localStorage.setItem('marq_member_id', data.memberId)
+        if (data.orgId) localStorage.setItem('marq_org_id', data.orgId)
+
         if (data.trackingAllowed && data.trackingSessionId && !data.consentRequired) {
             console.log('[Tracking] Resuming session:', data.trackingSessionId)
             startTracking(data.trackingSessionId, data.settings)

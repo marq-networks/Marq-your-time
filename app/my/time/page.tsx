@@ -24,6 +24,10 @@ export default function MyDayPage() {
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<User[]>([])
   const [memberId, setMemberId] = useState('')
+  const [projects, setProjects] = useState<any[]>([])
+  const [tasks, setTasks] = useState<any[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [selectedTaskId, setSelectedTaskId] = useState('')
   const [summary, setSummary] = useState<any>({ today_hours: '00:00', extra_time: '+00:00', short_time: '-00:00', session_open: false, break_open: false, sessions: [], breaks: [] })
   const [role, setRole] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
@@ -60,6 +64,18 @@ export default function MyDayPage() {
       setMemberId(preferredMember)
     }
   }
+  const loadProjects = async (oid: string) => {
+    if (!oid) return
+    const res = await fetch(`/api/projects/list?org_id=${oid}`, { cache: 'no-store' })
+    const data = await res.json()
+    setProjects(data.items || [])
+  }
+  const loadTasks = async (pid: string) => {
+    if (!pid) { setTasks([]); return }
+    const res = await fetch(`/api/tasks/list?project_id=${pid}`, { cache: 'no-store' })
+    const data = await res.json()
+    setTasks(data.items || [])
+  }
   const loadSummary = async (mid: string, oid: string) => {
     if (!mid || !oid) return
     const res = await fetch(`/api/time/today?member_id=${mid}&org_id=${oid}`, { cache: 'no-store' })
@@ -75,7 +91,8 @@ export default function MyDayPage() {
 
   useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
   useEffect(() => { loadOrgs() }, [role])
-  useEffect(() => { if (orgId) loadMembers(orgId) }, [orgId])
+  useEffect(() => { if (orgId) { loadMembers(orgId); loadProjects(orgId); } }, [orgId])
+  useEffect(() => { if (selectedProjectId) loadTasks(selectedProjectId); else setTasks([]) }, [selectedProjectId])
   useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
   useEffect(() => {
     if (uiStarting || uiEnding) return
@@ -91,7 +108,17 @@ export default function MyDayPage() {
       return { ...prev, session_open: true, sessions: [open, ...(prev.sessions || [])] }
     })
     startClock()
-    const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
+    const res = await fetch('/api/time/start', { 
+      method:'POST', 
+      headers:{'Content-Type':'application/json'}, 
+      body: JSON.stringify({ 
+        org_id: orgId, 
+        member_id: memberId, 
+        source: 'web',
+        project_id: selectedProjectId,
+        task_id: selectedTaskId
+      }) 
+    })
     if (res.status === 403) {
       const d = await res.json()
       if (d.error === 'CHECKIN_COOLDOWN') {
@@ -311,6 +338,22 @@ export default function MyDayPage() {
              {clockStart ? fmtClock(Math.min(elapsedMs, 86400000)) : '00:00:00'}
            </div>
            <div className="subtitle">{uiSessionOpen ? 'Session Active' : 'Session Inactive'}</div>
+           {!uiSessionOpen && (
+             <div style={{display:'flex', gap:8, marginTop:12}}>
+               <div style={{flex:1}}>
+                  <GlassSelect value={selectedProjectId} onChange={(e:any)=>setSelectedProjectId(e.target.value)}>
+                    <option value="">Select Project</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </GlassSelect>
+               </div>
+               <div style={{flex:1}}>
+                  <GlassSelect value={selectedTaskId} onChange={(e:any)=>setSelectedTaskId(e.target.value)} disabled={!selectedProjectId}>
+                    <option value="">Select Task</option>
+                    {tasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                  </GlassSelect>
+               </div>
+             </div>
+           )}
            <div style={{marginTop: 16}}>
              {!uiSessionOpen ? (
                 <GlassButton variant="primary" onClick={startDay} style={{width: '100%'}}>Start Day</GlassButton>
@@ -360,6 +403,7 @@ export default function MyDayPage() {
           <table className="glass-table">
             <thead>
               <tr>
+                <th>Project / Task</th>
                 <th>Session Start</th>
                 <th>Session End</th>
                 <th>Total</th>
@@ -368,6 +412,14 @@ export default function MyDayPage() {
             <tbody>
               {(summary.sessions||[]).map((s: any) => (
                 <tr key={s.id}>
+                  <td>
+                    {s.projectName ? (
+                      <div>
+                        <div style={{fontWeight:600}}>{s.projectName}</div>
+                        {s.taskTitle && <div style={{fontSize:'0.8em', opacity:0.7}}>{s.taskTitle}</div>}
+                      </div>
+                    ) : <span style={{opacity:0.5}}>-</span>}
+                  </td>
                   <td>{new Date(s.startTime).toLocaleTimeString()}</td>
                   <td>{s.endTime ? new Date(s.endTime).toLocaleTimeString() : '...'}</td>
                   <td>{formatHM(s.totalMinutes || 0)}</td>

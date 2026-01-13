@@ -31,19 +31,21 @@ export default function OfflineSyncPage() {
         const list = j.items || j.orgs || []
         setOrgs(list)
         
-        // Auto-select if only one, or fallback to cookie if empty (e.g. non-admin)
+        // Auto-select logic
+        let selectedId = ''
+        const cookieOrg = document.cookie.match(/current_org_id=([^;]+)/)?.[1]
+        
         if (list.length > 0) {
-          // If previously selected org is not in list, select first? Or keep empty?
-          // Let's not force select unless list has 1 item
-          if (list.length === 1) setOrgId(list[0].id)
-        } else {
-          // Fallback: Try to get from cookie
-          const matches = document.cookie.match(/current_org_id=([^;]+)/)
-          if (matches && matches[1]) {
-            const oid = matches[1]
-            setOrgs([{ id: oid, orgName: 'Current Org' }])
-            setOrgId(oid)
+          if (cookieOrg && list.find((o:any) => o.id === cookieOrg)) {
+            selectedId = cookieOrg
+          } else {
+            selectedId = list[0].id
           }
+          setOrgId(selectedId)
+        } else if (cookieOrg) {
+          // Fallback if list is empty but cookie exists
+          setOrgs([{ id: cookieOrg, orgName: 'Current Org' }])
+          setOrgId(cookieOrg)
         }
       } catch (e) {
         console.error(e)

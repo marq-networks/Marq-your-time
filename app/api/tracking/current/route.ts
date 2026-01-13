@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   }
   if (res.trackingAllowed) {
      const settings = await getPrivacySettings(memberId, orgId)
-     return NextResponse.json({ ...res, settings })
+     return NextResponse.json({ ...res, settings, memberId, orgId })
   }
-  return NextResponse.json(res)
+  return NextResponse.json({ ...res, memberId, orgId })
 }

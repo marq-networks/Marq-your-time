@@ -1017,18 +1017,20 @@ export async function getOpenSession(memberId: string, orgId: string) {
   return { ...sess, currentBreak: br }
 }
 
-export async function startWorkSession(params: { memberId: string, orgId: string, source: string }) {
+export async function startWorkSession(params: { memberId: string, orgId: string, source: string, projectId?: string, taskId?: string }) {
   const user = await getUser(params.memberId)
   if (!user) return 'USER_NOT_IN_ORG'
   let inOrg = user.orgId === params.orgId
   if (!inOrg) {
-    if (isSupabaseConfigured()) {
-       const sb = supabaseServer()
-       const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', params.memberId).eq('org_id', params.orgId)
-       if ((count || 0) > 0) inOrg = true
-    } else {
-       if (orgMembershipsMem.some(m => m.userId === params.memberId && m.orgId === params.orgId)) inOrg = true
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { count } = await sb.from('org_memberships').select('*', { count: 'exact', head: true }).eq('user_id', params.memberId).eq('org_id', params.orgId)
+    if ((count || 0) > 0) inOrg = true
+  } else {
+    if (orgMembershipsMem.some(m => m.userId === params.memberId && m.orgId === params.orgId)) {
+      inOrg = true
     }
+  }
   }
   if (!inOrg) return 'USER_NOT_IN_ORG'
   if (user.status !== 'active') return 'USER_INACTIVE'
@@ -1050,7 +1052,14 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
-    if (openRow) return mapTimeSessionFromRow(openRow)
+    if (openRow) {
+      // Auto-switch task if requested
+      if (params.taskId !== undefined && openRow.task_id !== params.taskId) {
+        await stopWorkSession({ memberId: params.memberId, orgId: params.orgId })
+      } else {
+        return mapTimeSessionFromRow(openRow)
+      }
+    }
 
     // Cooldown check removed as per user request
     // const { data: last } = await sb.from('time_sessions').select('start_time').eq('member_id', params.memberId).eq('org_id', params.orgId).order('start_time', { ascending: false }).limit(1).maybeSingle()
@@ -1059,7 +1068,7 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     //   if (diff < 12 * 60 * 60 * 1000) return 'CHECKIN_COOLDOWN'
     // }
 
-    const payload = { member_id: params.memberId, org_id: params.orgId, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
+    const payload = { member_id: params.memberId, org_id: params.orgId, project_id: params.projectId ?? null, task_id: params.taskId ?? null, date: today, start_time: now, end_time: null, source: params.source, status: 'open', total_minutes: null, created_at: now, updated_at: now }
     const { data, error } = await sb.from('time_sessions').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
     const out = mapTimeSessionFromRow(data)
@@ -1067,13 +1076,21 @@ export async function startWorkSession(params: { memberId: string, orgId: string
     return out
   }
   const openExisting = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
-  if (openExisting) return openExisting
+  if (openExisting) {
+    // If task is provided and different, close previous session
+    if (params.taskId !== undefined && openExisting.taskId !== params.taskId) {
+      await stopWorkSession({ memberId: params.memberId, orgId: params.orgId })
+      // Proceed to create new session
+    } else {
+      return openExisting
+    }
+  }
 
   // Check cooldown
   const last = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId).sort((a,b)=>b.startTime-a.startTime)[0]
   if (last && (now.getTime() - last.startTime < 12 * 60 * 60 * 1000)) return 'CHECKIN_COOLDOWN'
 
-  const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
+  const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, projectId: params.projectId, taskId: params.taskId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)
   try { const { queueWebhookEvent } = await import('@lib/webhooks/queue'); await queueWebhookEvent(params.orgId, 'member.check_in', { member_id: params.memberId, org_id: params.orgId, session_id: sess.id, started_at: new Date(sess.startTime).toISOString() }) } catch {}
   return sess
@@ -1262,7 +1279,7 @@ export async function listDailyLogs(input: { orgId: string, date: string, member
     const sb = supabaseServer()
     const q = sb.from('daily_time_summaries').select('*').eq('org_id', input.orgId).eq('date', input.date)
     const { data: summaries } = input.memberId ? await q.eq('member_id', input.memberId) : await q
-    const { data: sessions } = await sb.from('time_sessions').select('*').eq('org_id', input.orgId).eq('date', input.date)
+    const { data: sessions } = await sb.from('time_sessions').select('*, projects(name, clients(name)), tasks(title)').eq('org_id', input.orgId).eq('date', input.date)
     const sessIds = (sessions || []).map((r: any) => r.id)
     const { data: breaks } = await sb.from('break_sessions').select('*').in('time_session_id', sessIds)
     return {
@@ -1381,6 +1398,11 @@ function mapTimeSessionFromRow(row: any): TimeSession {
     id: row.id,
     memberId: row.member_id,
     orgId: row.org_id,
+    projectId: row.project_id ?? undefined,
+    taskId: row.task_id ?? undefined,
+    projectName: row.projects?.name ?? undefined,
+    clientName: row.projects?.clients?.name ?? undefined,
+    taskTitle: row.tasks?.title ?? undefined,
     date: row.date,
     startTime: new Date(row.start_time).getTime(),
     endTime: row.end_time ? new Date(row.end_time).getTime() : undefined,
