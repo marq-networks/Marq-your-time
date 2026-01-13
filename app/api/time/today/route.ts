@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const is_holiday = await isOrgHoliday(orgId, new Date(today + 'T00:00:00'))
   if (is_holiday && status === 'absent') status = 'unconfigured'
   const out = {
-    member_name: user?.name || user?.email || 'Unknown',
+    member_name: (user?.firstName && user?.lastName) ? `${user.firstName} ${user.lastName}` : (user?.email || 'Unknown'),
     today_hours: summary.today_hours,
     extra_time: summary.extra_time,
     short_time: summary.short_time,

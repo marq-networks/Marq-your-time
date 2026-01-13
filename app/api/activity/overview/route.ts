@@ -17,16 +17,16 @@ export async function GET(req: NextRequest) {
     const userMap = new Map(users.map(u => [u.id, u]))
     const filteredUserIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : undefined
     const sb = isSupabaseConfigured() ? supabaseServer() : null
-    let eventsAgg: Map<string, { active: number, productive: number, unproductive: number, idle: number, screenshots: number }> = new Map()
+    let eventsAgg: Map<string, { active: number, productive: number, unproductive: number, idle: number, screenshots: number, topApps: {name:string, minutes:number, category:string}[], topUrls: {url:string, minutes:number, category:string}[] }> = new Map()
     if (sb) {
       const sessRows = sessions || []
-      const byMember = new Map<string, string[]>(sessRows.reduce((acc: any, r: any) => { (acc[r.memberId] = acc[r.memberId] || []).push(r.id); return acc }, {}) || {})
+      const byMember = new Map<string, string[]>(Object.entries(sessRows.reduce((acc: any, r: any) => { (acc[r.memberId] = acc[r.memberId] || []).push(r.id); return acc }, {}) || {}))
       const memberIds = filteredUserIds ? filteredUserIds : Array.from(byMember.keys())
       
       const sessIds = sessRows.map((r: any) => r.id)
       const { data: tsRows } = sessIds.length ? await sb!.from('tracking_sessions').select('id, member_id').in('time_session_id', sessIds) : { data: [] }
       
-      const tsByMember = new Map<string, string[]>(tsRows?.reduce((acc: any, r: any) => { (acc[r.member_id] = acc[r.member_id] || []).push(r.id); return acc }, {}) || {})
+      const tsByMember = new Map<string, string[]>(Object.entries(tsRows?.reduce((acc: any, r: any) => { (acc[r.member_id] = acc[r.member_id] || []).push(r.id); return acc }, {}) || {}))
       const allTsIds = Array.from(tsByMember.values()).flat()
       const { data: evRows } = allTsIds.length ? await sb!.from('activity_events').select('*').in('tracking_session_id', allTsIds) : { data: [] }
       const { data: scRows } = allTsIds.length ? await sb!.from('screenshots').select('*').in('tracking_session_id', allTsIds) : { data: [] }
@@ -62,12 +62,44 @@ export async function GET(req: NextRequest) {
 
         const shots = (scRows || []).filter((s: any) => tsIds.includes(s.tracking_session_id))
         let active = 0, productive = 0, unproductive = 0, idle = 0
+        const appMap = new Map<string, { minutes: number, category: string }>()
+        const urlMap = new Map<string, { minutes: number, category: string }>()
+
         for (const e of events) {
-          if (e.is_active) active += 1; else idle += 1
+          if (e.is_active) {
+            active += 1
+            const app = (e.app_name || 'Unknown').trim()
+            const appEntry = appMap.get(app) || { minutes: 0, category: e.category || 'neutral' }
+            appEntry.minutes += 1
+            if (e.category) appEntry.category = e.category
+            appMap.set(app, appEntry)
+            
+            if (e.url) {
+                let u = e.url
+                try {
+                    const parsed = new URL(e.url.startsWith('http') ? e.url : `https://${e.url}`)
+                    u = parsed.hostname.replace(/^www\./, '')
+                } catch {}
+                const urlEntry = urlMap.get(u) || { minutes: 0, category: e.category || 'neutral' }
+                urlEntry.minutes += 1
+                if (e.category) urlEntry.category = e.category
+                urlMap.set(u, urlEntry)
+            }
+          } else {
+            idle += 1
+          }
           if (e.category === 'productive') productive += 1
           if (e.category === 'unproductive') unproductive += 1
         }
-        eventsAgg.set(mId, { active, productive, unproductive, idle, screenshots: (shots || []).length })
+        
+        const topApps = Array.from(appMap.entries())
+            .filter(([name]) => name.toLowerCase() !== 'web' && name.toLowerCase() !== 'unknown')
+            .sort((a,b)=> b[1].minutes - a[1].minutes)
+            .slice(0, 5)
+            .map(([name, data]) => ({ name, minutes: data.minutes, category: data.category }))
+        const topUrls = Array.from(urlMap.entries()).sort((a,b)=> b[1].minutes - a[1].minutes).slice(0, 5).map(([url, data]) => ({ url, minutes: data.minutes, category: data.category }))
+        
+        eventsAgg.set(mId, { active, productive, unproductive, idle, screenshots: (shots || []).length, topApps, topUrls })
       }
     }
     const now = Date.now()
@@ -102,7 +134,7 @@ export async function GET(req: NextRequest) {
         isHoliday: false
       }
 
-      const a = eventsAgg.get(mid) || { active: 0, productive: 0, unproductive: 0, idle: 0, screenshots: 0 }
+      const a = eventsAgg.get(mid) || { active: 0, productive: 0, unproductive: 0, idle: 0, screenshots: 0, topApps: [], topUrls: [] }
       
       // Real-time calculation
       const openSession = (sessions || []).find((sess: any) => sess.memberId === mid && sess.status === 'open')
@@ -136,6 +168,8 @@ export async function GET(req: NextRequest) {
         unproductiveMinutes: a.unproductive,
         idleMinutes: a.idle,
         screenshots: a.screenshots,
+        topApps: a.topApps || [],
+        topUrls: a.topUrls || [],
         status: status
       }
     }).filter(Boolean)

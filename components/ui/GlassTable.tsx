@@ -1,6 +1,6 @@
 export default function GlassTable({ columns, rows }: { columns: string[], rows: React.ReactNode[][] }) {
   return (
-    <div className="glass-panel" style={{borderRadius:'var(--radius-large)',padding:'8px'}}>
+    <div className="glass-panel" style={{borderRadius:'var(--radius-large)',padding:'8px',overflowX:'auto'}}>
       <table className="glass-table">
         <thead>
           <tr>

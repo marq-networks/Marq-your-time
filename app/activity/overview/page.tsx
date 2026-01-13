@@ -82,8 +82,50 @@ export default function ActivityOverviewPage() {
   useEffect(()=>{ if(orgId) { loadDepsUsers(orgId); } }, [orgId])
   useEffect(()=>{ loadOverview() }, [orgId, date, departmentId, memberId, role, actorId])
 
-  const columns = ['Member','Department','Date','Worked','Tracked Active','Productive','Unproductive','Idle','Screenshots','Status']
-  const rows = items.map(it => [ it.memberName, it.departmentName, it.date, formatHM(it.workedHours||0), formatHM(it.trackedActiveMinutes||0), formatHM(it.productiveMinutes||0), formatHM(it.unproductiveMinutes||0), formatHM(it.idleMinutes||0), String(it.screenshots||0), it.status ])
+  const columns = ['Member','Department','Date','Worked','Tracked Active','Productive','Unproductive','Idle','Screenshots','Top Usage','Status']
+  const rows = items.map(it => [
+    it.memberName, 
+    it.departmentName, 
+    it.date, 
+    formatHM(it.workedHours||0), 
+    formatHM(it.trackedActiveMinutes||0), 
+    formatHM(it.productiveMinutes||0), 
+    formatHM(it.unproductiveMinutes||0), 
+    formatHM(it.idleMinutes||0), 
+    String(it.screenshots||0), 
+    (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '220px', padding: '4px 0', fontSize: '12px' }}>
+        {it.topApps?.length > 0 && (
+          <div>
+             <div style={{ fontWeight: 600, opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', marginBottom: '2px' }}>Apps</div>
+             {it.topApps.slice(0,3).map((a:any) => (
+               <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', whiteSpace: 'nowrap' }} title={`${a.name}: ${a.minutes}m (${a.category})`}>
+                 <div style={{ flexShrink: 0, width: '6px', height: '6px', borderRadius: '999px', background: a.category === 'productive' ? '#34d399' : a.category === 'unproductive' ? '#fb7185' : '#9ca3af' }} />
+                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    <span style={{ fontWeight: 500 }}>{a.name}</span> <span style={{ opacity: 0.6, fontSize: '10px' }}>({formatHM(a.minutes)})</span>
+                 </div>
+               </div>
+             ))}
+          </div>
+        )}
+        {it.topUrls?.length > 0 && (
+          <div style={{ marginTop: it.topApps?.length > 0 ? '8px' : '0' }}>
+            <div style={{ fontWeight: 600, opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', marginBottom: '2px' }}>Websites</div>
+            {it.topUrls.slice(0,3).map((u:any) => (
+              <div key={u.url} style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', whiteSpace: 'nowrap' }} title={`${u.url}: ${u.minutes}m (${u.category})`}>
+                <div style={{ flexShrink: 0, width: '6px', height: '6px', borderRadius: '999px', background: u.category === 'productive' ? '#34d399' : u.category === 'unproductive' ? '#fb7185' : '#9ca3af' }} />
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    <span>{u.url}</span> <span style={{ opacity: 0.6, fontSize: '10px' }}>({formatHM(u.minutes)})</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {(!it.topApps?.length && !it.topUrls?.length) && <span style={{ opacity: 0.3 }}>-</span>}
+      </div>
+    ),
+    it.status 
+  ])
 
   return (
     <AppShell title="Activity Overview">
@@ -152,7 +194,7 @@ export default function ActivityOverviewPage() {
         </GlassCard>
       </div>
 
-      <GlassCard title="Per-member Activity mt-5">
+      <GlassCard title="Per-member Activity">
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>
