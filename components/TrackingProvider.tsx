@@ -191,18 +191,12 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const captureAndSendScreenshot = async (tid: string) => {
     console.log('[Screenshot] Attempting capture for session:', tid)
 
-    // Electron optimized path
     if (window.electronAPI && window.electronAPI.captureScreen) {
       try {
-        const result = await window.electronAPI.captureScreen()
+        const memberId = typeof window !== 'undefined' ? localStorage.getItem('marq_member_id') || undefined : undefined
+        const orgId = typeof window !== 'undefined' ? localStorage.getItem('marq_org_id') || undefined : undefined
+        const result = await window.electronAPI.captureScreen({ trackingSessionId: tid, userId: memberId, orgId })
         if (result && result.dataUrl) {
-          const res = await fetch('/api/activity/screenshot', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ tracking_session_id: tid, timestamp: Date.now(), image: result.dataUrl }) 
-          })
-          const json = await res.json()
-          console.log('[Screenshot] Server response (Electron):', json)
           setLastError(null)
           return
         } else if (result && result.error) {
@@ -214,8 +208,7 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
         console.error('[Screenshot] Electron capture failed:', e)
         setLastError('Electron capture threw: ' + (e as any).message)
       }
-      // Fallback to web method if electron method fails for some reason
-      console.warn('[Screenshot] Electron capture failed or returned null, falling back to stream')
+      return
     }
 
     const ms = await ensureStream()

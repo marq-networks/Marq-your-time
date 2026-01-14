@@ -302,6 +302,8 @@ ipcMain.handle('get-sources', async () => {
 ipcMain.handle('capture-screen', async (_event, meta) => {
   try {
     const trackingSessionId = meta && (meta.trackingSessionId || meta.tracking_session_id) ? (meta.trackingSessionId || meta.tracking_session_id) : null
+    const userId = meta && (meta.userId || meta.user_id) ? (meta.userId || meta.user_id) : null
+    const orgId = meta && (meta.orgId || meta.org_id) ? (meta.orgId || meta.org_id) : null
     const eventId = uuid()
     const capturedAt = Date.now()
     const sources = await desktopCapturer.getSources({ 
@@ -328,19 +330,17 @@ ipcMain.handle('capture-screen', async (_event, meta) => {
         const queueItem = {
           id: eventId,
           session_id: trackingSessionId,
-          user_id: null,
-          org_id: null,
+          user_id: userId,
+          org_id: orgId,
           captured_at: capturedAt,
           file_path: filePath,
           sha256: sha,
-          status: onlineState ? 'acked' : 'pending',
+          status: 'pending',
           attempts: 0,
           next_retry_at: capturedAt
         }
-        if (!onlineState) {
-          enqueueScreenshot(queueItem)
-          console.log('SCREENSHOT_QUEUE_OK', eventId)
-        }
+        enqueueScreenshot(queueItem)
+        console.log('SCREENSHOT_QUEUE_OK', eventId)
         console.log('SCREENSHOT_CAPTURE_OK', eventId)
       } catch (err) {
         console.error('SCREENSHOT_FAIL save', err)
