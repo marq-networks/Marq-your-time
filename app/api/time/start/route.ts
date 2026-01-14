@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   const taskId = body.task_id || body.taskId
   if (!memberId || !orgId) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const res = await startWorkSession({ memberId, orgId, source, projectId, taskId })
-  const codes: Record<string, number> = { SESSION_ALREADY_OPEN: 409, USER_NOT_IN_ORG: 400, USER_INACTIVE: 409, CHECKIN_COOLDOWN: 403, DB_ERROR: 500 }
+  const codes: Record<string, number> = { SESSION_ALREADY_OPEN: 409, USER_NOT_IN_ORG: 400, USER_INACTIVE: 409, CHECKIN_COOLDOWN: 403, DB_ERROR: 500, ALREADY_CHECKED_IN_TODAY: 409 }
   if (typeof res === 'string') return NextResponse.json({ error: res }, { status: codes[res] || 400 })
   return NextResponse.json({ session: res })
 }

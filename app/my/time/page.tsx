@@ -28,7 +28,7 @@ export default function MyDayPage() {
   const [tasks, setTasks] = useState<any[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState('')
-  const [summary, setSummary] = useState<any>({ today_hours: '00:00', extra_time: '+00:00', short_time: '-00:00', session_open: false, break_open: false, sessions: [], breaks: [] })
+  const [summary, setSummary] = useState<any>({ today_hours: '00:00', extra_time: '+00:00', short_time: '-00:00', session_open: false, break_open: false, sessions: [], breaks: [], attendance: null })
   const [role, setRole] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
   const [consentText, setConsentText] = useState('')
@@ -119,20 +119,33 @@ export default function MyDayPage() {
         task_id: selectedTaskId
       }) 
     })
-    if (res.status === 403) {
-      const d = await res.json()
-      if (d.error === 'CHECKIN_COOLDOWN') {
+    const data = await res.json()
+    if (!res.ok) {
+      if (data && data.error === 'ALREADY_CHECKED_IN_TODAY') {
+        alert('You have already clocked in today.')
+      } else if (data && data.error === 'CHECKIN_COOLDOWN') {
         alert('You cannot check in again within 12 hours of your last session.')
-        setUiStarting(false)
-        setUiSessionOpen(false)
-        stopClock()
-        // Revert summary state
-        loadSummary(memberId, orgId)
-        return
+      } else {
+        alert('Unable to start your work session.')
       }
+      setUiStarting(false)
+      setUiSessionOpen(false)
+      stopClock()
+      loadSummary(memberId, orgId)
+      return
     }
     await beginTracking()
     await loadSummary(memberId, orgId)
+    try {
+      const attRes = await fetch(`/api/time/today?member_id=${memberId}&org_id=${orgId}`, { cache: 'no-store' })
+      const attData = await attRes.json()
+      setSummary(attData)
+      if (attData.attendance && attData.attendance.status === 'late') {
+        const shift = attData.attendance.shiftStartTime ? new Date(attData.attendance.shiftStartTime).toLocaleTimeString() : ''
+        const msg = shift ? `You are clocking in late. Shift start time was ${shift}.` : 'You are clocking in after your scheduled shift start time.'
+        alert(msg)
+      }
+    } catch {}
     setUiStarting(false)
   }
   const endDay = async () => {

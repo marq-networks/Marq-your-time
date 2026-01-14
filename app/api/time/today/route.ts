@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getTodaySummary, getUser, isOrgHoliday, getOpenSession } from '@lib/db'
+import { getTodaySummary, getUser, isOrgHoliday, getOpenSession, getTodayAttendanceStatus } from '@lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -22,12 +22,14 @@ export async function GET(req: NextRequest) {
   else if (workedMinusUnpaid < scheduled) status = 'short'
   const is_holiday = await isOrgHoliday(orgId, new Date(today + 'T00:00:00'))
   if (is_holiday && status === 'absent') status = 'unconfigured'
+  const attendance = await getTodayAttendanceStatus({ memberId, orgId })
   const out = {
     member_name: (user?.firstName && user?.lastName) ? `${user.firstName} ${user.lastName}` : (user?.email || 'Unknown'),
     today_hours: summary.today_hours,
     extra_time: summary.extra_time,
     short_time: summary.short_time,
     status,
+    attendance,
     is_holiday,
     session_open: !!openSess,
     break_open: !!openSess?.currentBreak,

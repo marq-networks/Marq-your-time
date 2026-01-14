@@ -31,6 +31,7 @@ export default function UsersPage() {
   const [confirmResetId, setConfirmResetId] = useState<string>('')
   const canManageUsers = usePermission('manage_users').allowed
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
+  const [loginStatus, setLoginStatus] = useState<Record<string,'logged_in'|'not_logged_in'>>({})
 
   const roleName = (id?: string) => roles.find(r=>r.id===id)?.name || '-'
   const deptName = (id?: string) => departments.find(d=>d.id===id)?.name || '-'
@@ -55,9 +56,26 @@ export default function UsersPage() {
       fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' })
     ])
     const [u, r, d] = await Promise.all([uRes.json(), rRes.json(), dRes.json()])
-    setUsers(u.items || [])
+    const userItems: User[] = u.items || []
+    setUsers(userItems)
     setRoles(r.items || [])
     setDepartments(d.items || [])
+    const statusMap: Record<string,'logged_in'|'not_logged_in'> = {}
+    await Promise.all(userItems.map(async (user) => {
+      try {
+        const res = await fetch(`/api/time/today?member_id=${user.id}&org_id=${oid}`, { cache: 'no-store' })
+        if (!res.ok) {
+          statusMap[user.id] = 'not_logged_in'
+          return
+        }
+        const data = await res.json()
+        const open = !!data.session_open || !!data.attendance?.hasOpenSession
+        statusMap[user.id] = open ? 'logged_in' : 'not_logged_in'
+      } catch {
+        statusMap[user.id] = 'not_logged_in'
+      }
+    }))
+    setLoginStatus(statusMap)
   }
 
   useEffect(() => { loadOrgs() }, [])
@@ -123,7 +141,7 @@ export default function UsersPage() {
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
-  const columns = ['Photo','Name','Email','Role','Department','Status','Actions']
+  const columns = ['Photo','Name','Email','Role','Department','Login','Status','Actions']
   const rows = users.map(u => [
     <div key={u.id} style={{width:28,height:28,borderRadius:8,background:'#111',border:'1px solid var(--border)',overflow:'hidden'}}>
       {u.profileImage && <img src={u.profileImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
@@ -132,6 +150,11 @@ export default function UsersPage() {
     u.email,
     roleName(u.roleId),
     deptName(u.departmentId),
+    <span className="badge" style={loginStatus[u.id]==='logged_in'
+      ? { borderColor:'var(--green)', color:'var(--green)' }
+      : { borderColor:'#666', color:'#888' }}>
+      {loginStatus[u.id]==='logged_in' ? 'Logged in' : 'Not logged in'}
+    </span>,
     <span className="badge">{u.status}</span>,
     <div style={{position:'relative'}}>
       <GlassButton onClick={()=>setOpenMenuId(openMenuId===u.id?'':u.id)}>Actions ▾</GlassButton>

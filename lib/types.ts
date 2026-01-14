@@ -203,6 +203,18 @@ export interface TimeAnomaly {
   updatedAt: number
 }
 
+export type AttendanceStatusType = 'active' | 'inactive' | 'late'
+export interface AttendanceStatus {
+  memberId: string
+  orgId: string
+  date: string
+  status: AttendanceStatusType
+  clockInTime?: number
+  shiftStartTime?: number
+  isCheckedIn: boolean
+  hasOpenSession: boolean
+}
+
 export interface MemberPrivacySettings {
   id: string
   memberId: string

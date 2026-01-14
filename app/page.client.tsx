@@ -15,7 +15,7 @@ export default function DashboardClient() {
   const [orgId, setOrgId] = useState('')
   const [members, setMembers] = useState<{ id: string, firstName: string, lastName: string }[]>([])
   const [memberId, setMemberId] = useState('')
-  const [summary, setSummary] = useState<any>({ today_hours:'0:00', extra_time:'+00:00', short_time:'-00:00', session:null, break:null, sessions:[], breaks:[] })
+  const [summary, setSummary] = useState<any>({ today_hours:'0:00', extra_time:'+00:00', short_time:'-00:00', session:null, break:null, sessions:[], breaks:[], attendance:null })
   const [mounted, setMounted] = useState(false)
   const [role, setRole] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
@@ -70,14 +70,30 @@ export default function DashboardClient() {
   const startSession = async () => {
     if (!orgId || !memberId) return
     const res = await fetch('/api/time/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, source: 'web' }) })
-    // if (res.status === 403) {
-    //   const d = await res.json()
-    //   if (d.error === 'CHECKIN_COOLDOWN') {
-    //     alert('You cannot check in again within 12 hours of your last session.')
-    //     return
-    //   }
-    // }
-    const _ = await res.json(); loadSummary(memberId, orgId)
+    const data = await res.json()
+    if (!res.ok) {
+      if (data && data.error === 'ALREADY_CHECKED_IN_TODAY') {
+        alert('You have already clocked in today.')
+        return
+      }
+      if (data && data.error === 'CHECKIN_COOLDOWN') {
+        alert('You cannot check in again within 12 hours of your last session.')
+        return
+      }
+      alert('Unable to start your work session.')
+      return
+    }
+    await loadSummary(memberId, orgId)
+    try {
+      const attRes = await fetch(`/api/time/today?member_id=${memberId}&org_id=${orgId}`, { cache: 'no-store' })
+      const attData = await attRes.json()
+      setSummary(attData)
+      if (attData.attendance && attData.attendance.status === 'late') {
+        const shift = attData.attendance.shiftStartTime ? new Date(attData.attendance.shiftStartTime).toLocaleTimeString() : ''
+        const msg = shift ? `You are clocking in late. Shift start time was ${shift}.` : 'You are clocking in after your scheduled shift start time.'
+        alert(msg)
+      }
+    } catch {}
     await beginTracking()
   }
   const stopSession = async () => {
@@ -167,6 +183,48 @@ export default function DashboardClient() {
             </div>
           </div>
           
+          {summary.attendance && (
+            <div style={{marginBottom:12}}>
+              <div className="subtitle">Attendance Status</div>
+              <div className="row" style={{alignItems:'center',gap:8,marginTop:4}}>
+                {summary.attendance.status === 'active' && (
+                  <>
+                    <span className="title" style={{color:'var(--green)'}}>On Time</span>
+                    {summary.attendance.clockInTime && (
+                      <span className="label">Clocked In at {new Date(summary.attendance.clockInTime).toLocaleTimeString()}</span>
+                    )}
+                  </>
+                )}
+                {summary.attendance.status === 'late' && summary.attendance.isCheckedIn && (
+                  <>
+                    <span className="title" style={{color:'#e67e22'}}>Late</span>
+                    {summary.attendance.clockInTime && (
+                      <span className="label">Clocked In at {new Date(summary.attendance.clockInTime).toLocaleTimeString()}</span>
+                    )}
+                    {summary.attendance.shiftStartTime && (
+                      <span className="label">Shift start {new Date(summary.attendance.shiftStartTime).toLocaleTimeString()}</span>
+                    )}
+                  </>
+                )}
+                {summary.attendance.status === 'late' && !summary.attendance.isCheckedIn && (
+                  <>
+                    <span className="title" style={{color:'#e67e22'}}>Late</span>
+                    <span className="label">Not Clocked In</span>
+                  </>
+                )}
+                {summary.attendance.status === 'inactive' && !summary.attendance.isCheckedIn && (
+                  <>
+                    <span className="title" style={{color:'#888'}}>Not Clocked In</span>
+                  </>
+                )}
+              </div>
+              {!summary.session_open && (
+                <div className="subtitle" style={{marginTop:4}}>
+                  You are not clocked in yet.
+                </div>
+              )}
+            </div>
+          )}
           <div className="grid grid-3" style={{marginBottom:12}}>
             <div>
               <div className="subtitle">Worked</div>

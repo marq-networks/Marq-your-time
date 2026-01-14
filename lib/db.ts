@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride } from './types'
+import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -411,6 +411,58 @@ async function getAssignedShiftFor(memberId: string, orgId: string, date: string
   if (!found) return undefined
   const s = shiftsMem.find(ss => ss.id === found.shiftId)
   return s
+}
+
+export async function getTodayAttendanceStatus(input: { memberId: string, orgId: string }): Promise<AttendanceStatus> {
+  const now = new Date()
+  const today = dateISO(now)
+  const shift = await getAssignedShiftFor(input.memberId, input.orgId, today)
+  let shiftStartTime: number | undefined = undefined
+  let graceMinutes = 15
+  if (shift) {
+    const dayStart = new Date(today + 'T00:00:00Z')
+    const parts = shift.startTime.split(':').map(Number)
+    const h = parts[0] || 0
+    const m = parts[1] || 0
+    dayStart.setUTCHours(h, m, 0, 0)
+    shiftStartTime = dayStart.getTime()
+    graceMinutes = typeof shift.graceMinutes === 'number' ? shift.graceMinutes : 15
+  }
+  let sessions: TimeSession[] = []
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: sessRows } = await sb.from('time_sessions').select('*').eq('member_id', input.memberId).eq('org_id', input.orgId).eq('date', today)
+    sessions = (sessRows || []).map(mapTimeSessionFromRow)
+  } else {
+    sessions = timeSessions.filter(s => s.memberId === input.memberId && s.orgId === input.orgId && s.date === today)
+  }
+  const hasOpenSession = sessions.some(s => s.status === 'open')
+  const clockInTime = sessions.length ? Math.min(...sessions.map(s => s.startTime)) : undefined
+  const isCheckedIn = !!clockInTime
+  let status: AttendanceStatus['status'] = 'inactive'
+  const nowMs = now.getTime()
+  if (shiftStartTime !== undefined) {
+    const limit = shiftStartTime + graceMinutes * 60000
+    if (hasOpenSession) {
+      if (clockInTime !== undefined && clockInTime > limit) status = 'late'
+      else status = 'active'
+    } else {
+      if (!isCheckedIn && nowMs > limit) status = 'late'
+      else status = 'inactive'
+    }
+  } else {
+    status = hasOpenSession ? 'active' : 'inactive'
+  }
+  return {
+    memberId: input.memberId,
+    orgId: input.orgId,
+    date: today,
+    status,
+    clockInTime,
+    shiftStartTime,
+    isCheckedIn,
+    hasOpenSession
+  }
 }
 
 export async function createShift(input: { orgId: string, name: string, startTime: string, endTime: string, isOvernight?: boolean, graceMinutes?: number, breakMinutes?: number }) {
@@ -1054,6 +1106,8 @@ export async function startWorkSession(params: { memberId: string, orgId: string
 
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
+    const { count: todayCount } = await sb.from('time_sessions').select('*', { count: 'exact', head: true }).eq('member_id', params.memberId).eq('org_id', params.orgId).eq('date', today)
+    if ((todayCount || 0) > 0) return 'ALREADY_CHECKED_IN_TODAY'
     const { data: openRow } = await sb.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (openRow) {
       // Auto-switch task if requested
@@ -1088,10 +1142,8 @@ export async function startWorkSession(params: { memberId: string, orgId: string
       return openExisting
     }
   }
-
-  // Check cooldown
-  const last = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId).sort((a,b)=>b.startTime-a.startTime)[0]
-  if (last && (now.getTime() - last.startTime < 12 * 60 * 60 * 1000)) return 'CHECKIN_COOLDOWN'
+  const hasTodaySession = timeSessions.some(s => s.memberId === params.memberId && s.orgId === params.orgId && s.date === today)
+  if (hasTodaySession) return 'ALREADY_CHECKED_IN_TODAY'
 
   const sess: TimeSession = { id: newId(), memberId: params.memberId, orgId: params.orgId, projectId: params.projectId, taskId: params.taskId, date: today, startTime: now.getTime(), source: params.source, status: 'open', createdAt: now.getTime(), updatedAt: now.getTime() }
   timeSessions.push(sess)
