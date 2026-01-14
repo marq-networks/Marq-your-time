@@ -8,17 +8,17 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
 
+type Member = { id: string, firstName: string, lastName: string }
+
 export default function ProjectsPage() {
   const [activeTab, setActiveTab] = useState<'clients' | 'projects' | 'tasks'>('clients')
   const [orgId, setOrgId] = useState('')
   const [clients, setClients] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
+  const [members, setMembers] = useState<Member[]>([])
   const [createModalOpen, setCreateModalOpen] = useState(false)
-  
-  // Form states
   const [formData, setFormData] = useState<any>({})
-  
   const [role, setRole] = useState('')
 
   useEffect(() => {
@@ -44,20 +44,14 @@ export default function ProjectsPage() {
     setProjects(data.items || [])
   }
 
+  const loadMembers = async (oid: string) => {
+    const res = await fetch(`/api/user/list?orgId=${oid}`, { cache: 'no-store' })
+    const data = await res.json()
+    setMembers(data.items || [])
+  }
+
   const loadTasks = async () => {
-    // For tasks, we might want to list all tasks in the org, but our API is project-centric.
-    // However, we can iterate projects or add an "all tasks" endpoint.
-    // For now, let's just list tasks for the first project if selected, or maybe we need a better way.
-    // Actually, let's just fetch tasks for all projects or add an endpoint to list all tasks in org.
-    // The current API `api/tasks/list` requires project_id.
-    // I'll update it to allow listing by org_id if I want to show all tasks.
-    // But for now let's just use what we have and maybe filter.
-    // Let's rely on listing projects first.
     if (!projects.length) await loadProjects()
-    // This is inefficient but okay for now: fetch tasks for each project
-    // Actually, let's skip auto-loading all tasks and only load when a project is selected or just show per project.
-    // For this UI, a simple list might be confusing if mixed.
-    // Let's fetch all tasks by iterating projects for now.
     const allTasks: any[] = []
     for (const p of projects) {
       const res = await fetch(`/api/tasks/list?project_id=${p.id}`, { cache: 'no-store' })
@@ -71,6 +65,7 @@ export default function ProjectsPage() {
     if (orgId) {
       loadClients()
       loadProjects()
+      loadMembers(orgId)
     }
   }, [orgId])
   
@@ -83,11 +78,17 @@ export default function ProjectsPage() {
   const handleCreate = async () => {
     if (!orgId) return
     let endpoint = ''
-    let body = { ...formData, org_id: orgId }
+    let body: any = { ...formData, org_id: orgId }
     
     if (activeTab === 'clients') endpoint = '/api/clients/create'
-    if (activeTab === 'projects') endpoint = '/api/projects/create'
-    if (activeTab === 'tasks') endpoint = '/api/tasks/create'
+    if (activeTab === 'projects') {
+      endpoint = '/api/projects/create'
+      if (formData.manager_id === '') delete body.manager_id
+    }
+    if (activeTab === 'tasks') {
+      endpoint = '/api/tasks/create'
+      if (formData.assignee_id === '') delete body.assignee_id
+    }
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -149,6 +150,7 @@ export default function ProjectsPage() {
                   <th>Client</th>
                   <th>Status</th>
                   <th>Code</th>
+                  <th>Manager</th>
                 </tr>
               </thead>
               <tbody>
@@ -158,6 +160,7 @@ export default function ProjectsPage() {
                     <td>{clients.find(c => c.id === p.clientId)?.name || '-'}</td>
                     <td>{p.status}</td>
                     <td>{p.code}</td>
+                    <td>{members.find(m => m.id === p.managerId) ? `${members.find(m => m.id === p.managerId)!.firstName} ${members.find(m => m.id === p.managerId)!.lastName}` : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -174,6 +177,7 @@ export default function ProjectsPage() {
                   <th>Project</th>
                   <th>Status</th>
                   <th>Priority</th>
+                  <th>Assignee</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,6 +187,7 @@ export default function ProjectsPage() {
                     <td>{projects.find(p => p.id === t.projectId)?.name || '-'}</td>
                     <td>{t.status}</td>
                     <td>{t.priority}</td>
+                    <td>{members.find(m => m.id === t.assigneeId) ? `${members.find(m => m.id === t.assigneeId)!.firstName} ${members.find(m => m.id === t.assigneeId)!.lastName}` : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -209,6 +214,10 @@ export default function ProjectsPage() {
               </GlassSelect>
               <GlassInput placeholder="Code" value={formData.code || ''} onChange={(e:any) => setFormData({...formData, code: e.target.value})} />
               <GlassInput placeholder="Description" value={formData.description || ''} onChange={(e:any) => setFormData({...formData, description: e.target.value})} />
+              <GlassSelect value={formData.manager_id || ''} onChange={(e:any) => setFormData({...formData, manager_id: e.target.value})}>
+                <option value="">Select Manager (optional)</option>
+                {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+              </GlassSelect>
             </>
           )}
           {activeTab === 'tasks' && (
@@ -223,6 +232,10 @@ export default function ProjectsPage() {
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+              </GlassSelect>
+              <GlassSelect value={formData.assignee_id || ''} onChange={(e:any) => setFormData({...formData, assignee_id: e.target.value})}>
+                <option value="">Assign to employee (optional)</option>
+                {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
               </GlassSelect>
             </>
           )}

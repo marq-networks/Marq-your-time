@@ -84,7 +84,7 @@ async function summarizeForMember(orgId: string, memberId: string, range: Range)
   const absent = (daily||[]).filter((d:any)=> d.status === 'absent').length
   const issues: string[] = []
   const suggestions: string[] = []
-  if (extra >= 3*60) issues.push('Repeated extra time detected.')
+  if (extra >= 3*60) issues.push('Repeated overtime detected.')
   if (absent > 1) issues.push('Attendance variability observed.')
   if (extra >= 3*60) suggestions.push('Consider scheduling lighter days after high-hour days.')
   if (short >= 120) suggestions.push('Try a focused block next day to regain momentum.')

@@ -26,6 +26,7 @@ export default function MyDayPage() {
   const [memberId, setMemberId] = useState('')
   const [projects, setProjects] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
+  const [myTasks, setMyTasks] = useState<any[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [summary, setSummary] = useState<any>({ today_hours: '00:00', extra_time: '+00:00', short_time: '-00:00', session_open: false, break_open: false, sessions: [], breaks: [], attendance: null })
@@ -76,6 +77,12 @@ export default function MyDayPage() {
     const data = await res.json()
     setTasks(data.items || [])
   }
+  const loadMyTasks = async (mid: string, oid: string) => {
+    if (!mid || !oid) { setMyTasks([]); return }
+    const res = await fetch(`/api/tasks/my?member_id=${mid}&org_id=${oid}`, { cache: 'no-store' })
+    const data = await res.json()
+    setMyTasks(data.items || [])
+  }
   const loadSummary = async (mid: string, oid: string) => {
     if (!mid || !oid) return
     const res = await fetch(`/api/time/today?member_id=${mid}&org_id=${oid}`, { cache: 'no-store' })
@@ -93,7 +100,7 @@ export default function MyDayPage() {
   useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) { loadMembers(orgId); loadProjects(orgId); } }, [orgId])
   useEffect(() => { if (selectedProjectId) loadTasks(selectedProjectId); else setTasks([]) }, [selectedProjectId])
-  useEffect(() => { if (orgId && memberId) loadSummary(memberId, orgId) }, [orgId, memberId])
+  useEffect(() => { if (orgId && memberId) { loadSummary(memberId, orgId); loadMyTasks(memberId, orgId) } }, [orgId, memberId])
   useEffect(() => {
     if (uiStarting || uiEnding) return
     setUiSessionOpen(!!summary.session_open)
@@ -387,10 +394,10 @@ export default function MyDayPage() {
       <div className="grid grid-2" style={{marginBottom: 24}}>
          <GlassCard title="Time Status">
            <div className="grid grid-2">
-             <div>
-               <div className="subtitle">Extra Time</div>
-               <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
-             </div>
+            <div>
+              <div className="subtitle">Overtime</div>
+              <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
+            </div>
              <div>
                <div className="subtitle">Short Time</div>
                <div className="title" style={{color:'var(--orange)'}}>{summary.short_time}</div>
@@ -408,6 +415,60 @@ export default function MyDayPage() {
             )}
           </div>
          </GlassCard>
+      </div>
+
+      <div className="grid" style={{marginBottom: 24}}>
+        <GlassCard title="My Tasks">
+          <table className="glass-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Priority</th>
+              </tr>
+            </thead>
+            <tbody>
+              {myTasks.map((t: any) => (
+                <tr key={t.id}>
+                  <td>{t.title}</td>
+                  <td>{projects.find(p => p.id === t.projectId)?.name || '-'}</td>
+                  <td>
+                    <GlassSelect
+                      value={t.status || 'todo'}
+                      onChange={async (e: any) => {
+                        const newStatus = e.target.value
+                        if (!newStatus || newStatus === t.status) return
+                        const res = await fetch('/api/tasks/update', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ id: t.id, status: newStatus })
+                        })
+                        if (!res.ok) {
+                          alert('Failed to update task status')
+                          return
+                        }
+                        const data = await res.json()
+                        const updated = data.task || {}
+                        setMyTasks((prev: any[]) =>
+                          (prev || []).map(task =>
+                            task.id === t.id ? { ...task, status: updated.status || newStatus } : task
+                          )
+                        )
+                      }}
+                    >
+                      <option value="todo">Todo</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="review">Review</option>
+                      <option value="done">Done</option>
+                    </GlassSelect>
+                  </td>
+                  <td>{t.priority}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </GlassCard>
       </div>
 
       <div className="grid">
