@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabaseServer } from './supabase'
-import { listUsers, listDepartments, listTeamMemberIds } from './db'
+import { listUsers, listDepartments, listTeamMemberIds, listOrgCategoryRules } from './db'
+import { getProductivityStatus } from './categorization'
 
 type ReportFormat = 'csv'|'xlsx'|'pdf'
 type ReportType = 'attendance'|'timesheet'|'activity'|'payroll'|'billing'|'leave'
@@ -46,6 +47,8 @@ export type ActivityRow = {
   date: string
   active_minutes: number
   idle_minutes: number
+  productive_minutes: number
+  unproductive_minutes: number
   top_apps: string
   top_urls: string
   screenshots_count: number
@@ -204,6 +207,7 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
   const sb = supabaseServer()
   const users = await listUsers(org_id)
   const deps = await listDepartments(org_id)
+  const rules = await listOrgCategoryRules(org_id)
   const depMap = new Map(deps.map(d => [d.id, d.name]))
   const userMap = new Map(users.map(u => [u.id, u]))
   let memberIds = users.map(u => u.id)
@@ -244,7 +248,7 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
   const events = Array.from(uniqueEventsMap.values())
 
   type Key = string
-  const agg: Map<Key, { active: Set<string>, idle: Set<string>, apps: Map<string, number>, urls: Map<string, number>, shots: number }> = new Map()
+  const agg: Map<Key, { active: Set<string>, idle: Set<string>, productive: Set<string>, unproductive: Set<string>, apps: Map<string, number>, urls: Map<string, number>, shots: number }> = new Map()
   for (const e of events) {
     const tsRow = (ts||[]).find((t:any)=> t.id === e.tracking_session_id)
     if (!tsRow) continue
@@ -252,8 +256,15 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
     const date = dt.toISOString().slice(0,10)
     const minute = dt.toISOString().slice(0,16)
     const key = `${tsRow.member_id}|${date}`
-    const cur = agg.get(key) || { active: new Set(), idle: new Set(), apps: new Map(), urls: new Map(), shots: 0 }
-    if (e.is_active) cur.active.add(minute); else cur.idle.add(minute)
+    const cur = agg.get(key) || { active: new Set(), idle: new Set(), productive: new Set(), unproductive: new Set(), apps: new Map(), urls: new Map(), shots: 0 }
+    if (e.is_active) {
+       cur.active.add(minute)
+       const prod = getProductivityStatus(e.category || '', rules)
+       if (prod === 'productive') cur.productive.add(minute)
+       if (prod === 'unproductive') cur.unproductive.add(minute)
+    } else {
+       cur.idle.add(minute)
+    }
     const app = String(e.app_name||'').trim()
     const url = sanitizeUrl(String(e.url||'').trim())
     if (app) cur.apps.set(app, (cur.apps.get(app)||0)+1)
@@ -265,7 +276,7 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
     if (!tsRow) continue
     const date = new Date(tsRow.started_at).toISOString().slice(0,10)
     const key = `${tsRow.member_id}|${date}`
-    const cur = agg.get(key) || { active: new Set(), idle: new Set(), apps: new Map(), urls: new Map(), shots: 0 }
+    const cur = agg.get(key) || { active: new Set(), idle: new Set(), productive: new Set(), unproductive: new Set(), apps: new Map(), urls: new Map(), shots: 0 }
     cur.shots += 1
     agg.set(key, cur)
   }
@@ -276,7 +287,20 @@ export async function generateActivityReport(org_id: string, params: BaseParams)
     if (!u) continue
     const topApps = [...val.apps.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}(${v})`).join('; ')
     const topUrls = [...val.urls.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}(${v})`).join('; ')
-    out.push({ org: org_id, department: u.departmentId ? (depMap.get(u.departmentId)||'') : '', member: `${u.firstName} ${u.lastName}`.trim(), date, active_minutes: val.active.size, idle_minutes: val.idle.size, top_apps: topApps, top_urls: topUrls, screenshots_count: val.shots, activity_score: undefined })
+    out.push({
+      org: org_id,
+      department: u.departmentId ? (depMap.get(u.departmentId)||'') : '',
+      member: `${u.firstName} ${u.lastName}`.trim(),
+      date,
+      active_minutes: val.active.size,
+      idle_minutes: val.idle.size,
+      productive_minutes: val.productive.size,
+      unproductive_minutes: val.unproductive.size,
+      top_apps: topApps,
+      top_urls: topUrls,
+      screenshots_count: val.shots,
+      activity_score: undefined
+    })
   }
   return out
 }

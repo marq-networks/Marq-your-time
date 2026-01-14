@@ -30,6 +30,25 @@ export interface Organization {
   updatedAt: number
 }
 
+export interface OrgCategoryRule {
+  id: string
+  orgId: string
+  categoryKey: string
+  displayName?: string
+  productivityStatus: 'productive' | 'neutral' | 'unproductive'
+  createdAt: number
+  updatedAt: number
+}
+
+export interface OrgUrlOverride {
+  id: string
+  orgId: string
+  urlPattern: string
+  categoryKey: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface OrganizationInvite {
   id: string
   invitedEmail: string
@@ -227,7 +246,7 @@ export interface ActivityAppAlias {
   orgId?: string
   matchType: 'contains' | 'equals' | 'regex'
   pattern: string
-  category: 'productive' | 'neutral' | 'unproductive'
+  category: string
   label: string
   createdAt: number
   updatedAt: number

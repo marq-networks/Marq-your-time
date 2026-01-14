@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listActivityToday, getTodaySummary } from '@lib/db'
+import { listActivityToday, getTodaySummary, listOrgCategoryRules } from '@lib/db'
+import { getProductivityStatus } from '@lib/categorization'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -8,11 +9,12 @@ export async function GET(req: NextRequest) {
   if (!memberId || !orgId) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const base = await listActivityToday(memberId, orgId)
   const time = await getTodaySummary({ memberId, orgId })
-  const apps = aggregateTopApps(base.events || [])
+  const rules = await listOrgCategoryRules(orgId)
+  const apps = aggregateTopApps(base.events || [], rules)
   return NextResponse.json({ trackingOn: base.trackingOn, trackingSessionId: base.trackingSessionId, settings: base.settings, sessions: time.sessions, breaks: time.breaks, events: base.events, topApps: apps, screenshots: base.settings.allowScreenshots ? base.screenshots : [] })
 }
 
-function aggregateTopApps(events: any[]) {
+function aggregateTopApps(events: any[], rules: any[]) {
   // Deduplicate events by minute to prevent overcounting
   const uniqueEventsMap = new Map<string, any>()
   for (const e of events) {
@@ -27,8 +29,9 @@ function aggregateTopApps(events: any[]) {
           if (!existing.isActive && e.isActive) {
               uniqueEventsMap.set(key, e)
           } else if (existing.isActive && e.isActive) {
-               // Prefer Productive over Unproductive
-               if (existing.category !== 'productive' && e.category === 'productive') {
+               const exProd = getProductivityStatus(existing.category || '', rules)
+               const newProd = getProductivityStatus(e.category || '', rules)
+               if (exProd !== 'productive' && newProd === 'productive') {
                    uniqueEventsMap.set(key, e)
                }
           }

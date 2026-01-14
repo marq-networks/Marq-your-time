@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listUsers, listDepartments, listDailyLogs } from '@lib/db'
+import { listUsers, listDepartments, listDailyLogs, listOrgCategoryRules } from '@lib/db'
 import { supabaseServer, isSupabaseConfigured } from '@lib/supabase'
+import { getProductivityStatus } from '@lib/categorization'
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
     const { summaries, sessions } = await listDailyLogs({ orgId, date, memberId: memberId || undefined })
     const users = await listUsers(orgId)
     const departments = await listDepartments(orgId)
+    const rules = await listOrgCategoryRules(orgId)
     const deptMap = new Map(departments.map(d => [d.id, d.name]))
     const userMap = new Map(users.map(u => [u.id, u]))
     const filteredUserIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : undefined
@@ -52,7 +54,9 @@ export async function GET(req: NextRequest) {
             } 
             // 2. If both active, prefer Productive over Unproductive/Neutral
             else if (existing.is_active && e.is_active) {
-                 if (existing.category !== 'productive' && e.category === 'productive') {
+                 const exProd = getProductivityStatus(existing.category || '', rules)
+                 const newProd = getProductivityStatus(e.category || '', rules)
+                 if (exProd !== 'productive' && newProd === 'productive') {
                      uniqueEventsMap.set(key, e)
                  }
             }
@@ -66,12 +70,14 @@ export async function GET(req: NextRequest) {
         const urlMap = new Map<string, { minutes: number, category: string }>()
 
         for (const e of events) {
+          const prod = getProductivityStatus(e.category || '', rules)
           if (e.is_active) {
             active += 1
             const app = (e.app_name || 'Unknown').trim()
-            const appEntry = appMap.get(app) || { minutes: 0, category: e.category || 'neutral' }
+            const appEntry = appMap.get(app) || { minutes: 0, category: prod }
             appEntry.minutes += 1
-            if (e.category) appEntry.category = e.category
+            if (prod === 'productive') appEntry.category = 'productive'
+            else if (prod === 'unproductive' && appEntry.category !== 'productive') appEntry.category = 'unproductive'
             appMap.set(app, appEntry)
             
             if (e.url) {
@@ -80,16 +86,17 @@ export async function GET(req: NextRequest) {
                     const parsed = new URL(e.url.startsWith('http') ? e.url : `https://${e.url}`)
                     u = parsed.hostname.replace(/^www\./, '')
                 } catch {}
-                const urlEntry = urlMap.get(u) || { minutes: 0, category: e.category || 'neutral' }
+                const urlEntry = urlMap.get(u) || { minutes: 0, category: prod }
                 urlEntry.minutes += 1
-                if (e.category) urlEntry.category = e.category
+                if (prod === 'productive') urlEntry.category = 'productive'
+                else if (prod === 'unproductive' && urlEntry.category !== 'productive') urlEntry.category = 'unproductive'
                 urlMap.set(u, urlEntry)
             }
           } else {
             idle += 1
           }
-          if (e.category === 'productive') productive += 1
-          if (e.category === 'unproductive') unproductive += 1
+          if (prod === 'productive') productive += 1
+          if (prod === 'unproductive') unproductive += 1
         }
         
         const topApps = Array.from(appMap.entries())

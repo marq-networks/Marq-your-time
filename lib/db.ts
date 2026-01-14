@@ -1,7 +1,8 @@
-import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment } from './types'
+import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
+import { categorizeUrl } from './categorization'
 
 const organizations: Organization[] = []
 const invites: OrganizationInvite[] = []
@@ -11,6 +12,8 @@ const departments: Department[] = []
 const users: User[] = []
 const memberRoles: MemberRole[] = []
 const permAudit: any[] = []
+const orgCategoryRulesMem: OrgCategoryRule[] = []
+const orgUrlOverridesMem: OrgUrlOverride[] = []
 let settings: SaaSSettings = { id: 'saas', defaultSeatPrice: 5, defaultSeatLimit: 50, landingPageInviteEnabled: true }
 
 // Module 4 in-memory stores (fallback when Supabase is not configured)
@@ -1815,18 +1818,31 @@ export async function ingestActivityBatch(input: { trackingSessionId: string, ev
     const priv = await getPrivacySettings(ts.member_id, ts.org_id)
     if (!priv.allowActivityTracking) return 'TRACKING_DISABLED'
     const aliases = await listAliases(ts.org_id)
+    const overrides = await listOrgUrlOverrides(ts.org_id)
     const rows = input.events.map(e => {
       const appName = (e.app_name || '').trim()
       const windowTitle = (e.window_title || '').trim()
       const url = normalizeUrl(e.url)
       const match = aliases.find(a => aliasMatches({ appName, windowTitle, url }, a))
+      let category: string | null | undefined = null
+      
+      if (url) {
+         const override = overrides.find(o => url.includes(o.urlPattern))
+         if (override) category = override.categoryKey
+         else category = categorizeUrl(url)
+      }
+
+      if ((!category || category === 'Uncategorized') && match) {
+          category = match.category
+      }
+
       return {
         tracking_session_id: ts.id,
         timestamp: new Date(e.timestamp),
         app_name: appName,
         window_title: windowTitle,
         url: url ?? null,
-        category: match ? match.category : null,
+        category: category,
         is_active: !!e.is_active,
         keyboard_activity_score: e.keyboard_activity_score ?? null,
         mouse_activity_score: e.mouse_activity_score ?? null,
@@ -1849,11 +1865,24 @@ export async function ingestActivityBatch(input: { trackingSessionId: string, ev
   const priv = await getPrivacySettings(ts.memberId, ts.orgId)
   if (!priv.allowActivityTracking) return 'TRACKING_DISABLED'
   const aliases = await listAliases(ts.orgId)
+  const overrides = await listOrgUrlOverrides(ts.orgId)
   for (const e of input.events) {
     const appName = (e.app_name || '').trim()
     const windowTitle = (e.window_title || '').trim()
     const url = normalizeUrl(e.url)
     const match = aliases.find(a => aliasMatches({ appName, windowTitle, url }, a))
+    let category: string | null | undefined = null
+      
+    if (url) {
+       const override = overrides.find(o => url.includes(o.urlPattern))
+       if (override) category = override.categoryKey
+       else category = categorizeUrl(url)
+    }
+
+    if ((!category || category === 'Uncategorized') && match) {
+        category = match.category
+    }
+
     const ev: ActivityEvent = {
       id: newId(),
       trackingSessionId: ts.id,
@@ -1861,7 +1890,7 @@ export async function ingestActivityBatch(input: { trackingSessionId: string, ev
       appName,
       windowTitle,
       url,
-      category: match?.category,
+      category: category ?? undefined,
       isActive: !!e.is_active,
       keyboardActivityScore: e.keyboard_activity_score,
       mouseActivityScore: e.mouse_activity_score,
@@ -3611,4 +3640,140 @@ export async function runRetentionCleanup(): Promise<{ processed: number }> {
   let processed = 0
   processed++
   return { processed }
+}
+
+export async function listOrgCategoryRules(orgId: string): Promise<OrgCategoryRule[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('org_category_rules').select('*').eq('org_id', orgId)
+    return (data || []).map(r => ({
+      id: r.id,
+      orgId: r.org_id,
+      categoryKey: r.category_key,
+      displayName: r.display_name,
+      productivityStatus: r.productivity_status,
+      createdAt: new Date(r.created_at).getTime(),
+      updatedAt: new Date(r.updated_at).getTime()
+    }))
+  }
+  return orgCategoryRulesMem.filter(r => r.orgId === orgId)
+}
+
+export async function createOrgCategoryRule(input: { orgId: string, categoryKey: string, productivityStatus: 'productive'|'neutral'|'unproductive', displayName?: string }): Promise<OrgCategoryRule | 'DB_ERROR' | 'DUPLICATE'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const now = new Date()
+    const { data, error } = await sb.from('org_category_rules').insert({
+      org_id: input.orgId,
+      category_key: input.categoryKey,
+      productivity_status: input.productivityStatus,
+      display_name: input.displayName || null,
+      created_at: now,
+      updated_at: now
+    }).select('*').single()
+    if (error) {
+      if (error.code === '23505') return 'DUPLICATE'
+      return 'DB_ERROR'
+    }
+    return {
+      id: data.id,
+      orgId: data.org_id,
+      categoryKey: data.category_key,
+      displayName: data.display_name,
+      productivityStatus: data.productivity_status,
+      createdAt: new Date(data.created_at).getTime(),
+      updatedAt: new Date(data.updated_at).getTime()
+    }
+  }
+  if (orgCategoryRulesMem.some(r => r.orgId === input.orgId && r.categoryKey === input.categoryKey)) return 'DUPLICATE'
+  const rule: OrgCategoryRule = {
+    id: newId(),
+    orgId: input.orgId,
+    categoryKey: input.categoryKey,
+    productivityStatus: input.productivityStatus,
+    displayName: input.displayName,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  }
+  orgCategoryRulesMem.push(rule)
+  return rule
+}
+
+export async function deleteOrgCategoryRule(orgId: string, id: string): Promise<'OK' | 'NOT_FOUND' | 'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { error } = await sb.from('org_category_rules').delete().eq('id', id).eq('org_id', orgId)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  const idx = orgCategoryRulesMem.findIndex(r => r.id === id && r.orgId === orgId)
+  if (idx === -1) return 'NOT_FOUND'
+  orgCategoryRulesMem.splice(idx, 1)
+  return 'OK'
+}
+
+export async function listOrgUrlOverrides(orgId: string): Promise<OrgUrlOverride[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('org_url_overrides').select('*').eq('org_id', orgId)
+    return (data || []).map(r => ({
+      id: r.id,
+      orgId: r.org_id,
+      urlPattern: r.url_pattern,
+      categoryKey: r.category_key,
+      createdAt: new Date(r.created_at).getTime(),
+      updatedAt: new Date(r.updated_at).getTime()
+    }))
+  }
+  return orgUrlOverridesMem.filter(r => r.orgId === orgId)
+}
+
+export async function createOrgUrlOverride(input: { orgId: string, urlPattern: string, categoryKey: string }): Promise<OrgUrlOverride | 'DB_ERROR' | 'DUPLICATE'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const now = new Date()
+    const { data, error } = await sb.from('org_url_overrides').insert({
+      org_id: input.orgId,
+      url_pattern: input.urlPattern,
+      category_key: input.categoryKey,
+      created_at: now,
+      updated_at: now
+    }).select('*').single()
+    if (error) {
+      if (error.code === '23505') return 'DUPLICATE'
+      return 'DB_ERROR'
+    }
+    return {
+      id: data.id,
+      orgId: data.org_id,
+      urlPattern: data.url_pattern,
+      categoryKey: data.category_key,
+      createdAt: new Date(data.created_at).getTime(),
+      updatedAt: new Date(data.updated_at).getTime()
+    }
+  }
+  if (orgUrlOverridesMem.some(r => r.orgId === input.orgId && r.urlPattern === input.urlPattern)) return 'DUPLICATE'
+  const override: OrgUrlOverride = {
+    id: newId(),
+    orgId: input.orgId,
+    urlPattern: input.urlPattern,
+    categoryKey: input.categoryKey,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  }
+  orgUrlOverridesMem.push(override)
+  return override
+}
+
+export async function deleteOrgUrlOverride(orgId: string, id: string): Promise<'OK' | 'NOT_FOUND' | 'DB_ERROR'> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { error } = await sb.from('org_url_overrides').delete().eq('id', id).eq('org_id', orgId)
+    if (error) return 'DB_ERROR'
+    return 'OK'
+  }
+  const idx = orgUrlOverridesMem.findIndex(r => r.id === id && r.orgId === orgId)
+  if (idx === -1) return 'NOT_FOUND'
+  orgUrlOverridesMem.splice(idx, 1)
+  return 'OK'
 }

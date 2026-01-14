@@ -29,6 +29,7 @@ const items = [
   { href: '/billing', label: 'Billing' },
   { href: '/billing/plans', label: 'Billing Plans' },
   { href: '/settings', label: 'Settings' },
+  { href: '/settings/categorization', label: 'Categorization' },
   { href: '/integrations/api', label: 'Integrations API' },
   { href: '/integrations/api-docs', label: 'API Docs' },
   { href: '/devices/offline-sync', label: 'Offline Sync' },
@@ -73,6 +74,7 @@ export default function SidebarNav() {
           if (i.label === 'Users') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Roles') return canUsers && canSettings
           if (i.label === 'Settings') return canSettings
+          if (i.label === 'Categorization') return canSettings
           if (i.label === 'Integrations API') return canSettings
           if (i.label === 'API Docs') return canSettings
           if (i.label === 'Members') return canUsers
