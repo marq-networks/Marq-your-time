@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
+import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -15,17 +16,69 @@ export default function ShiftsSettingsPage() {
   const [items, setItems] = useState<Shift[]>([])
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name:'', start:'09:00', end:'17:00', overnight:false, grace:0, break:0 })
+  const [loadingOrgs, setLoadingOrgs] = useState(false)
+  const [loadingShifts, setLoadingShifts] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
-  const loadShifts = async (oid: string) => { const res = await fetch(`/api/shifts?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]) }
+  const loadOrgs = async () => {
+    setLoadingOrgs(true)
+    setError('')
+    try {
+      const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+      const res = await fetch(endpoint, { cache:'no-store' })
+      if (!res.ok) return
+      const d = await res.json()
+      const items: Org[] = Array.isArray(d.items) ? d.items as Org[] : []
+      setOrgs(items)
+      if (!orgId && items.length) {
+        const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+        const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+        setOrgId(preferred)
+      }
+    } finally {
+      setLoadingOrgs(false)
+    }
+  }
+
+  const loadShifts = async (oid: string) => {
+    if (!oid) return
+    setLoadingShifts(true)
+    try {
+      const res = await fetch(`/api/shifts?org_id=${oid}`, { cache:'no-store' })
+      if (!res.ok) return
+      const d = await res.json()
+      setItems(d.items||[])
+    } finally {
+      setLoadingShifts(false)
+    }
+  }
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) loadShifts(orgId) }, [orgId])
 
   const addShift = async () => {
-    if (!orgId || !form.name || !form.start || !form.end) return
-    const res = await fetch('/api/shifts', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify({ org_id: orgId, name: form.name, start_time: form.start, end_time: form.end, is_overnight: form.overnight, grace_minutes: form.grace, break_minutes: form.break }) })
-    if (res.ok) { setOpen(false); setForm({ name:'', start:'09:00', end:'17:00', overnight:false, grace:0, break:0 }); loadShifts(orgId) }
+    if (!orgId) { setError('Select an organization first'); return }
+    if (!form.name || !form.start || !form.end) { setError('Name, start and end time are required'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/shifts', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify({ org_id: orgId, name: form.name, start_time: form.start, end_time: form.end, is_overnight: form.overnight, grace_minutes: form.grace, break_minutes: form.break }) })
+      if (!res.ok) {
+        let msg = 'Failed to save shift'
+        try {
+          const d = await res.json()
+          if (typeof d?.error === 'string') msg = d.error
+        } catch {}
+        setError(msg)
+        return
+      }
+      setOpen(false)
+      setForm({ name:'', start:'09:00', end:'17:00', overnight:false, grace:0, break:0 })
+      loadShifts(orgId)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -34,63 +87,77 @@ export default function ShiftsSettingsPage() {
         <div className="grid grid-2">
           <div>
             <div className="label">Select organization</div>
-            <select className="input" value={orgId} onChange={(e:any)=> setOrgId(e.target.value)}>
-              <option value="">Select org</option>
+            <select className="input" value={orgId} onChange={(e:any)=> setOrgId(e.target.value)} disabled={loadingOrgs}>
+              <option value="">{loadingOrgs ? 'Loading organizations…' : 'Select org'}</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
             </select>
           </div>
           <div className="row" style={{alignItems:'end',gap:8}}>
-            <GlassButton variant="primary" onClick={()=> setOpen(true)}>Add Shift</GlassButton>
+            <GlassButton variant="primary" onClick={()=> { setError(''); setOpen(true) }} disabled={!orgId || loadingOrgs}>
+              Add Shift
+            </GlassButton>
           </div>
         </div>
       </GlassCard>
 
-      <div className="grid-2 mt-5">
-        {items.map(s => (
-          <GlassCard key={s.id} title={s.name} right={<span className="tag-pill accent">{s.isOvernight? 'Overnight':''} {s.breakMinutes? `Break ${s.breakMinutes}m`:''} {s.graceMinutes? `Grace ${s.graceMinutes}m`:''}</span>}>
-            <div className="row" style={{gap:12}}>
-              <span className="tag-pill">{s.startTime} → {s.endTime}</span>
-            </div>
-          </GlassCard>
-        ))}
-      </div>
+      <GlassCard title="Configured shifts" right={loadingShifts ? <span className="subtitle">Loading…</span> : undefined}>
+        {items.length === 0 && !loadingShifts && (
+          <div className="subtitle">No shifts configured yet. Click Add Shift to create one.</div>
+        )}
+        {items.length > 0 && (
+          <GlassTable
+            columns={['Name','Time','Details']}
+            rows={items.map(s => [
+              <span key={s.id} className="title">{s.name}</span>,
+              <span>{s.startTime} → {s.endTime}{s.isOvernight ? ' (Overnight)' : ''}</span>,
+              <div className="row" style={{gap:8}}>
+                {s.breakMinutes ? <span className="tag-pill">Break {s.breakMinutes}m</span> : null}
+                {s.graceMinutes ? <span className="tag-pill accent">Grace {s.graceMinutes}m</span> : null}
+              </div>
+            ])}
+          />
+        )}
+      </GlassCard>
 
       {open && (
-        <div className="modal-backdrop">
-          <div className="modal glass-panel" style={{ borderRadius:'var(--radius-large)', padding:16, width:420 }}>
-            <div className="card-title">Add Shift</div>
-            <div className="grid grid-2" style={{marginTop:12}}>
-              <div>
-                <div className="label">Name</div>
-                <input className="input" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
-              </div>
-              <div>
-                <div className="label">Overnight</div>
-                <input type="checkbox" checked={form.overnight} onChange={e=>setForm({...form, overnight:e.target.checked})} />
-              </div>
-              <div>
-                <div className="label">Start</div>
-                <input className="input" type="time" value={form.start} onChange={e=>setForm({...form, start:e.target.value})} />
-              </div>
-              <div>
-                <div className="label">End</div>
-                <input className="input" type="time" value={form.end} onChange={e=>setForm({...form, end:e.target.value})} />
-              </div>
-              <div>
-                <div className="label">Grace minutes</div>
-                <input className="input" type="number" value={form.grace} onChange={e=>setForm({...form, grace:Number(e.target.value)})} />
-              </div>
-              <div>
-                <div className="label">Break minutes</div>
-                <input className="input" type="number" value={form.break} onChange={e=>setForm({...form, break:Number(e.target.value)})} />
-              </div>
+        <GlassModal open={open} title="Add Shift" onClose={()=> { if (!saving) setOpen(false) }}>
+          <div className="grid grid-2" style={{marginTop:12}}>
+            <div>
+              <div className="label">Name</div>
+              <input className="input" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
             </div>
-            <div className="row" style={{gap:8,marginTop:12}}>
-              <GlassButton variant="primary" onClick={addShift}>Save</GlassButton>
-              <GlassButton variant="secondary" onClick={()=> setOpen(false)}>Cancel</GlassButton>
+            <div>
+              <div className="label">Overnight</div>
+              <label className="row" style={{gap:8,alignItems:'center'}}>
+                <input type="checkbox" checked={form.overnight} onChange={e=>setForm({...form, overnight:e.target.checked})} />
+                <span className="subtitle">Spans across midnight</span>
+              </label>
+            </div>
+            <div>
+              <div className="label">Start</div>
+              <input className="input" type="time" value={form.start} onChange={e=>setForm({...form, start:e.target.value})} />
+            </div>
+            <div>
+              <div className="label">End</div>
+              <input className="input" type="time" value={form.end} onChange={e=>setForm({...form, end:e.target.value})} />
+            </div>
+            <div>
+              <div className="label">Grace minutes</div>
+              <input className="input" type="number" min={0} value={form.grace} onChange={e=>setForm({...form, grace:Number(e.target.value)})} />
+            </div>
+            <div>
+              <div className="label">Break minutes</div>
+              <input className="input" type="number" min={0} value={form.break} onChange={e=>setForm({...form, break:Number(e.target.value)})} />
             </div>
           </div>
-        </div>
+          {error && <div className="subtitle" style={{color:'tomato',marginTop:8}}>{error}</div>}
+          <div className="row" style={{gap:8,marginTop:16,justifyContent:'flex-end'}}>
+            <GlassButton variant="secondary" onClick={()=> setOpen(false)} disabled={saving}>Cancel</GlassButton>
+            <GlassButton variant="primary" onClick={addShift} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </GlassButton>
+          </div>
+        </GlassModal>
       )}
     </AppShell>
   )

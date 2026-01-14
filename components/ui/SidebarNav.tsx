@@ -16,6 +16,7 @@ const items = [
   { href: '/my/earnings', label: 'My Earnings' },
   { href: '/projects', label: 'Projects' },
   { href: '/time/logs', label: 'Time Logs' },
+  { href: '/schedule/roster', label: 'Schedule' },
   { href: '/leave', label: 'Leave' },
   { href: '/leave/approvals', label: 'Leave Approvals' },
   { href: '/activity/overview', label: 'Activity Overview' },
@@ -29,6 +30,7 @@ const items = [
   { href: '/billing', label: 'Billing' },
   { href: '/billing/plans', label: 'Billing Plans' },
   { href: '/settings', label: 'Settings' },
+  { href: '/settings/shifts', label: 'Shifts' },
   { href: '/settings/categorization', label: 'Categorization' },
   { href: '/integrations/api', label: 'Integrations API' },
   { href: '/integrations/api-docs', label: 'API Docs' },
@@ -83,6 +85,7 @@ export default function SidebarNav() {
           if (i.label === 'My Earnings') return overrideRole !== 'super_admin'
           if (i.label === 'Projects') return overrideRole !== 'super_admin'
           if (i.label === 'Time Logs') return (canReports || canTime || ['employee','member'].includes(overrideRole)) && overrideRole !== 'super_admin'
+          if (i.label === 'Schedule') return canTime && overrideRole !== 'super_admin'
           if (i.label === 'Leave') return overrideRole !== 'super_admin'
           if (i.label === 'Leave Approvals') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
@@ -94,6 +97,7 @@ export default function SidebarNav() {
           if (i.label === 'Dashboard') return true
           if (i.label === 'Departments') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Reports') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Shifts') return canSettings
           if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'My Engagement') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Insights') return ['admin','owner','super_admin'].includes(overrideRole)
