@@ -5,5 +5,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startTracking: () => ipcRenderer.send('start-tracking'),
   stopTracking: () => ipcRenderer.send('stop-tracking'),
   getSources: () => ipcRenderer.invoke('get-sources'),
-  captureScreen: (meta) => ipcRenderer.invoke('capture-screen', meta || {})
+  captureScreen: () => ipcRenderer.invoke('capture-screen')
 })
