@@ -253,10 +253,18 @@ async function uploadScreenshotItem(item) {
     'Content-Type': 'application/json'
   }
   if (cookieHeader) headers.Cookie = cookieHeader
+  let sessionId = item.session_id
+  if (!sessionId && trackingContext.trackingSessionId) {
+    sessionId = trackingContext.trackingSessionId
+    item.session_id = sessionId
+    if (!item.user_id && trackingContext.memberId) item.user_id = trackingContext.memberId
+    if (!item.org_id && trackingContext.orgId) item.org_id = trackingContext.orgId
+  }
+  if (!sessionId) return false
   const buf = await fsp.readFile(item.file_path)
   const b64 = buf.toString('base64')
   const body = {
-    tracking_session_id: item.session_id,
+    tracking_session_id: sessionId,
     timestamp: item.captured_at,
     image: `data:image/jpeg;base64,${b64}`,
     event_id: item.id,
