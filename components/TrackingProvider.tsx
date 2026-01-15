@@ -17,6 +17,7 @@ declare global {
       stopTracking: () => void
       getSources: () => Promise<any[]>
       captureScreen: () => Promise<{ dataUrl?: string, error?: string } | null>
+      setTrackingContext: (payload: { sessionId: string, memberId?: string, orgId?: string, allowScreenshots?: boolean }) => void
     }
   }
 }
@@ -56,6 +57,19 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [localStats, setLocalStats] = useState({ keys: 0, clicks: 0, mouse: 0 })
   const [idleDuration, setIdleDuration] = useState(0)
+
+  const getIdsForTracking = () => {
+    const getCookie = (name: string) => document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)')?.[2]
+    let memberId = getCookie('current_user_id') || ''
+    let orgId = getCookie('current_org_id') || ''
+    if (!memberId) {
+      try { memberId = localStorage.getItem('marq_member_id') || '' } catch {}
+    }
+    if (!orgId) {
+      try { orgId = localStorage.getItem('marq_org_id') || '' } catch {}
+    }
+    return { memberId, orgId }
+  }
 
   // Cleanup on unmount (of the provider, i.e., app close/refresh)
   useEffect(() => {
@@ -512,6 +526,16 @@ export default function TrackingProvider({ children }: { children: React.ReactNo
 
     setTrackingSessionId(sessionId)
     startActivityLoop(sessionId)
+
+    if (window.electronAPI && window.electronAPI.setTrackingContext) {
+      const ids = getIdsForTracking()
+      window.electronAPI.setTrackingContext({
+        sessionId,
+        memberId: ids.memberId || undefined,
+        orgId: ids.orgId || undefined,
+        allowScreenshots: !!settings?.allowScreenshots
+      })
+    }
 
     if (settings?.allowScreenshots) {
       // Initial screenshot

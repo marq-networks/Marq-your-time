@@ -10,7 +10,7 @@ const BASE_URL = app.isPackaged
   ? 'http://localhost:3000'
   : 'http://localhost:3000'
 
-const SCREENSHOT_INTERVAL_MS = 10 * 1000
+const MAX_SCREENSHOT_INTERVAL_MS = 20 * 60 * 1000
 const CONNECTIVITY_INTERVAL_ACTIVE_MS = 10 * 1000
 const CONNECTIVITY_INTERVAL_IDLE_MS = 30 * 1000
 
@@ -131,11 +131,12 @@ async function refreshTrackingContext() {
     return
   }
   const data = await res.json()
+  const prev = trackingContext
   trackingContext = {
-    trackingSessionId: data.trackingSessionId || null,
-    memberId: data.memberId || null,
-    orgId: data.orgId || null,
-    allowScreenshots: data.settings ? !!data.settings.allowScreenshots : true,
+    trackingSessionId: data.trackingSessionId || prev.trackingSessionId,
+    memberId: data.memberId || prev.memberId,
+    orgId: data.orgId || prev.orgId,
+    allowScreenshots: data.settings ? !!data.settings.allowScreenshots : prev.allowScreenshots,
     consentRequired: false,
     trackingAllowed: true
   }
@@ -235,9 +236,11 @@ function startScreenshotLoop() {
     try {
       await captureAndQueueScreenshot()
     } catch {}
-    screenshotTimer = setTimeout(loop, SCREENSHOT_INTERVAL_MS)
+    const delay = Math.floor(Math.random() * MAX_SCREENSHOT_INTERVAL_MS)
+    screenshotTimer = setTimeout(loop, delay)
   }
-  screenshotTimer = setTimeout(loop, SCREENSHOT_INTERVAL_MS)
+  const initialDelay = Math.floor(Math.random() * MAX_SCREENSHOT_INTERVAL_MS)
+  screenshotTimer = setTimeout(loop, initialDelay)
 }
 
 function stopScreenshotLoop() {
@@ -260,11 +263,9 @@ async function uploadScreenshotItem(item) {
     if (!item.user_id && trackingContext.memberId) item.user_id = trackingContext.memberId
     if (!item.org_id && trackingContext.orgId) item.org_id = trackingContext.orgId
   }
-  if (!sessionId) return false
   const buf = await fsp.readFile(item.file_path)
   const b64 = buf.toString('base64')
   const body = {
-    tracking_session_id: sessionId,
     timestamp: item.captured_at,
     image: `data:image/jpeg;base64,${b64}`,
     event_id: item.id,
@@ -273,6 +274,7 @@ async function uploadScreenshotItem(item) {
     org_id: item.org_id,
     sha256: item.sha256
   }
+  if (sessionId) body.tracking_session_id = sessionId
   const res = await fetchWithTimeout(`${BASE_URL}/api/activity/screenshot`, {
     method: 'POST',
     headers,
@@ -282,12 +284,16 @@ async function uploadScreenshotItem(item) {
     try {
       const json = await res.json()
       const msg = json && (json.error || json.message || '')
+      console.log('SCREENSHOT_UPLOAD_FAIL', { status: res.status, msg })
       if (typeof msg === 'string' && msg.toLowerCase().includes('already')) {
         return true
       }
-    } catch {}
+    } catch (e) {
+      console.log('SCREENSHOT_UPLOAD_FAIL_NO_JSON', { status: res.status })
+    }
     return false
   }
+  console.log('SCREENSHOT_UPLOAD_OK', { itemId: item.id })
   return true
 }
 
@@ -295,36 +301,42 @@ async function processScreenshotQueue() {
   if (processingQueue) return
   processingQueue = true
   try {
-    if (!isOnline) return
     const queue = loadQueue()
-    const now = Date.now()
-    const candidates = queue.filter(q => (q.status === 'pending' || q.status === 'failed') && (!q.next_retry_at || q.next_retry_at <= now))
-    if (!candidates.length) return
-    const nextId = candidates[0].id
-    const idx = queue.findIndex(q => q.id === nextId)
-    if (idx === -1) return
-    const item = queue[idx]
-    if (!item.file_path || !fs.existsSync(item.file_path)) {
-      item.status = 'failed_missing_file'
-      item.next_retry_at = now
+    let processed = 0
+    while (true) {
+      const now = Date.now()
+      const candidates = queue.filter(q => (q.status === 'pending' || q.status === 'failed') && (!q.next_retry_at || q.next_retry_at <= now))
+      if (!candidates.length) break
+      const nextId = candidates[0].id
+      const idx = queue.findIndex(q => q.id === nextId)
+      if (idx === -1) break
+      const item = queue[idx]
+      if (!item.file_path || !fs.existsSync(item.file_path)) {
+        item.status = 'failed_missing_file'
+        item.next_retry_at = now
+        saveQueue(queue)
+        processed++
+        if (processed >= 10) break
+        continue
+      }
+      item.status = 'uploading'
       saveQueue(queue)
-      return
-    }
-    item.status = 'uploading'
-    saveQueue(queue)
-    const ok = await uploadScreenshotItem(item)
-    if (ok) {
-      item.status = 'acked'
-      try {
-        await fsp.unlink(item.file_path)
-      } catch {}
-      queue.splice(idx, 1)
-      saveQueue(queue)
-    } else {
-      item.attempts = (item.attempts || 0) + 1
-      item.status = 'failed'
-      item.next_retry_at = now + getBackoffMs(item.attempts)
-      saveQueue(queue)
+      const ok = await uploadScreenshotItem(item)
+      if (ok) {
+        item.status = 'acked'
+        try {
+          await fsp.unlink(item.file_path)
+        } catch {}
+        queue.splice(idx, 1)
+        saveQueue(queue)
+      } else {
+        item.attempts = (item.attempts || 0) + 1
+        item.status = 'failed'
+        item.next_retry_at = now + getBackoffMs(item.attempts)
+        saveQueue(queue)
+      }
+      processed++
+      if (processed >= 10) break
     }
   } finally {
     processingQueue = false
@@ -334,10 +346,8 @@ async function processScreenshotQueue() {
 function startSyncWorker() {
   if (syncTimer) clearInterval(syncTimer)
   syncTimer = setInterval(() => {
-    if (isOnline) {
-      processScreenshotQueue()
-    }
-  }, 15000)
+    processScreenshotQueue()
+  }, 1000)
 }
 
 function stopSyncWorker() {
@@ -399,6 +409,16 @@ ipcMain.on('stop-tracking', () => {
   trackingActive = false
   stopScreenshotLoop()
   startConnectivityChecker()
+})
+
+ipcMain.on('set-tracking-context', (_event, payload) => {
+  trackingContext.trackingSessionId = payload && payload.sessionId ? String(payload.sessionId) : null
+  trackingContext.memberId = payload && payload.memberId ? String(payload.memberId) : null
+  trackingContext.orgId = payload && payload.orgId ? String(payload.orgId) : null
+  if (typeof payload.allowScreenshots === 'boolean') {
+    trackingContext.allowScreenshots = payload.allowScreenshots
+  }
+  console.log('AGENT_TRACKING_CONTEXT_SET', trackingContext)
 })
 
 ipcMain.handle('get-sources', async () => {

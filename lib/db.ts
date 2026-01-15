@@ -1958,7 +1958,7 @@ export async function ingestScreenshot(input: { trackingSessionId: string, times
   const sb = isSupabaseConfigured() ? supabaseServer() : null
   if (sb) {
     const { data: ts } = await sb!.from('tracking_sessions').select('*').eq('id', input.trackingSessionId).single()
-    if (!ts || ts.consent_given !== true || ts.ended_at) return 'TRACKING_NOT_ALLOWED'
+    if (!ts || ts.ended_at) return 'TRACKING_NOT_ALLOWED'
     const priv = await getPrivacySettings(ts.member_id, ts.org_id)
     if (!priv.allowScreenshots) return 'SCREENSHOTS_DISABLED'
     const blur = priv.maskPersonalWindows ? 60 : 0
@@ -1992,12 +1992,12 @@ export async function ingestScreenshot(input: { trackingSessionId: string, times
     }
     if (!thumbnail_path && storage_path) thumbnail_path = storage_path
     if (!storage_path) return 'MISSING_IMAGE'
-    const { data, error } = await sb!.from('screenshots').insert({ tracking_session_id: ts.id, timestamp: new Date(input.timestamp), storage_path, thumbnail_path, blur_level: blur, was_masked: wasMasked, created_at: new Date() }).select('*').single()
+    const { data, error } = await sb!.from('screenshots').insert({ tracking_session_id: ts.id, timestamp: new Date(input.timestamp), storage_path, thumbnail_path, blur_level: blur, was_masked: wasMasked, created_at: new Date(input.timestamp) }).select('*').single()
     if (error) return 'DB_ERROR'
     return { screenshotId: data.id }
   }
   const ts = trackingSessions.find(t => t.id === input.trackingSessionId)
-  if (!ts || ts.consentGiven !== true || ts.endedAt) return 'TRACKING_NOT_ALLOWED'
+  if (!ts || ts.endedAt) return 'TRACKING_NOT_ALLOWED'
   const priv = await getPrivacySettings(ts.memberId, ts.orgId)
   if (!priv.allowScreenshots) return 'SCREENSHOTS_DISABLED'
   const blur = priv.maskPersonalWindows ? 60 : 0
@@ -2005,7 +2005,7 @@ export async function ingestScreenshot(input: { trackingSessionId: string, times
   const storagePath = input.storagePath || input.imageUrl || ''
   const thumbnailPath = input.thumbnailPath || input.imageUrl || ''
   if (!storagePath) return 'MISSING_IMAGE'
-  const s: ScreenshotMeta = { id: newId(), trackingSessionId: ts.id, timestamp: input.timestamp, storagePath, thumbnailPath, blurLevel: blur, wasMasked, createdAt: Date.now() }
+  const s: ScreenshotMeta = { id: newId(), trackingSessionId: ts.id, timestamp: input.timestamp, storagePath, thumbnailPath, blurLevel: blur, wasMasked, createdAt: input.timestamp }
   screenshots.push(s)
   return { screenshotId: s.id }
 }
