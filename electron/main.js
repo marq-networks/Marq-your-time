@@ -10,7 +10,7 @@ const BASE_URL = app.isPackaged
   ? 'http://localhost:3000'
   : 'http://localhost:3000'
 
-const SCREENSHOT_INTERVAL_MS = 5 * 60 * 1000
+const SCREENSHOT_INTERVAL_MS = 10 * 1000
 const CONNECTIVITY_INTERVAL_ACTIVE_MS = 10 * 1000
 const CONNECTIVITY_INTERVAL_IDLE_MS = 30 * 1000
 
