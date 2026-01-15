@@ -175,6 +175,70 @@ create table if not exists public.break_sessions (
 create index if not exists idx_break_sessions_session on public.break_sessions(time_session_id);
 create index if not exists idx_break_sessions_open on public.break_sessions(time_session_id) where end_time is null;
 
+create table if not exists public.break_types (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  code text not null,
+  name text not null,
+  description text,
+  is_paid boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (org_id, code)
+);
+
+create table if not exists public.break_rules (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  break_type_id uuid not null references public.break_types(id) on delete cascade,
+  name text not null,
+  max_minutes_per_session integer,
+  max_minutes_per_day integer,
+  max_occurrences_per_day integer,
+  require_approval boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_break_rules_org on public.break_rules(org_id);
+create index if not exists idx_break_rules_type on public.break_rules(break_type_id);
+
+create table if not exists public.break_approvals (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  member_id uuid not null references public.users(id) on delete cascade,
+  break_session_id uuid not null references public.break_sessions(id) on delete cascade,
+  status text not null check (status in ('pending','approved','rejected')),
+  reason text,
+  review_note text,
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references public.users(id) on delete set null
+);
+
+create index if not exists idx_break_approvals_org on public.break_approvals(org_id);
+create index if not exists idx_break_approvals_member on public.break_approvals(member_id);
+create index if not exists idx_break_approvals_status on public.break_approvals(status);
+
+create table if not exists public.break_abuse_flags (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  member_id uuid not null references public.users(id) on delete cascade,
+  break_session_id uuid references public.break_sessions(id) on delete set null,
+  date date not null,
+  type text not null,
+  details text,
+  resolved boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_break_abuse_org on public.break_abuse_flags(org_id);
+create index if not exists idx_break_abuse_member on public.break_abuse_flags(member_id);
+create index if not exists idx_break_abuse_date on public.break_abuse_flags(date);
+
 create table if not exists public.daily_time_summaries (
   id uuid primary key default gen_random_uuid(),
   member_id uuid not null references public.users(id) on delete cascade,

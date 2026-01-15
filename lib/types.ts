@@ -171,6 +171,60 @@ export interface BreakSession {
   updatedAt: number
 }
 
+export interface BreakType {
+  id: string
+  orgId: string
+  code: string
+  name: string
+  description?: string
+  isPaid: boolean
+  isActive: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface BreakRule {
+  id: string
+  orgId: string
+  breakTypeId: string
+  name: string
+  maxMinutesPerSession?: number
+  maxMinutesPerDay?: number
+  maxOccurrencesPerDay?: number
+  requireApproval: boolean
+  isActive: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export type BreakApprovalStatus = 'pending' | 'approved' | 'rejected'
+
+export interface BreakApproval {
+  id: string
+  orgId: string
+  memberId: string
+  breakSessionId: string
+  status: BreakApprovalStatus
+  reason?: string
+  reviewNote?: string
+  createdAt: number
+  reviewedAt?: number
+  reviewedBy?: string
+}
+
+export interface BreakAbuseFlag {
+  id: string
+  orgId: string
+  memberId: string
+  breakSessionId?: string
+  date: string
+  type: string
+  details?: string
+  resolved: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 export type DailyStatus = 'normal' | 'extra' | 'short' | 'absent' | 'unconfigured'
 export interface DailyTimeSummary {
   id: string

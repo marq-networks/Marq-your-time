@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus } from './types'
+import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus, BreakType, BreakRule, BreakApproval, BreakAbuseFlag } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -51,6 +51,10 @@ const superAdminsMem = new Set<string>()
 const supportTicketsMem: SupportTicket[] = []
 const supportCommentsMem: SupportComment[] = []
 const aiInsightSnapshotsMem: import('./types').AIInsightSnapshot[] = []
+const breakTypesMem: BreakType[] = []
+const breakRulesMem: BreakRule[] = []
+const breakApprovalsMem: BreakApproval[] = []
+const breakAbuseFlagsMem: BreakAbuseFlag[] = []
 
 function dateISO(d: Date) {
   return d.toISOString().slice(0,10)
@@ -1342,42 +1346,91 @@ export async function stopWorkSession(params: { memberId: string, orgId: string 
 export async function startBreak(params: { timeSessionId?: string, memberId: string, orgId: string, breakRuleId?: string, label?: string }) {
   const now = new Date()
   const sb = isSupabaseConfigured() ? supabaseServer() : null
+  let ruleId = params.breakRuleId
+  let maxOccurrencesPerDay: number | undefined = undefined
+  let isPaid = false
+  let defaultLabel: string | undefined = undefined
+
+  if (ruleId) {
+    if (sb) {
+      const { data: ruleRow } = await sb!.from('break_rules').select('*, break_types(*)').eq('id', ruleId).eq('org_id', params.orgId).eq('is_active', true).maybeSingle()
+      if (!ruleRow || !ruleRow.break_types || !ruleRow.break_types.is_active) return 'BREAK_RULE_NOT_FOUND'
+      maxOccurrencesPerDay = ruleRow.max_occurrences_per_day === null ? undefined : Number(ruleRow.max_occurrences_per_day)
+      isPaid = !!ruleRow.break_types.is_paid
+      defaultLabel = ruleRow.break_types.name
+    } else {
+      const rule = breakRulesMem.find(r => r.id === ruleId && r.orgId === params.orgId && r.isActive)
+      if (!rule) return 'BREAK_RULE_NOT_FOUND'
+      const type = breakTypesMem.find(t => t.id === rule.breakTypeId && t.orgId === params.orgId && t.isActive)
+      if (!type) return 'BREAK_RULE_NOT_FOUND'
+      maxOccurrencesPerDay = rule.maxOccurrencesPerDay
+      isPaid = !!type.isPaid
+      defaultLabel = type.name
+    }
+  }
+
   if (params.timeSessionId) {
-    // ensure session open
     if (sb) {
       const { data: sess } = await sb!.from('time_sessions').select('*').eq('id', params.timeSessionId).single()
       if (!sess || sess.status !== 'open') return 'SESSION_NOT_OPEN'
+      if (ruleId && maxOccurrencesPerDay !== undefined) {
+        const { data: daySessRows } = await sb!.from('time_sessions').select('id').eq('member_id', sess.member_id).eq('org_id', sess.org_id).eq('date', sess.date)
+        const dayIds = (daySessRows || []).map((r: any) => r.id)
+        if (dayIds.length) {
+          const { count } = await sb!.from('break_sessions').select('*', { count: 'exact', head: true }).in('time_session_id', dayIds).eq('break_rule_id', ruleId)
+          if ((count || 0) >= maxOccurrencesPerDay) return 'BREAK_DAILY_LIMIT_REACHED'
+        }
+      }
       const { data: openBreaks } = await sb!.from('break_sessions').select('id').eq('time_session_id', params.timeSessionId).is('end_time', null)
       if ((openBreaks || []).length > 0) return 'BREAK_ALREADY_OPEN'
-      const payload = { time_session_id: params.timeSessionId, break_rule_id: params.breakRuleId ?? null, label: params.label ?? 'Break', start_time: now, end_time: null, total_minutes: null, is_paid: false, created_at: now, updated_at: now }
+      const payload = { time_session_id: params.timeSessionId, break_rule_id: ruleId ?? null, label: params.label ?? defaultLabel ?? 'Break', start_time: now, end_time: null, total_minutes: null, is_paid: isPaid, created_at: now, updated_at: now }
       const { data, error } = await sb!.from('break_sessions').insert(payload).select('*').single()
       if (error) return 'DB_ERROR'
       return mapBreakSessionFromRow(data)
     }
     const sess = timeSessions.find(s => s.id === params.timeSessionId)
     if (!sess || sess.status !== 'open') return 'SESSION_NOT_OPEN'
+    if (ruleId && maxOccurrencesPerDay !== undefined) {
+      const daySessIds = timeSessions.filter(s => s.memberId === sess.memberId && s.orgId === sess.orgId && s.date === sess.date).map(s => s.id)
+      const count = breakSessions.filter(b => daySessIds.includes(b.timeSessionId) && b.breakRuleId === ruleId).length
+      if (count >= maxOccurrencesPerDay) return 'BREAK_DAILY_LIMIT_REACHED'
+    }
     const hasOpen = breakSessions.some(b => b.timeSessionId === params.timeSessionId && !b.endTime)
     if (hasOpen) return 'BREAK_ALREADY_OPEN'
-    const b: BreakSession = { id: newId(), timeSessionId: params.timeSessionId, breakRuleId: params.breakRuleId, label: params.label ?? 'Break', startTime: now.getTime(), isPaid: false, createdAt: now.getTime(), updatedAt: now.getTime() }
+    const b: BreakSession = { id: newId(), timeSessionId: params.timeSessionId, breakRuleId: ruleId, label: params.label ?? defaultLabel ?? 'Break', startTime: now.getTime(), isPaid, createdAt: now.getTime(), updatedAt: now.getTime() }
     breakSessions.push(b)
     return b
   }
-  // infer session by member/org
+
   if (sb) {
     const { data: openSess } = await sb!.from('time_sessions').select('*').eq('member_id', params.memberId).eq('org_id', params.orgId).eq('status', 'open').order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (!openSess) return 'NO_OPEN_SESSION'
+    if (ruleId && maxOccurrencesPerDay !== undefined) {
+      const { data: daySessRows } = await sb!.from('time_sessions').select('id').eq('member_id', openSess.member_id).eq('org_id', openSess.org_id).eq('date', openSess.date)
+      const dayIds = (daySessRows || []).map((r: any) => r.id)
+      if (dayIds.length) {
+        const { count } = await sb!.from('break_sessions').select('*', { count: 'exact', head: true }).in('time_session_id', dayIds).eq('break_rule_id', ruleId)
+        if ((count || 0) >= maxOccurrencesPerDay) return 'BREAK_DAILY_LIMIT_REACHED'
+      }
+    }
     const { data: openBreaks } = await sb!.from('break_sessions').select('id').eq('time_session_id', openSess.id).is('end_time', null)
     if ((openBreaks || []).length > 0) return 'BREAK_ALREADY_OPEN'
-    const payload = { time_session_id: openSess.id, break_rule_id: params.breakRuleId ?? null, label: params.label ?? 'Break', start_time: now, end_time: null, total_minutes: null, is_paid: false, created_at: now, updated_at: now }
+    const payload = { time_session_id: openSess.id, break_rule_id: ruleId ?? null, label: params.label ?? defaultLabel ?? 'Break', start_time: now, end_time: null, total_minutes: null, is_paid: isPaid, created_at: now, updated_at: now }
     const { data, error } = await sb!.from('break_sessions').insert(payload).select('*').single()
     if (error) return 'DB_ERROR'
     return mapBreakSessionFromRow(data)
   }
+
   const openSess = timeSessions.filter(s => s.memberId === params.memberId && s.orgId === params.orgId && s.status === 'open').sort((a,b)=>b.startTime-a.startTime)[0]
   if (!openSess) return 'NO_OPEN_SESSION'
+  if (ruleId && maxOccurrencesPerDay !== undefined) {
+    const daySessIds = timeSessions.filter(s => s.memberId === openSess.memberId && s.orgId === openSess.orgId && s.date === openSess.date).map(s => s.id)
+    const count = breakSessions.filter(b => daySessIds.includes(b.timeSessionId) && b.breakRuleId === ruleId).length
+    if (count >= maxOccurrencesPerDay) return 'BREAK_DAILY_LIMIT_REACHED'
+  }
   const hasOpen = breakSessions.some(b => b.timeSessionId === openSess.id && !b.endTime)
   if (hasOpen) return 'BREAK_ALREADY_OPEN'
-  const b: BreakSession = { id: newId(), timeSessionId: openSess.id, breakRuleId: params.breakRuleId, label: params.label ?? 'Break', startTime: now.getTime(), isPaid: false, createdAt: now.getTime(), updatedAt: now.getTime() }
+  const b: BreakSession = { id: newId(), timeSessionId: openSess.id, breakRuleId: ruleId, label: params.label ?? defaultLabel ?? 'Break', startTime: now.getTime(), isPaid, createdAt: now.getTime(), updatedAt: now.getTime() }
   breakSessions.push(b)
   return b
 }
@@ -1395,9 +1448,44 @@ export async function stopBreak(params: { timeSessionId?: string, memberId?: str
     const { data: br } = await sb!.from('break_sessions').select('*').eq('time_session_id', sessionId!).is('end_time', null).order('start_time', { ascending: false }).limit(1).maybeSingle()
     if (!br) return 'NO_OPEN_BREAK'
     const total = minutesBetween(new Date(br.start_time).getTime(), now.getTime())
-    const { data } = await sb!.from('break_sessions').update({ end_time: now, total_minutes: total, updated_at: now }).eq('id', br.id).select('*').single()
-    const day = dateISO(now)
     const { data: sessRow } = await sb!.from('time_sessions').select('*').eq('id', sessionId!).single()
+    const day = sessRow.date
+    let newIsPaid = !!br.is_paid
+    const ruleId = br.break_rule_id as string | null
+    if (ruleId) {
+      const { data: ruleRow } = await sb!.from('break_rules').select('*').eq('id', ruleId).eq('org_id', sessRow.org_id).maybeSingle()
+      if (ruleRow) {
+        const maxPerSession = ruleRow.max_minutes_per_session === null ? undefined : Number(ruleRow.max_minutes_per_session)
+        const maxPerDay = ruleRow.max_minutes_per_day === null ? undefined : Number(ruleRow.max_minutes_per_day)
+        const requireApproval = !!ruleRow.require_approval
+        const { data: typeRow } = await sb!.from('break_types').select('*').eq('id', ruleRow.break_type_id).eq('org_id', sessRow.org_id).maybeSingle()
+        if (typeRow) newIsPaid = !!typeRow.is_paid
+        const flags: any[] = []
+        const approvals: any[] = []
+        if (maxPerSession !== undefined && total > maxPerSession) {
+          newIsPaid = false
+          flags.push({ org_id: sessRow.org_id, member_id: sessRow.member_id, break_session_id: br.id, date: day, type: 'session_limit_exceeded', details: `Break ${br.id} exceeded session limit of ${maxPerSession} minutes`, resolved: false })
+          if (requireApproval) approvals.push({ org_id: sessRow.org_id, member_id: sessRow.member_id, break_session_id: br.id, status: 'pending', reason: 'session_limit_exceeded' })
+        }
+        if (maxPerDay !== undefined) {
+          const { data: daySessRows } = await sb!.from('time_sessions').select('id').eq('member_id', sessRow.member_id).eq('org_id', sessRow.org_id).eq('date', day)
+          const dayIds = (daySessRows || []).map((r: any) => r.id)
+          if (dayIds.length) {
+            const { data: otherBreaks } = await sb!.from('break_sessions').select('*').in('time_session_id', dayIds).eq('break_rule_id', ruleId)
+            const sumOthers = (otherBreaks || []).filter((r: any) => r.id !== br.id).reduce((sum: number, r: any) => sum + Number(r.total_minutes || 0), 0)
+            const finalDayTotal = sumOthers + total
+            if (finalDayTotal > maxPerDay) {
+              newIsPaid = false
+              flags.push({ org_id: sessRow.org_id, member_id: sessRow.member_id, break_session_id: br.id, date: day, type: 'daily_limit_exceeded', details: `Breaks exceeded daily limit of ${maxPerDay} minutes`, resolved: false })
+              if (requireApproval) approvals.push({ org_id: sessRow.org_id, member_id: sessRow.member_id, break_session_id: br.id, status: 'pending', reason: 'daily_limit_exceeded' })
+            }
+          }
+        }
+        if (flags.length) await sb!.from('break_abuse_flags').insert(flags)
+        if (approvals.length) await sb!.from('break_approvals').insert(approvals)
+      }
+    }
+    const { data } = await sb!.from('break_sessions').update({ end_time: now, total_minutes: total, is_paid: newIsPaid, updated_at: now }).eq('id', br.id).select('*').single()
     await recomputeDaily(sessRow.member_id, sessRow.org_id, day)
     return mapBreakSessionFromRow(data)
   }
@@ -1409,10 +1497,41 @@ export async function stopBreak(params: { timeSessionId?: string, memberId?: str
   }
   const br = breakSessions.filter(b => b.timeSessionId === sessionId && !b.endTime).sort((a,b)=>b.startTime-a.startTime)[0]
   if (!br) return 'NO_OPEN_BREAK'
-  br.endTime = now.getTime()
-  br.totalMinutes = minutesBetween(br.startTime, br.endTime)
-  br.updatedAt = now.getTime()
   const sess = timeSessions.find(s => s.id === sessionId)!
+  const total = minutesBetween(br.startTime, now.getTime())
+  br.endTime = now.getTime()
+  br.totalMinutes = total
+  let newIsPaid = br.isPaid
+  const ruleId = br.breakRuleId
+  if (ruleId) {
+    const rule = breakRulesMem.find(r => r.id === ruleId && r.orgId === sess.orgId && r.isActive)
+    const type = rule ? breakTypesMem.find(t => t.id === rule.breakTypeId && t.orgId === sess.orgId && t.isActive) : undefined
+    if (type) newIsPaid = !!type.isPaid
+    const flags: BreakAbuseFlag[] = []
+    const approvals: BreakApproval[] = []
+    const date = sess.date
+    if (rule) {
+      if (rule.maxMinutesPerSession !== undefined && total > rule.maxMinutesPerSession) {
+        newIsPaid = false
+        flags.push({ id: newId(), orgId: sess.orgId, memberId: sess.memberId, breakSessionId: br.id, date, type: 'session_limit_exceeded', details: `Break ${br.id} exceeded session limit of ${rule.maxMinutesPerSession} minutes`, resolved: false, createdAt: now.getTime(), updatedAt: now.getTime() })
+        if (rule.requireApproval) approvals.push({ id: newId(), orgId: sess.orgId, memberId: sess.memberId, breakSessionId: br.id, status: 'pending', reason: 'session_limit_exceeded', reviewNote: undefined, createdAt: now.getTime(), reviewedAt: undefined, reviewedBy: undefined })
+      }
+      if (rule.maxMinutesPerDay !== undefined) {
+        const daySessIds = timeSessions.filter(s => s.memberId === sess.memberId && s.orgId === sess.orgId && s.date === date).map(s => s.id)
+        const sumOthers = breakSessions.filter(b => daySessIds.includes(b.timeSessionId) && b.breakRuleId === rule.id && b.id !== br.id).reduce((sum, x) => sum + (x.totalMinutes || 0), 0)
+        const finalDayTotal = sumOthers + total
+        if (finalDayTotal > rule.maxMinutesPerDay) {
+          newIsPaid = false
+          flags.push({ id: newId(), orgId: sess.orgId, memberId: sess.memberId, breakSessionId: br.id, date, type: 'daily_limit_exceeded', details: `Breaks exceeded daily limit of ${rule.maxMinutesPerDay} minutes`, resolved: false, createdAt: now.getTime(), updatedAt: now.getTime() })
+          if (rule.requireApproval) approvals.push({ id: newId(), orgId: sess.orgId, memberId: sess.memberId, breakSessionId: br.id, status: 'pending', reason: 'daily_limit_exceeded', reviewNote: undefined, createdAt: now.getTime(), reviewedAt: undefined, reviewedBy: undefined })
+        }
+      }
+    }
+    if (flags.length) breakAbuseFlagsMem.push(...flags)
+    if (approvals.length) breakApprovalsMem.push(...approvals)
+  }
+  br.isPaid = newIsPaid
+  br.updatedAt = now.getTime()
   await recomputeDaily(sess.memberId, sess.orgId, dateISO(now))
   return br
 }
@@ -1634,6 +1753,66 @@ function mapBreakSessionFromRow(row: any): BreakSession {
   }
 }
 
+function mapBreakTypeFromRow(row: any): BreakType {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    code: row.code,
+    name: row.name,
+    description: row.description ?? undefined,
+    isPaid: !!row.is_paid,
+    isActive: !!row.is_active,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime()
+  }
+}
+
+function mapBreakRuleFromRow(row: any): BreakRule {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    breakTypeId: row.break_type_id,
+    name: row.name,
+    maxMinutesPerSession: row.max_minutes_per_session === null ? undefined : Number(row.max_minutes_per_session),
+    maxMinutesPerDay: row.max_minutes_per_day === null ? undefined : Number(row.max_minutes_per_day),
+    maxOccurrencesPerDay: row.max_occurrences_per_day === null ? undefined : Number(row.max_occurrences_per_day),
+    requireApproval: !!row.require_approval,
+    isActive: !!row.is_active,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime()
+  }
+}
+
+function mapBreakApprovalFromRow(row: any): BreakApproval {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    memberId: row.member_id,
+    breakSessionId: row.break_session_id,
+    status: row.status,
+    reason: row.reason ?? undefined,
+    reviewNote: row.review_note ?? undefined,
+    createdAt: new Date(row.created_at).getTime(),
+    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).getTime() : undefined,
+    reviewedBy: row.reviewed_by ?? undefined
+  }
+}
+
+function mapBreakAbuseFlagFromRow(row: any): BreakAbuseFlag {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    memberId: row.member_id,
+    breakSessionId: row.break_session_id ?? undefined,
+    date: row.date,
+    type: row.type,
+    details: row.details ?? undefined,
+    resolved: !!row.resolved,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime()
+  }
+}
+
 function mapDailySummaryFromRow(row: any): DailyTimeSummary {
   return {
     id: row.id,
@@ -1679,6 +1858,22 @@ export async function createOrganization(input: Omit<Organization, 'id'|'created
     
     await sb.from('data_retention_policies').insert({ org_id: data.id, category: 'screenshots', retention_days: 30, hard_delete: true })
 
+    try {
+      const { data: typeRows } = await sb.from('break_types').insert([
+        { org_id: data.id, code: 'coffee', name: 'Coffee Break', description: 'Short coffee break', is_paid: true },
+        { org_id: data.id, code: 'lunch', name: 'Lunch Break', description: 'Lunch break', is_paid: false },
+        { org_id: data.id, code: 'short', name: 'Short Break', description: 'Short personal break', is_paid: true }
+      ]).select('*')
+      const coffee = (typeRows || []).find((r: any) => r.code === 'coffee')
+      const lunch = (typeRows || []).find((r: any) => r.code === 'lunch')
+      const short = (typeRows || []).find((r: any) => r.code === 'short')
+      const ruleInserts: any[] = []
+      if (coffee) ruleInserts.push({ org_id: data.id, break_type_id: coffee.id, name: 'Coffee Break Default', max_minutes_per_session: 15, max_minutes_per_day: 30, max_occurrences_per_day: 2, require_approval: false })
+      if (lunch) ruleInserts.push({ org_id: data.id, break_type_id: lunch.id, name: 'Lunch Break Default', max_minutes_per_session: 60, max_minutes_per_day: 60, max_occurrences_per_day: 1, require_approval: true })
+      if (short) ruleInserts.push({ org_id: data.id, break_type_id: short.id, name: 'Short Break Default', max_minutes_per_session: 10, max_minutes_per_day: 20, max_occurrences_per_day: 2, require_approval: false })
+      if (ruleInserts.length) await sb.from('break_rules').insert(ruleInserts)
+    } catch {}
+
     return mapOrgFromRow(data)
   }
   const id = newId()
@@ -1686,7 +1881,63 @@ export async function createOrganization(input: Omit<Organization, 'id'|'created
   const org: Organization = { ...input, id, createdAt: now, updatedAt: now, usedSeats: 0 }
   organizations.push(org)
   retentionPoliciesMem.push({ id: newId(), orgId: org.id, category: 'screenshots', retentionDays: 30, hardDelete: true, createdAt: now })
+  const coffee: BreakType = { id: newId(), orgId: org.id, code: 'coffee', name: 'Coffee Break', description: 'Short coffee break', isPaid: true, isActive: true, createdAt: now, updatedAt: now }
+  const lunch: BreakType = { id: newId(), orgId: org.id, code: 'lunch', name: 'Lunch Break', description: 'Lunch break', isPaid: false, isActive: true, createdAt: now, updatedAt: now }
+  const short: BreakType = { id: newId(), orgId: org.id, code: 'short', name: 'Short Break', description: 'Short personal break', isPaid: true, isActive: true, createdAt: now, updatedAt: now }
+  breakTypesMem.push(coffee, lunch, short)
+  const coffeeRule: BreakRule = { id: newId(), orgId: org.id, breakTypeId: coffee.id, name: 'Coffee Break Default', maxMinutesPerSession: 15, maxMinutesPerDay: 30, maxOccurrencesPerDay: 2, requireApproval: false, isActive: true, createdAt: now, updatedAt: now }
+  const lunchRule: BreakRule = { id: newId(), orgId: org.id, breakTypeId: lunch.id, name: 'Lunch Break Default', maxMinutesPerSession: 60, maxMinutesPerDay: 60, maxOccurrencesPerDay: 1, requireApproval: true, isActive: true, createdAt: now, updatedAt: now }
+  const shortRule: BreakRule = { id: newId(), orgId: org.id, breakTypeId: short.id, name: 'Short Break Default', maxMinutesPerSession: 10, maxMinutesPerDay: 20, maxOccurrencesPerDay: 2, requireApproval: false, isActive: true, createdAt: now, updatedAt: now }
+  breakRulesMem.push(coffeeRule, lunchRule, shortRule)
   return org
+}
+
+export async function listBreakTypes(orgId: string): Promise<BreakType[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('break_types').select('*').eq('org_id', orgId).eq('is_active', true).order('code', { ascending: true })
+    if (data && data.length) return data.map(mapBreakTypeFromRow)
+    const now = new Date()
+    const payloads = [
+      { org_id: orgId, code: 'coffee', name: 'Coffee Break', description: 'Short coffee break', is_paid: true, is_active: true, created_at: now, updated_at: now },
+      { org_id: orgId, code: 'lunch', name: 'Lunch Break', description: 'Lunch break', is_paid: false, is_active: true, created_at: now, updated_at: now },
+      { org_id: orgId, code: 'short', name: 'Short Break', description: 'Short personal break', is_paid: true, is_active: true, created_at: now, updated_at: now }
+    ]
+    const { data: seeded } = await sb.from('break_types').insert(payloads).select('*')
+    if (!seeded || !seeded.length) return []
+    const coffee = seeded.find((r: any) => r.code === 'coffee')
+    const lunch = seeded.find((r: any) => r.code === 'lunch')
+    const short = seeded.find((r: any) => r.code === 'short')
+    const rules: any[] = []
+    if (coffee) rules.push({ org_id: orgId, break_type_id: coffee.id, name: 'Coffee Break Default', max_minutes_per_session: 15, max_minutes_per_day: 30, max_occurrences_per_day: 2, require_approval: false, is_active: true, created_at: now, updated_at: now })
+    if (lunch) rules.push({ org_id: orgId, break_type_id: lunch.id, name: 'Lunch Break Default', max_minutes_per_session: 60, max_minutes_per_day: 60, max_occurrences_per_day: 1, require_approval: true, is_active: true, created_at: now, updated_at: now })
+    if (short) rules.push({ org_id: orgId, break_type_id: short.id, name: 'Short Break Default', max_minutes_per_session: 10, max_minutes_per_day: 20, max_occurrences_per_day: 2, require_approval: false, is_active: true, created_at: now, updated_at: now })
+    if (rules.length) await sb.from('break_rules').insert(rules)
+    return seeded.map(mapBreakTypeFromRow)
+  }
+  let items = breakTypesMem.filter(t => t.orgId === orgId && t.isActive)
+  if (items.length === 0) {
+    const now = Date.now()
+    const coffee: BreakType = { id: newId(), orgId, code: 'coffee', name: 'Coffee Break', description: 'Short coffee break', isPaid: true, isActive: true, createdAt: now, updatedAt: now }
+    const lunch: BreakType = { id: newId(), orgId, code: 'lunch', name: 'Lunch Break', description: 'Lunch break', isPaid: false, isActive: true, createdAt: now, updatedAt: now }
+    const short: BreakType = { id: newId(), orgId, code: 'short', name: 'Short Break', description: 'Short personal break', isPaid: true, isActive: true, createdAt: now, updatedAt: now }
+    breakTypesMem.push(coffee, lunch, short)
+    const coffeeRule: BreakRule = { id: newId(), orgId, breakTypeId: coffee.id, name: 'Coffee Break Default', maxMinutesPerSession: 15, maxMinutesPerDay: 30, maxOccurrencesPerDay: 2, requireApproval: false, isActive: true, createdAt: now, updatedAt: now }
+    const lunchRule: BreakRule = { id: newId(), orgId, breakTypeId: lunch.id, name: 'Lunch Break Default', maxMinutesPerSession: 60, maxMinutesPerDay: 60, maxOccurrencesPerDay: 1, requireApproval: true, isActive: true, createdAt: now, updatedAt: now }
+    const shortRule: BreakRule = { id: newId(), orgId, breakTypeId: short.id, name: 'Short Break Default', maxMinutesPerSession: 10, maxMinutesPerDay: 20, maxOccurrencesPerDay: 2, requireApproval: false, isActive: true, createdAt: now, updatedAt: now }
+    breakRulesMem.push(coffeeRule, lunchRule, shortRule)
+    items = [coffee, lunch, short]
+  }
+  return items
+}
+
+export async function listBreakRules(orgId: string): Promise<BreakRule[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('break_rules').select('*').eq('org_id', orgId).eq('is_active', true).order('created_at', { ascending: true })
+    return (data || []).map(mapBreakRuleFromRow)
+  }
+  return breakRulesMem.filter(r => r.orgId === orgId && r.isActive)
 }
 
 export async function listOrganizations() {

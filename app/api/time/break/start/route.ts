@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   const label = body.label
   if (!timeSessionId && (!memberId || !orgId)) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const res = await startBreak({ timeSessionId, memberId, orgId, breakRuleId, label })
-  const codes: Record<string, number> = { SESSION_NOT_OPEN: 409, NO_OPEN_SESSION: 409, BREAK_ALREADY_OPEN: 409, DB_ERROR: 500 }
+  const codes: Record<string, number> = { SESSION_NOT_OPEN: 409, NO_OPEN_SESSION: 409, BREAK_ALREADY_OPEN: 409, BREAK_RULE_NOT_FOUND: 400, BREAK_DAILY_LIMIT_REACHED: 409, DB_ERROR: 500 }
   if (typeof res === 'string') return NextResponse.json({ error: res }, { status: codes[res] || 400 })
   return NextResponse.json({ break: res })
 }

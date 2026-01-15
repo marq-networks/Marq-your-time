@@ -98,7 +98,7 @@ export default function MyDayPage() {
 
   useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
   useEffect(() => { loadOrgs() }, [role])
-  useEffect(() => { if (orgId) { loadMembers(orgId); loadProjects(orgId); } }, [orgId])
+  useEffect(() => { if (orgId) { loadMembers(orgId); loadProjects(orgId); loadBreakTypes(orgId) } }, [orgId])
   useEffect(() => { if (selectedProjectId) loadTasks(selectedProjectId); else setTasks([]) }, [selectedProjectId])
   useEffect(() => { if (orgId && memberId) { loadSummary(memberId, orgId); loadMyTasks(memberId, orgId) } }, [orgId, memberId])
   useEffect(() => {
@@ -176,9 +176,52 @@ export default function MyDayPage() {
     }
     setUiEnding(false)
   }
+  const [breakTypes, setBreakTypes] = useState<any[]>([])
+  const [selectedBreakTypeId, setSelectedBreakTypeId] = useState<string>('')
+  const defaultBreakTypes = [
+    { id: 'coffee', name: 'Coffee Break' },
+    { id: 'lunch', name: 'Lunch Break' },
+    { id: 'short', name: 'Short Break' }
+  ]
+
+  const loadBreakTypes = async (org: string) => {
+    try {
+      const res = await fetch(`/api/time/break/types?org_id=${org}`, { cache: 'no-store' })
+      if (!res.ok) {
+        setBreakTypes(defaultBreakTypes)
+        if (!selectedBreakTypeId && defaultBreakTypes.length) {
+          setSelectedBreakTypeId(defaultBreakTypes[0].id)
+        }
+        return
+      }
+      const data = await res.json()
+      const items = Array.isArray(data.items) ? data.items : []
+      if (items.length) {
+        setBreakTypes(items)
+        if (!selectedBreakTypeId) {
+          setSelectedBreakTypeId(items[0].id)
+        }
+      } else {
+        setBreakTypes(defaultBreakTypes)
+        if (!selectedBreakTypeId && defaultBreakTypes.length) {
+          setSelectedBreakTypeId(defaultBreakTypes[0].id)
+        }
+      }
+    } catch {
+      setBreakTypes(defaultBreakTypes)
+      if (!selectedBreakTypeId && defaultBreakTypes.length) {
+        setSelectedBreakTypeId(defaultBreakTypes[0].id)
+      }
+    }
+  }
+
   const startBreak = async () => {
     if (!orgId || !memberId) return
-    await fetch('/api/time/break/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId, member_id: memberId, label: 'Break' }) })
+    const source = breakTypes.length ? breakTypes : defaultBreakTypes
+    const selectedType = source.find((t: any) => t.id === selectedBreakTypeId) || source[0]
+    const label = selectedType ? selectedType.name : 'Break'
+    const payload: any = { org_id: orgId, member_id: memberId, label }
+    await fetch('/api/time/break/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     loadSummary(memberId, orgId)
   }
   const endBreak = async () => {
@@ -406,15 +449,56 @@ export default function MyDayPage() {
          </GlassCard>
          
          <GlassCard title="Actions">
-            <div className="subtitle" style={{marginBottom: 12}}>Break Management</div>
-            <div className="row" style={{gap:12}}>
-            {!summary.break_open ? (
-              <GlassButton onClick={startBreak} disabled={!uiSessionOpen}>Take Break</GlassButton>
-            ) : (
-              <GlassButton onClick={endBreak}>End Break</GlassButton>
-            )}
-          </div>
-         </GlassCard>
+           <div className="subtitle" style={{marginBottom: 12}}>Break Management</div>
+           <div className="grid grid-3" style={{gap:12, marginBottom: 12}}>
+             {(breakTypes.length ? breakTypes : defaultBreakTypes).map((t: any) => {
+               const isSelected = t.id === selectedBreakTypeId
+               const code = String(t.code || t.id || '').toLowerCase()
+               const icon = code.includes('coffee') ? '☕' : code.includes('lunch') ? '🍽' : '⏱'
+               return (
+                 <button
+                   key={t.id}
+                   type="button"
+                   onClick={() => setSelectedBreakTypeId(t.id)}
+                   style={{
+                     borderRadius: 20,
+                     border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.25)',
+                     background: isSelected ? 'linear-gradient(135deg, var(--primary), #39FF14)' : 'rgba(255,255,255,0.05)',
+                     padding: 12,
+                     display: 'flex',
+                     flexDirection: 'column',
+                     alignItems: 'flex-start',
+                     gap: 6,
+                     cursor: 'pointer',
+                     boxShadow: isSelected ? '0 0 0 1px rgba(57,255,20,0.25), 0 12px 30px rgba(0,0,0,0.35)' : '0 8px 24px rgba(0,0,0,0.25)',
+                     color: isSelected ? '#000' : 'inherit',
+                     minHeight: 80
+                   }}
+                 >
+                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%'}}>
+                     <div style={{fontSize:24}}>{icon}</div>
+                     {isSelected && (
+                       <span className="badge" style={{background:'rgba(0,0,0,0.35)',borderRadius:999,padding:'2px 8px',fontSize:11}}>
+                         Selected
+                       </span>
+                     )}
+                   </div>
+                   <div style={{fontWeight:600,fontSize:14}}>{t.name}</div>
+                   {t.description && (
+                     <div className="subtitle" style={{fontSize:12,opacity:0.8}}>{t.description}</div>
+                   )}
+                 </button>
+               )
+             })}
+           </div>
+           <div className="row" style={{gap:12}}>
+             {!summary.break_open ? (
+               <GlassButton onClick={startBreak} disabled={!uiSessionOpen}>Take Break</GlassButton>
+             ) : (
+               <GlassButton onClick={endBreak}>End Break</GlassButton>
+             )}
+           </div>
+        </GlassCard>
       </div>
 
       <div className="grid" style={{marginBottom: 24}}>
