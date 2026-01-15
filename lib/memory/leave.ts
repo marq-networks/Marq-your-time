@@ -1,5 +1,6 @@
 let types: any[] = []
 let requests: any[] = []
+let balances: any[] = []
 
 function uuid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8); return v.toString(16) }) }
 
@@ -7,9 +8,9 @@ export function seedDefaultTypesIfEmpty(org_id: string) {
   const has = types.some(t => t.org_id === org_id)
   if (!has) {
     const now = new Date().toISOString()
-    types.push({ id: uuid(), org_id, code: 'annual', name: 'Annual Leave', description: '', paid: true, default_days_per_year: 20, is_active: true, created_at: now })
-    types.push({ id: uuid(), org_id, code: 'sick', name: 'Sick Leave', description: '', paid: true, default_days_per_year: 10, is_active: true, created_at: now })
-    types.push({ id: uuid(), org_id, code: 'unpaid', name: 'Unpaid Leave', description: '', paid: false, default_days_per_year: 0, is_active: true, created_at: now })
+    types.push({ id: uuid(), org_id, code: 'annual', name: 'Annual Leave', description: '', paid: true, default_days_per_year: 20, monthly_accrual: 0, allow_negative: false, is_active: true, created_at: now })
+    types.push({ id: uuid(), org_id, code: 'sick', name: 'Sick Leave', description: '', paid: true, default_days_per_year: 10, monthly_accrual: 0, allow_negative: false, is_active: true, created_at: now })
+    types.push({ id: uuid(), org_id, code: 'unpaid', name: 'Unpaid Leave', description: '', paid: false, default_days_per_year: 0, monthly_accrual: 0, allow_negative: true, is_active: true, created_at: now })
   }
 }
 
@@ -17,10 +18,23 @@ export function listTypes(org_id: string) {
   return types.filter(t => t.org_id === org_id && t.is_active)
 }
 
-export function upsertType(input: { org_id: string, code: string, name: string, description?: string, paid?: boolean, default_days_per_year?: number }) {
+export function upsertType(input: { org_id: string, code: string, name: string, description?: string, paid?: boolean, default_days_per_year?: number, monthly_accrual?: number, allow_negative?: boolean }) {
   const idx = types.findIndex(t => t.org_id === input.org_id && t.code === input.code)
   const now = new Date().toISOString()
-  const payload = { id: idx>=0 ? types[idx].id : uuid(), org_id: input.org_id, code: input.code, name: input.name, description: input.description || '', paid: !!input.paid, default_days_per_year: Number(input.default_days_per_year||0), is_active: true, created_at: now }
+  const prev = idx >= 0 ? types[idx] : {}
+  const payload = {
+    id: idx>=0 ? types[idx].id : uuid(),
+    org_id: input.org_id,
+    code: input.code,
+    name: input.name,
+    description: input.description || '',
+    paid: !!input.paid,
+    default_days_per_year: Number(input.default_days_per_year||0),
+    monthly_accrual: input.monthly_accrual !== undefined ? Number(input.monthly_accrual||0) : Number(prev.monthly_accrual||0),
+    allow_negative: input.allow_negative !== undefined ? !!input.allow_negative : !!prev.allow_negative,
+    is_active: true,
+    created_at: now
+  }
   if (idx >= 0) types[idx] = payload; else types.push(payload)
   return payload
 }
@@ -52,5 +66,18 @@ export function reviewRequest(id: string, status: 'approved'|'rejected', note: s
   const now = new Date().toISOString()
   requests[idx] = { ...requests[idx], status, review_note: note, reviewed_by: reviewer || null, reviewed_at: now }
   return requests[idx]
+}
+
+export function getBalance(member_id: string, leave_type_id: string) {
+  const row = balances.find(b => b.member_id === member_id && b.leave_type_id === leave_type_id)
+  return row ? Number(row.balance || 0) : 0
+}
+
+export function setBalance(member_id: string, leave_type_id: string, balance: number) {
+  const idx = balances.findIndex(b => b.member_id === member_id && b.leave_type_id === leave_type_id)
+  const row = { member_id, leave_type_id, balance: Number(balance || 0) }
+  if (idx >= 0) balances[idx] = row
+  else balances.push(row)
+  return row
 }
 

@@ -94,6 +94,28 @@ async function computeScheduledMinutes(memberId: string, orgId: string, date: st
   return (u.workingHoursPerDay ?? 0) * 60
 }
 
+async function getApprovedLeaveForDate(memberId: string, orgId: string, date: string): Promise<{ paid: boolean } | null> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data } = await sb.from('leave_requests').select('*, leave_types(paid)').eq('org_id', orgId).eq('member_id', memberId).eq('status', 'approved').lte('start_date', date).gte('end_date', date)
+    const row = (data || [])[0] as any
+    if (!row) return null
+    const paid = !!(row.leave_types && row.leave_types.paid)
+    return { paid }
+  }
+  try {
+    const { listRequests, listTypes } = await import('./memory/leave')
+    const items = listRequests({ org_id: orgId, status: 'approved', member_id: memberId, start_date: date, end_date: date })
+    if (!items || !items.length) return null
+    const types = listTypes(orgId)
+    const t = types.find((x: any) => String(x.id) === String(items[0].leave_type_id))
+    const paid = !!(t && t.paid)
+    return { paid }
+  } catch {
+    return null
+  }
+}
+
 async function recomputeDaily(memberId: string, orgId: string, date: string) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -119,14 +141,29 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
     const scheduled = await computeScheduledMinutes(memberId, orgId, date)
     const workedMinusUnpaid = Math.max(0, worked - unpaidBreak)
     const shiftForDay = await getAssignedShiftFor(memberId, orgId, date)
-    const workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDay?.breakMinutes || 0))
+    let workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDay?.breakMinutes || 0))
     let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'normal'
     let extra = 0
     let short = 0
-    if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
-    else if (workedAfterFixedBreak === 0) status = 'absent'
-    else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
-    else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+    const leave = await getApprovedLeaveForDate(memberId, orgId, date)
+    if (leave && scheduled > 0) {
+      if (leave.paid) {
+        workedAfterFixedBreak = scheduled
+        status = 'normal'
+        extra = 0
+        short = 0
+      } else {
+        workedAfterFixedBreak = 0
+        status = 'absent'
+        extra = 0
+        short = scheduled
+      }
+    } else {
+      if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
+      else if (workedAfterFixedBreak === 0) status = 'absent'
+      else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
+      else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+    }
     const holiday = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
     if (holiday && status === 'absent') status = 'unconfigured'
     const now = new Date()
@@ -164,18 +201,33 @@ async function recomputeDaily(memberId: string, orgId: string, date: string) {
   const worked = sessions.reduce((sum, s) => sum + (s.totalMinutes || 0), 0)
   const breaks = breakSessions.filter(b => sessions.some(s => s.id === b.timeSessionId))
   const paidBreak = breaks.filter(b => b.isPaid).reduce((sum, b) => sum + (b.totalMinutes || 0), 0)
-  const unpaidBreak = breaks.filter(b => !b.isPaid).reduce((sum, b) => sum + (b.totalMinutes || 0), 0)
-  const scheduled = await computeScheduledMinutes(memberId, orgId, date)
-  const workedMinusUnpaid = Math.max(0, worked - unpaidBreak)
-  const shiftForDayMem = await getAssignedShiftFor(memberId, orgId, date)
-  const workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDayMem?.breakMinutes || 0))
+    const unpaidBreak = breaks.filter(b => !b.isPaid).reduce((sum, b) => sum + (b.totalMinutes || 0), 0)
+    const scheduled = await computeScheduledMinutes(memberId, orgId, date)
+    const workedMinusUnpaid = Math.max(0, worked - unpaidBreak)
+    const shiftForDayMem = await getAssignedShiftFor(memberId, orgId, date)
+    let workedAfterFixedBreak = Math.max(0, workedMinusUnpaid - (shiftForDayMem?.breakMinutes || 0))
   let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'normal'
   let extra = 0
   let short = 0
-  if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
-  else if (workedAfterFixedBreak === 0) status = 'absent'
-  else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
-  else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+  const leave = await getApprovedLeaveForDate(memberId, orgId, date)
+  if (leave && scheduled > 0) {
+    if (leave.paid) {
+      workedAfterFixedBreak = scheduled
+      status = 'normal'
+      extra = 0
+      short = 0
+    } else {
+      workedAfterFixedBreak = 0
+      status = 'absent'
+      extra = 0
+      short = scheduled
+    }
+  } else {
+    if (scheduled === 0) status = workedAfterFixedBreak > 0 ? 'normal' : 'unconfigured'
+    else if (workedAfterFixedBreak === 0) status = 'absent'
+    else if (workedAfterFixedBreak > scheduled) { status = 'extra'; extra = workedAfterFixedBreak - scheduled }
+    else if (workedAfterFixedBreak < scheduled) { status = 'short'; short = scheduled - workedAfterFixedBreak }
+  }
   const holidayMem = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
   if (holidayMem && status === 'absent') status = 'unconfigured'
   const existing = dailySummaries.find(d => d.memberId === memberId && d.orgId === orgId && d.date === date)
@@ -206,6 +258,101 @@ export async function recalculateDailySummary(memberId: string, orgId: string, d
   const res = await recomputeDaily(memberId, orgId, date)
   await applyShiftRulesToDay(memberId, orgId, date)
   return res
+}
+
+export async function applyLeaveToDailySummaries(memberId: string, orgId: string, startDate: string, endDate: string, paid: boolean) {
+  const start = new Date(startDate + 'T00:00:00Z')
+  const end = new Date(endDate + 'T00:00:00Z')
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const cursor = new Date(start)
+    while (cursor <= end) {
+      const date = cursor.toISOString().slice(0, 10)
+      const scheduled = await computeScheduledMinutes(memberId, orgId, date)
+      const holiday = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
+      let workedMinutes = 0
+      let shortMinutes = 0
+      let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'unconfigured'
+      if (scheduled > 0) {
+        if (paid) {
+          workedMinutes = scheduled
+          shortMinutes = 0
+          status = 'normal'
+        } else {
+          workedMinutes = 0
+          shortMinutes = scheduled
+          status = 'absent'
+        }
+      }
+      if (holiday && status === 'absent') status = 'unconfigured'
+      const now = new Date()
+      const payload = {
+        member_id: memberId,
+        org_id: orgId,
+        date,
+        work_pattern_id: null,
+        scheduled_minutes: scheduled,
+        worked_minutes: workedMinutes,
+        paid_break_minutes: 0,
+        unpaid_break_minutes: 0,
+        extra_minutes: 0,
+        short_minutes: shortMinutes,
+        status,
+        is_holiday: holiday,
+        updated_at: now,
+        created_at: now
+      }
+      const { data: existing } = await sb.from('daily_time_summaries').select('id').eq('member_id', memberId).eq('org_id', orgId).eq('date', date).limit(1).maybeSingle()
+      if (existing?.id) await sb.from('daily_time_summaries').update(payload).eq('id', existing.id)
+      else await sb.from('daily_time_summaries').insert(payload)
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
+    }
+    return 'OK'
+  }
+  const cursor = new Date(start)
+  while (cursor <= end) {
+    const date = cursor.toISOString().slice(0, 10)
+    const scheduled = await computeScheduledMinutes(memberId, orgId, date)
+    const holiday = await isOrgHoliday(orgId, new Date(date + 'T00:00:00'))
+    let workedMinutes = 0
+    let shortMinutes = 0
+    let status: 'normal'|'extra'|'short'|'absent'|'unconfigured' = 'unconfigured'
+    if (scheduled > 0) {
+      if (paid) {
+        workedMinutes = scheduled
+        shortMinutes = 0
+        status = 'normal'
+      } else {
+        workedMinutes = 0
+        shortMinutes = scheduled
+        status = 'absent'
+      }
+    }
+    if (holiday && status === 'absent') status = 'unconfigured'
+    const existing = dailySummaries.find(d => d.memberId === memberId && d.orgId === orgId && d.date === date)
+    const nowMs = Date.now()
+    const base: DailyTimeSummary = {
+      id: existing?.id || newId(),
+      memberId,
+      orgId,
+      date,
+      workPatternId: undefined,
+      scheduledMinutes: scheduled,
+      workedMinutes,
+      paidBreakMinutes: 0,
+      unpaidBreakMinutes: 0,
+      extraMinutes: 0,
+      shortMinutes,
+      status,
+      isHoliday: holiday,
+      createdAt: existing?.createdAt || nowMs,
+      updatedAt: nowMs
+    }
+    if (existing) Object.assign(existing, base)
+    else dailySummaries.push(base)
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return 'OK'
 }
 
 function mapAuditLogRow(row: any): import('./types').AuditLog {
@@ -1091,6 +1238,8 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   if (user.status !== 'active') return 'USER_INACTIVE'
   const now = new Date()
   const today = dateISO(now)
+  const leaveToday = await getApprovedLeaveForDate(params.memberId, params.orgId, today)
+  if (leaveToday) return 'ON_LEAVE'
   
   // 12-hour cooldown check
   if (isSupabaseConfigured()) {

@@ -12,6 +12,11 @@ create table if not exists public.leave_types (
 
 create unique index if not exists idx_leave_types_org_code on public.leave_types(org_id, code);
 
+alter table if exists public.leave_types
+  add column if not exists allow_negative boolean not null default false;
+alter table if exists public.leave_types
+  add column if not exists monthly_accrual numeric not null default 0;
+
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
@@ -33,4 +38,12 @@ create index if not exists idx_leave_requests_org on public.leave_requests(org_i
 create index if not exists idx_leave_requests_member on public.leave_requests(member_id);
 create index if not exists idx_leave_requests_status on public.leave_requests(status);
 create index if not exists idx_leave_requests_dates on public.leave_requests(start_date, end_date);
+
+create table if not exists public.employee_leave_balance (
+  user_id uuid not null references public.users(id) on delete cascade,
+  leave_type_id uuid not null references public.leave_types(id) on delete cascade,
+  balance numeric not null default 0,
+  primary key (user_id, leave_type_id)
+);
+
 

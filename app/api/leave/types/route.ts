@@ -13,6 +13,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items })
   }
   const { data } = await sb.from('leave_types').select('*').eq('org_id', org_id).eq('is_active', true).order('code', { ascending: true })
-  const items = (data||[]).map((r:any)=> ({ id: r.id, code: r.code, name: r.name, description: r.description || '', paid: !!r.paid, default_days_per_year: Number(r.default_days_per_year||0), is_active: !!r.is_active }))
+  const items = (data||[]).map((r:any)=> ({
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    description: r.description || '',
+    paid: !!r.paid,
+    default_days_per_year: Number(r.default_days_per_year||0),
+    monthly_accrual: Number(r.monthly_accrual || 0),
+    allow_negative: !!r.allow_negative,
+    is_active: !!r.is_active
+  }))
   return NextResponse.json({ items })
 }
