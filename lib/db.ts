@@ -1,4 +1,4 @@
-import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus, BreakType, BreakRule, BreakApproval, BreakAbuseFlag } from './types'
+import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus, BreakType, BreakRule, BreakApproval, BreakAbuseFlag, BreakApprovalStatus } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
@@ -1940,6 +1940,47 @@ export async function listBreakRules(orgId: string): Promise<BreakRule[]> {
   return breakRulesMem.filter(r => r.orgId === orgId && r.isActive)
 }
 
+export async function listBreakApprovals(orgId: string, status?: BreakApprovalStatus, memberId?: string): Promise<BreakApproval[]> {
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    let q = sb.from('break_approvals').select('*').eq('org_id', orgId)
+    if (status) q = q.eq('status', status)
+    if (memberId) q = q.eq('member_id', memberId)
+    const { data } = await q.order('created_at', { ascending: false })
+    return (data || []).map(mapBreakApprovalFromRow)
+  }
+  let items = breakApprovalsMem.filter(a => a.orgId === orgId)
+  if (status) items = items.filter(a => a.status === status)
+  if (memberId) items = items.filter(a => a.memberId === memberId)
+  return items
+}
+
+export async function reviewBreakApproval(params: { id: string, status: BreakApprovalStatus, note?: string, reviewerId?: string }): Promise<BreakApproval | 'NOT_FOUND' | 'DB_ERROR'> {
+  const now = new Date()
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const { data: existing } = await sb.from('break_approvals').select('*').eq('id', params.id).maybeSingle()
+    if (!existing) return 'NOT_FOUND'
+    const update: any = { review_note: params.note || '', reviewed_by: params.reviewerId || null, reviewed_at: now }
+    if (existing.status !== params.status) update.status = params.status
+    const { data, error } = await sb.from('break_approvals').update(update).eq('id', params.id).select('*').single()
+    if (error || !data) return 'DB_ERROR'
+    return mapBreakApprovalFromRow(data)
+  }
+  const idx = breakApprovalsMem.findIndex(a => a.id === params.id)
+  if (idx < 0) return 'NOT_FOUND'
+  const prev = breakApprovalsMem[idx]
+  const updated: BreakApproval = {
+    ...prev,
+    status: params.status,
+    reviewNote: params.note || prev.reviewNote,
+    reviewedBy: params.reviewerId || prev.reviewedBy,
+    reviewedAt: now.getTime()
+  }
+  breakApprovalsMem[idx] = updated
+  return updated
+}
+
 export async function listOrganizations() {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -3506,9 +3547,21 @@ export async function addFine(input: { memberId: string, orgId: string, date: st
     const sb = supabaseServer()
     const { error } = await sb.from('member_fines').insert({ member_id: input.memberId, org_id: input.orgId, date: input.date, reason: input.reason, amount: input.amount, currency: input.currency, created_by: input.createdBy, created_at: now })
     if (error) return 'DB_ERROR'
+    try {
+      const amountLabel = `${input.currency} ${input.amount.toFixed(2)}`
+      const title = 'Fine added to your payroll'
+      const message = `A fine of ${amountLabel} was added for ${input.date}: ${input.reason}`
+      await publishNotification({ orgId: input.orgId, memberId: input.memberId, type: 'payroll', title, message, meta: { kind: 'fine', date: input.date, amount: input.amount, currency: input.currency, reason: input.reason } })
+    } catch {}
     return 'OK'
   }
   fines.push({ id: newId(), ...input, createdAt: now.getTime() })
+  try {
+    const amountLabel = `${input.currency} ${input.amount.toFixed(2)}`
+    const title = 'Fine added to your payroll'
+    const message = `A fine of ${amountLabel} was added for ${input.date}: ${input.reason}`
+    await publishNotification({ orgId: input.orgId, memberId: input.memberId, type: 'payroll', title, message, meta: { kind: 'fine', date: input.date, amount: input.amount, currency: input.currency, reason: input.reason } })
+  } catch {}
   return 'OK'
 }
 
@@ -3569,7 +3622,20 @@ export async function listAdjustments(input: { memberId?: string, orgId: string,
 export async function payrollSummary(orgId: string, periodId: string) {
   const period = isSupabaseConfigured() ? await (async ()=>{ const sb = supabaseServer(); const { data } = await sb.from('payroll_periods').select('*').eq('id', periodId).single(); return data ? mapPayrollPeriodFromRow(data) : undefined })() : payrollPeriods.find(p => p.id === periodId)
   if (!period || period.orgId !== orgId) return 'PERIOD_NOT_FOUND'
-  const lines = await listPayrollLines(periodId)
+  let lines = await listPayrollLines(periodId)
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const start = period.startDate
+    const end = period.endDate
+    const updated: MemberPayrollLine[] = []
+    for (const l of lines) {
+      const finesTotal = await sumFinesSupabase(sb, l.memberId, orgId, start, end)
+      const adjustmentsTotal = await sumAdjustmentsSupabase(sb, l.memberId, orgId, start, end)
+      const netPayable = l.baseEarnings + l.extraEarnings - l.deductionForShort - finesTotal + adjustmentsTotal
+      updated.push({ ...l, finesTotal, adjustmentsTotal, netPayable })
+    }
+    lines = updated
+  }
   const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
   const deptMap = new Map(departments.map(d => [d.id, d.name]))
@@ -3586,8 +3652,15 @@ export async function payrollMember(orgId: string, periodId: string, memberId: s
   const period = isSupabaseConfigured() ? await (async ()=>{ const sb = supabaseServer(); const { data } = await sb.from('payroll_periods').select('*').eq('id', periodId).single(); return data ? mapPayrollPeriodFromRow(data) : undefined })() : payrollPeriods.find(p => p.id === periodId)
   if (!period || period.orgId !== orgId) return 'PERIOD_NOT_FOUND'
   const lines = await listPayrollLines(periodId)
-  const line = lines.find(l => l.memberId === memberId)
+  let line = lines.find(l => l.memberId === memberId)
   if (!line) return 'NOT_FOUND'
+  if (isSupabaseConfigured()) {
+    const sb = supabaseServer()
+    const finesTotal = await sumFinesSupabase(sb, memberId, orgId, period.startDate, period.endDate)
+    const adjustmentsTotal = await sumAdjustmentsSupabase(sb, memberId, orgId, period.startDate, period.endDate)
+    const netPayable = line.baseEarnings + line.extraEarnings - line.deductionForShort - finesTotal + adjustmentsTotal
+    line = { ...line, finesTotal, adjustmentsTotal, netPayable }
+  }
   const user = (await listAllOrgMembers(orgId)).find(u => u.id === memberId)
   const dept = user?.departmentId ? (await listDepartments(orgId)).find(d => d.id === user!.departmentId) : undefined
   return { period, line, memberName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(), departmentName: dept?.name || '' }

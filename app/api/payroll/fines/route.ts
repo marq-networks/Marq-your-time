@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
   const amount = Number(body.amount)
   const currency = body.currency || 'USD'
   const actor = req.headers.get('x-user-id') || ''
+  const role = (req.headers.get('x-role') || '').toLowerCase()
+  const allowed = ['admin','manager','finance','owner','super_admin']
+  if (role && !allowed.includes(role)) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
   if (!memberId || !orgId || !date || !reason || !amount) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const r = await addFine({ memberId, orgId, date, reason, amount, currency, createdBy: actor })
   const codes: Record<string, number> = { DB_ERROR: 500 }

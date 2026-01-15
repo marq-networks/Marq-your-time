@@ -19,6 +19,7 @@ const items = [
   { href: '/schedule/roster', label: 'Schedule' },
   { href: '/leave', label: 'Leave' },
   { href: '/leave/approvals', label: 'Leave Approvals' },
+  { href: '/break/approvals', label: 'Break Approvals' },
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/reports', label: 'Reports' },
@@ -88,6 +89,7 @@ export default function SidebarNav() {
           if (i.label === 'Schedule') return canTime && overrideRole !== 'super_admin'
           if (i.label === 'Leave') return overrideRole !== 'super_admin'
           if (i.label === 'Leave Approvals') return canUsers && overrideRole !== 'super_admin'
+          if (i.label === 'Break Approvals') return canUsers || ['manager','hr','admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
           if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports && ['admin','owner','super_admin'].includes(overrideRole)

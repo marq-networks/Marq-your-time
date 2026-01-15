@@ -6,6 +6,7 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
+import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
 type Period = { id: string, name: string, startDate: string, endDate: string, status: string }
@@ -21,8 +22,23 @@ export default function PayrollDashboardPage() {
   const [lines, setLines] = useState<any[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState({ name: '', start_date: '', end_date: '' })
-
-  const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
+  const [fineOpen, setFineOpen] = useState(false)
+  const [fineTarget, setFineTarget] = useState<{ memberId: string, currency: string } | null>(null)
+  const [fineForm, setFineForm] = useState({ date: '', amount: 0, reason: '' })
+  const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
+ 
+  const loadOrgs = async () => {
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
+    const d = await res.json()
+    const items: Org[] = Array.isArray(d.items) ? (d.items as Org[]) : []
+    setOrgs(items)
+    if (!orgId && items.length) {
+      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+      setOrgId(preferred)
+    }
+  }
   const loadPeriods = async (oid: string) => { const res = await fetch(`/api/payroll/periods?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); setPeriods(d.items||[]) }
   const loadSummary = async (oid: string, pid: string) => { const res = await fetch(`/api/payroll/summary?org_id=${oid}&period_id=${pid}`, { cache:'no-store' }); const d = await res.json(); setLines(d.items||[]) }
 
@@ -30,10 +46,69 @@ export default function PayrollDashboardPage() {
   useEffect(()=>{ if(orgId) loadPeriods(orgId) }, [orgId])
   useEffect(()=>{ if(orgId && selected) loadSummary(orgId, selected) }, [orgId, selected])
 
-  const columns = ['Member','Department','Scheduled','Worked','Extra','Short','Base','Extra','Short Deduction','Fines','Adjustments','Net']
-  const rows = lines.map(l => [ l.memberName, l.departmentName, fmtHM(l.totalScheduledMinutes), fmtHM(l.totalWorkedMinutes), fmtHM(l.totalExtraMinutes), fmtHM(l.totalShortMinutes), fmtCurrency(l.baseEarnings, l.currency), fmtCurrency(l.extraEarnings, l.currency), fmtCurrency(l.deductionForShort, l.currency), fmtCurrency(l.finesTotal, l.currency), fmtCurrency(l.adjustmentsTotal, l.currency), fmtCurrency(l.netPayable, l.currency) ])
+  const openFine = (line: any) => {
+    const today = new Date().toISOString().slice(0,10)
+    setFineTarget({ memberId: line.memberId, currency: line.currency || 'USD' })
+    setFineForm({ date: today, amount: 0, reason: '' })
+    setFineOpen(true)
+  }
 
-  const createPeriod = async () => { if(!orgId || !form.name || !form.start_date || !form.end_date) return; await fetch('/api/payroll/periods', { method:'POST', headers:{'Content-Type':'application/json','x-user-id':'admin'}, body: JSON.stringify({ org_id: orgId, ...form }) }); setCreateOpen(false); loadPeriods(orgId) }
+  const submitFine = async () => {
+    if (!orgId || !selected || !fineTarget || !fineForm.date || !fineForm.reason || !fineForm.amount) return
+    const actorId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+    const headers: Record<string,string> = { 'Content-Type':'application/json' }
+    if (actorId) headers['x-user-id'] = actorId
+    headers['x-role'] = role || 'admin'
+    const res = await fetch('/api/payroll/fines', { method:'POST', headers, body: JSON.stringify({ org_id: orgId, member_id: fineTarget.memberId, date: fineForm.date, reason: fineForm.reason, amount: fineForm.amount, currency: fineTarget.currency || 'USD' }) })
+    if (!res.ok) {
+      try {
+        const body = await res.json()
+        alert(body.error || 'Failed to add fine')
+      } catch {
+        alert('Failed to add fine')
+      }
+      return
+    }
+    setFineOpen(false)
+    setFineForm({ date: '', amount: 0, reason: '' })
+    loadSummary(orgId, selected)
+  }
+
+  const columns = ['Member','Department','Scheduled','Worked','Extra','Short','Base','Extra','Short Deduction','Fines','Adjustments','Net','Actions']
+  const rows = lines.map(l => [
+    l.memberName,
+    l.departmentName,
+    fmtHM(l.totalScheduledMinutes),
+    fmtHM(l.totalWorkedMinutes),
+    fmtHM(l.totalExtraMinutes),
+    fmtHM(l.totalShortMinutes),
+    fmtCurrency(l.baseEarnings, l.currency),
+    fmtCurrency(l.extraEarnings, l.currency),
+    fmtCurrency(l.deductionForShort, l.currency),
+    fmtCurrency(l.finesTotal, l.currency),
+    fmtCurrency(l.adjustmentsTotal, l.currency),
+    fmtCurrency(l.netPayable, l.currency),
+    <GlassButton key={l.memberId} onClick={()=>openFine(l)}>Add Fine</GlassButton>
+  ])
+
+  const createPeriod = async () => {
+    if(!orgId || !form.name || !form.start_date || !form.end_date) return
+    const actorId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+    const headers: Record<string,string> = { 'Content-Type':'application/json' }
+    if (actorId) headers['x-user-id'] = actorId
+    const res = await fetch('/api/payroll/periods', { method:'POST', headers, body: JSON.stringify({ org_id: orgId, ...form }) })
+    if (!res.ok) {
+      try {
+        const body = await res.json()
+        alert(body.error || 'Failed to create payroll period')
+      } catch {
+        alert('Failed to create payroll period')
+      }
+      return
+    }
+    setCreateOpen(false)
+    loadPeriods(orgId)
+  }
   const generate = async (id: string) => { await fetch(`/api/payroll/periods/${id}/generate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ org_id: orgId }) }); loadSummary(orgId, id) }
   const lock = async (id: string) => { await fetch(`/api/payroll/periods/${id}/lock`, { method:'POST' }); loadPeriods(orgId) }
   const exportPeriod = async (id: string) => { const res = await fetch(`/api/payroll/periods/${id}/export`, { method:'POST' }); const d = await res.json(); const blob = new Blob([d.csv], { type:'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${id}.csv`; a.click() }
@@ -92,7 +167,26 @@ export default function PayrollDashboardPage() {
           <GlassButton onClick={createPeriod}>Create</GlassButton>
         </div>
       </GlassModal>
+
+      <GlassModal open={fineOpen} title="Add Fine" onClose={()=>setFineOpen(false)}>
+        <div className="grid grid-3">
+          <div>
+            <div className="label">Date</div>
+            <input className="input" type="date" value={fineForm.date} onChange={e=>setFineForm({ ...fineForm, date: e.target.value })} />
+          </div>
+          <div>
+            <div className="label">Amount</div>
+            <input className="input" type="number" value={fineForm.amount} onChange={e=>setFineForm({ ...fineForm, amount: Number(e.target.value) })} />
+          </div>
+          <div>
+            <div className="label">Reason</div>
+            <input className="input" value={fineForm.reason} onChange={e=>setFineForm({ ...fineForm, reason: e.target.value })} />
+          </div>
+        </div>
+        <div className="row" style={{ marginTop:12, gap:8 }}>
+          <GlassButton onClick={submitFine}>Add Fine</GlassButton>
+        </div>
+      </GlassModal>
     </AppShell>
   )
 }
-
