@@ -28,6 +28,8 @@ const items = [
   { href: '/analytics/insights', label: 'Insights' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },
+  { href: '/payroll_v12', label: 'Payroll v12' },
+  { href: '/payslips', label: 'Payslips' },
   { href: '/billing', label: 'Billing' },
   { href: '/billing/plans', label: 'Billing Plans' },
   { href: '/settings', label: 'Settings' },
@@ -93,6 +95,8 @@ export default function SidebarNav() {
           if (i.label === 'Activity Overview') return canReports || ['employee','member','manager','hr'].includes(overrideRole)
           if (i.label === 'Analytics') return canReports
           if (i.label === 'Payroll') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Payroll v12') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'Payslips') return canReports && ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Billing Plans') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Offline Sync') return ['admin','owner'].includes(overrideRole)

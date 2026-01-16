@@ -3672,7 +3672,29 @@ function toCSV(items: MemberPayrollLine[]) {
   return [headers.join(','), ...rows].join('\n')
 }
 export async function generatePayrollLines(orgId: string, periodId: string) {
-  const period = isSupabaseConfigured() ? await (async ()=>{ const sb = supabaseServer(); const { data } = await sb.from('payroll_periods').select('*').eq('id', periodId).single(); return data ? mapPayrollPeriodFromRow(data) : undefined })() : payrollPeriods.find(p => p.id === periodId)
+  const period = isSupabaseConfigured()
+    ? await (async () => {
+        const sb = supabaseServer()
+        const { data } = await sb.from('payroll_periods').select('*').eq('id', periodId).maybeSingle()
+        if (data) return mapPayrollPeriodFromRow(data)
+        const { data: v12 } = await sb.from('payroll_periods_v12').select('*').eq('id', periodId).maybeSingle()
+        if (v12) {
+          return {
+            id: v12.id,
+            orgId: v12.org_id,
+            name: `${v12.period_start} → ${v12.period_end}`,
+            startDate: v12.period_start,
+            endDate: v12.period_end,
+            status: v12.status,
+            createdBy: v12.created_by,
+            createdAt: Date.now(),
+            lockedAt: undefined,
+            exportedAt: undefined
+          } as PayrollPeriod
+        }
+        return undefined
+      })()
+    : payrollPeriods.find(p => p.id === periodId)
   if (!period || period.orgId !== orgId) return 'PERIOD_NOT_FOUND'
   const members = await listUsers(orgId)
   const start = period.startDate

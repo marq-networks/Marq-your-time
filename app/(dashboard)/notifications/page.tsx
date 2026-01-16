@@ -20,6 +20,8 @@ export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [role, setRole] = useState('')
+  const [selfOrgName, setSelfOrgName] = useState('')
+  const [selfMemberName, setSelfMemberName] = useState('')
 
   const [sendOrgId, setSendOrgId] = useState('')
   const [sendMemberId, setSendMemberId] = useState('')
@@ -81,9 +83,6 @@ export default function NotificationsPage() {
     }
   }
 
-  useEffect(()=>{ loadOrgs() }, [])
-  useEffect(()=>{ if (orgId) loadMembers(orgId) }, [orgId])
-  useEffect(()=>{ setCursor(null); load(true) }, [orgId, memberId])
   useEffect(() => {
     try {
       const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''))
@@ -97,7 +96,40 @@ export default function NotificationsPage() {
       if (!sendOrgId && cookieOrgId) setSendOrgId(cookieOrgId)
     } catch {}
   }, [])
-  useEffect(() => { if (sendOrgId) loadMembers(sendOrgId) }, [sendOrgId])
+  useEffect(() => {
+    try {
+      const cookieUserId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
+      if (!memberId && cookieUserId) setMemberId(cookieUserId)
+    } catch {}
+  }, [])
+  useEffect(()=>{ if (role && ['admin','owner','super_admin'].includes(role)) loadOrgs() }, [role])
+  useEffect(()=>{ if (orgId && ['admin','owner','super_admin'].includes(role)) loadMembers(orgId) }, [orgId, role])
+  useEffect(()=>{ setCursor(null); load(true) }, [orgId, memberId])
+  useEffect(() => { if (sendOrgId && ['admin','owner','super_admin'].includes(role)) loadMembers(sendOrgId) }, [sendOrgId, role])
+  useEffect(() => {
+    if (!['member','employee'].includes(role)) return
+    const run = async () => {
+      try {
+        const oid = orgId || (typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : '')
+        const mid = memberId || (typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : '')
+        if (!oid || !mid) return
+        try {
+          const resOrg = await fetch(`/api/org/${oid}`, { cache:'no-store' })
+          const dOrg = await resOrg.json()
+          const o = dOrg.org || {}
+          setSelfOrgName(o.orgName || '')
+        } catch {}
+        try {
+          const resUser = await fetch(`/api/user/${mid}`, { cache:'no-store' })
+          const dUser = await resUser.json()
+          const u = dUser.user || {}
+          const full = (u.fullName || '').trim() || [u.firstName, u.lastName].filter(Boolean).join(' ')
+          setSelfMemberName(full || '')
+        } catch {}
+      } catch {}
+    }
+    run()
+  }, [role, orgId, memberId])
 
   const columns = ['','Title','Message','Type','Date','Actions']
   const rows = items.map(n => [
@@ -173,17 +205,25 @@ export default function NotificationsPage() {
         <div className="grid grid-3">
           <div>
             <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-              <option value="">All orgs</option>
-              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
+            {['admin','owner','super_admin'].includes(role) ? (
+              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                <option value="">All orgs</option>
+                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+              </GlassSelect>
+            ) : (
+              <span className="tag-pill">{selfOrgName || ''}</span>
+            )}
           </div>
           <div>
             <div className="label">Member</div>
-            <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
-              <option value="">All members</option>
-              {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-            </GlassSelect>
+            {['admin','owner','super_admin'].includes(role) ? (
+              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
+                <option value="">All members</option>
+                {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+              </GlassSelect>
+            ) : (
+              <span className="tag-pill">{selfMemberName || 'You'}</span>
+            )}
           </div>
           <div style={{display:'flex',alignItems:'flex-end'}}>
             <GlassButton variant="primary" onClick={()=>load(false)} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Load more</GlassButton>

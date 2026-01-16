@@ -5,6 +5,11 @@ import GlassButton from './GlassButton'
 
 type NotificationItem = { id: string, title: string, message: string, isRead: boolean, createdAt: number, meta?: any }
 
+function getCookie(name: string) {
+  const m = document.cookie.split(';').map(s => s.trim()).find(s => s.startsWith(name + '='))
+  return m ? decodeURIComponent(m.split('=').slice(1).join('=')) : ''
+}
+
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
@@ -13,8 +18,25 @@ export default function NotificationsBell() {
   const [pos, setPos] = useState<{ top: number, right: number } | null>(null)
   const [mounted, setMounted] = useState(false)
 
-  const load = async () => { const res = await fetch('/api/notifications/list?limit=10&unread_only=true', { cache:'no-store' }); const d = await res.json(); setItems(d.items || []) }
-  const markAll = async () => { await fetch('/api/notifications/mark-all-read', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: null }) }); setItems([])}
+  const load = async () => {
+    let url = '/api/notifications/list?limit=10&unread_only=true'
+    try {
+      const memberId = typeof document !== 'undefined' ? (getCookie('current_user_id') || '') : ''
+      if (memberId) url += `&member_id=${encodeURIComponent(memberId)}`
+    } catch {}
+    const res = await fetch(url, { cache: 'no-store' })
+    const d = await res.json()
+    setItems(d.items || [])
+  }
+
+  const markAll = async () => {
+    try {
+      const memberId = typeof document !== 'undefined' ? (getCookie('current_user_id') || '') : ''
+      if (!memberId) return
+      await fetch('/api/notifications/mark-all-read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ member_id: memberId }) })
+      setItems([])
+    } catch {}
+  }
   useEffect(()=>{ load() }, [])
   useEffect(()=>{ setMounted(true) }, [])
   useEffect(()=>{

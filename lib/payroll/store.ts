@@ -140,6 +140,7 @@ export async function approveAll(payroll_period_id: string, approver_id: string,
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: rows } = await sb.from('member_payroll').select('id, member_id').eq('payroll_period_id', payroll_period_id)
+    if (!rows || rows.length === 0) return 'NO_PAYROLL_ROWS'
     for (const r of (rows || []) as any[]) await sb.from('member_payroll').update({ approved: true, approved_at: now }).eq('id', r.id)
     await setPeriodStatus(payroll_period_id, 'approved', approver_id)
     for (const r of (rows || []) as any[]) await publishNotification({ orgId: org_id, memberId: r.member_id, type: 'payroll', title: 'Payslip available', message: 'Your payslip is available.' })
@@ -154,6 +155,7 @@ export async function approveAll(payroll_period_id: string, approver_id: string,
     return { approved: (rows || []).length }
   }
   const rows = memRows.filter(r => r.payroll_period_id === payroll_period_id)
+  if (!rows.length) return 'NO_PAYROLL_ROWS'
   for (const r of rows) { r.approved = true; r.approved_at = now.toISOString() }
   await setPeriodStatus(payroll_period_id, 'approved', approver_id)
   for (const r of rows) await publishNotification({ orgId: org_id, memberId: r.member_id, type: 'payroll', title: 'Payslip available', message: 'Your payslip is available.' })
@@ -198,10 +200,25 @@ export async function generateForPeriod(payroll_period_id: string, org_id: strin
   await setPeriodStatus(payroll_period_id, 'processing')
   const res = await generatePayrollLines(org_id, payroll_period_id)
   if (typeof res === 'string' && res !== 'OK') return res
-  const lines = await listPayrollLines(payroll_period_id)
+  let lines = await listPayrollLines(payroll_period_id)
   const now = new Date()
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
+    if (!lines.length) {
+      const users = await listUsers(org_id)
+      lines = users.map(u => ({
+        memberId: u.id,
+        baseEarnings: Number(u.salary || 0),
+        totalWorkedMinutes: 0,
+        totalExtraMinutes: 0,
+        totalShortMinutes: 0,
+        extraEarnings: 0,
+        deductionForShort: 0,
+        finesTotal: 0,
+        adjustmentsTotal: 0,
+        netPayable: Number(u.salary || 0)
+      })) as any
+    }
     for (const l of lines as any[]) {
       const base_salary = Number(l.baseEarnings || 0)
       const worked_minutes = Number(l.totalWorkedMinutes || 0)
@@ -223,6 +240,21 @@ export async function generateForPeriod(payroll_period_id: string, org_id: strin
     return 'OK'
   }
   memRows.splice(0, memRows.length)
+  if (!lines.length) {
+    const users = await listUsers(org_id)
+    lines = users.map(u => ({
+      memberId: u.id,
+      baseEarnings: Number(u.salary || 0),
+      totalWorkedMinutes: 0,
+      totalExtraMinutes: 0,
+      totalShortMinutes: 0,
+      extraEarnings: 0,
+      deductionForShort: 0,
+      finesTotal: 0,
+      adjustmentsTotal: 0,
+      netPayable: Number(u.salary || 0)
+    })) as any
+  }
   for (const l of lines as any[]) {
     memRows.push({
       id: cryptoRandom(),

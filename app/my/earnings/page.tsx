@@ -4,6 +4,7 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
+import GlassButton from '@components/ui/GlassButton'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -118,6 +119,16 @@ export default function MyEarningsPage() {
 
       <GlassCard title="Fines & Adjustments">
         <GlassTable columns={[ 'Date', 'Type', 'Reason', 'Amount' ]} rows={[ ...fines.map(f=> [ f.date, 'Fine', f.reason, `-${fmtCurrency(f.amount, f.currency)}` ]), ...adjustments.map(a=> [ a.date, 'Adjustment', a.reason, `${a.amount >= 0 ? '+' : ''}${fmtCurrency(a.amount, a.currency)}` ]) ]} />
+      </GlassCard>
+
+      <GlassCard title="Payslips">
+        <GlassButton
+          variant="primary"
+          href="/my/payslips"
+          style={{ background: '#39FF14', borderColor: '#39FF14' }}
+        >
+          Open My Payslips
+        </GlassButton>
       </GlassCard>
     </AppShell>
   )

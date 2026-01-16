@@ -9,7 +9,7 @@ import { normalizeRoleForApi } from '@lib/permissions'
 import { useTracking } from '@components/TrackingProvider'
 
 type Org = { id: string, orgName: string }
-type User = { id: string, firstName: string, lastName: string, salary?: number, workingHoursPerDay?: number }
+type User = { id: string, firstName: string, lastName: string, salary?: number, workingHoursPerDay?: number, workingDays?: string[] }
 
 function formatHM(mins: number) {
   const m = Math.max(0, Math.round(mins || 0))
@@ -328,6 +328,11 @@ export default function MyDayPage() {
   const safeWorkedMs = (totalWorkedMs > 86400000) ? 0 : totalWorkedMs
   const totalMinutes = safeWorkedMs / 60000
   const earnings = (safeWorkedMs / 60000) * perMinuteRate
+  const todayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
+  const workingDays = Array.isArray((currentUser as any)?.workingDays) ? (currentUser as any).workingDays as string[] : []
+  const scheduledMinutes = workingDays.includes(todayName) ? workingHours * 60 : 0
+  const liveExtraMinutes = Math.max(0, totalMinutes - scheduledMinutes)
+  const overtimeDisplay = summary.session_open && scheduledMinutes > 0 ? `+${formatHM(liveExtraMinutes)}` : summary.extra_time
   const [showOvertimeWarning, setShowOvertimeWarning] = useState(false)
   const [showLimitWarning, setShowLimitWarning] = useState(false)
 
@@ -437,9 +442,9 @@ export default function MyDayPage() {
       <div className="grid grid-2" style={{marginBottom: 24}}>
          <GlassCard title="Time Status">
            <div className="grid grid-2">
-            <div>
+             <div>
               <div className="subtitle">Overtime</div>
-              <div className="title" style={{color:'var(--green)'}}>{summary.extra_time}</div>
+              <div className="title" style={{color:'var(--green)'}}>{overtimeDisplay}</div>
             </div>
              <div>
                <div className="subtitle">Short Time</div>
