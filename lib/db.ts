@@ -1223,7 +1223,7 @@ export async function getOpenSession(memberId: string, orgId: string) {
   return { ...sess, currentBreak: br }
 }
 
-export async function startWorkSession(params: { memberId: string, orgId: string, source: string, projectId?: string, taskId?: string }) {
+export async function startWorkSession(params: { memberId: string, orgId: string, source: string, projectId?: string, taskId?: string, actorUserId?: string, actorRole?: string }) {
   const user = await getUser(params.memberId)
   if (!user) return 'USER_NOT_IN_ORG'
   let inOrg = user.orgId === params.orgId
@@ -1304,7 +1304,7 @@ export async function startWorkSession(params: { memberId: string, orgId: string
   return sess
 }
 
-export async function stopWorkSession(params: { memberId: string, orgId: string }) {
+export async function stopWorkSession(params: { memberId: string, orgId: string, actorUserId?: string, actorRole?: string }) {
   const now = new Date()
   const today = dateISO(now)
   if (isSupabaseConfigured()) {
@@ -1314,6 +1314,23 @@ export async function stopWorkSession(params: { memberId: string, orgId: string 
     const start = new Date(openRow.start_time).getTime()
     const total = minutesBetween(start, now.getTime())
     const { data } = await sb.from('time_sessions').update({ end_time: now, status: 'closed', total_minutes: total, updated_at: now }).eq('id', openRow.id).select('*').single()
+    
+    if (params.actorUserId && params.actorUserId !== params.memberId && params.actorRole) {
+       await createHRLog({
+          org_id: params.orgId,
+          actor_user_id: params.actorUserId,
+          actor_role: params.actorRole,
+          employee_user_id: params.memberId,
+          module: 'time',
+          entity_table: 'time_sessions',
+          entity_id: openRow.id,
+          field_name: 'status',
+          old_value: 'open',
+          new_value: 'closed',
+          reason: 'Manual stop by admin/manager'
+       })
+    }
+
     const { data: brOpen } = await sb.from('break_sessions').select('*').eq('time_session_id', openRow.id).is('end_time', null)
     for (const b of (brOpen || []) as any[]) {
       const bTotal = minutesBetween(new Date(b.start_time).getTime(), now.getTime())
@@ -1653,7 +1670,7 @@ export async function listMyTimesheetChangeRequests(memberId: string) {
   return 'SUPABASE_REQUIRED'
 }
 
-export async function reviewTimesheetChangeRequest(input: { changeRequestId: string, decision: 'approve'|'reject', reviewNote?: string, actorUserId: string }) {
+export async function reviewTimesheetChangeRequest(input: { changeRequestId: string, decision: 'approve'|'reject', reviewNote?: string, actorUserId: string, actorRole?: string }) {
   const now = new Date()
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -1664,7 +1681,7 @@ export async function reviewTimesheetChangeRequest(input: { changeRequestId: str
     if (error) return 'DB_ERROR'
     await sb.from('timesheet_audit_log').insert({ org_id: updated.org_id, member_id: updated.member_id, actor_id: input.actorUserId, action_type: input.decision === 'approve' ? 'approve' : 'reject', details: { request_id: input.changeRequestId, note: input.reviewNote || '' }, created_at: now })
     if (input.decision === 'approve') {
-      const applyRes = await applyTimesheetCorrections(input.changeRequestId, input.actorUserId)
+      const applyRes = await applyTimesheetCorrections(input.changeRequestId, input.actorUserId, input.actorRole)
       if (applyRes !== 'OK') return applyRes
     }
     return 'OK'
@@ -1672,7 +1689,7 @@ export async function reviewTimesheetChangeRequest(input: { changeRequestId: str
   return 'SUPABASE_REQUIRED'
 }
 
-export async function applyTimesheetCorrections(changeRequestId: string, actorUserId: string) {
+export async function applyTimesheetCorrections(changeRequestId: string, actorUserId: string, actorRole?: string) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
     const { data: req } = await sb.from('timesheet_change_requests').select('*').eq('id', changeRequestId).single()
@@ -1683,13 +1700,46 @@ export async function applyTimesheetCorrections(changeRequestId: string, actorUs
       const { data: closed } = await sb.from('time_sessions').select('*').eq('member_id', req.member_id).eq('org_id', req.org_id).eq('date', day).eq('status', 'closed')
       for (const s of (closed || []) as any[]) {
         await sb.from('time_sessions').update({ status: 'cancelled', total_minutes: 0, cancel_reason: 'correction_applied', updated_at: new Date() }).eq('id', s.id)
+        
+        if (actorRole) {
+           await createHRLog({
+              org_id: req.org_id,
+              actor_user_id: actorUserId,
+              actor_role: actorRole,
+              employee_user_id: req.member_id,
+              module: 'time',
+              entity_table: 'time_sessions',
+              entity_id: s.id,
+              field_name: 'status',
+              old_value: 'closed',
+              new_value: 'cancelled',
+              reason: `Timesheet correction applied (Request ${changeRequestId})`
+           })
+        }
       }
       const start = it.new_start ? new Date(it.new_start) : (it.original_start ? new Date(it.original_start) : new Date(day + 'T09:00:00'))
       const end = it.new_end ? new Date(it.new_end) : (it.original_end ? new Date(it.original_end) : new Date(start.getTime() + ((it.new_minutes ?? it.original_minutes ?? 0) * 60000)))
       const total = it.new_minutes ?? (end.getTime() - start.getTime()) / 60000
       const now = new Date()
       const payload = { member_id: req.member_id, org_id: req.org_id, date: day, start_time: start, end_time: end, source: 'correction', status: 'closed', total_minutes: Math.round(total), created_at: now, updated_at: now }
-      await sb.from('time_sessions').insert(payload)
+      const { data: newSess } = await sb.from('time_sessions').insert(payload).select().single()
+      
+      if (actorRole && newSess) {
+          await createHRLog({
+              org_id: req.org_id,
+              actor_user_id: actorUserId,
+              actor_role: actorRole,
+              employee_user_id: req.member_id,
+              module: 'time',
+              entity_table: 'time_sessions',
+              entity_id: newSess.id,
+              field_name: 'total_minutes',
+              old_value: null,
+              new_value: String(Math.round(total)),
+              reason: `Timesheet correction created (Request ${changeRequestId})`
+           })
+      }
+
       await recomputeDaily(req.member_id, req.org_id, day)
       await sb.from('timesheet_audit_log').insert({ org_id: req.org_id, member_id: req.member_id, actor_id: actorUserId, action_type: 'apply', details: { request_id: changeRequestId, date: day, applied_minutes: Math.round(total) }, created_at: new Date() })
     }
@@ -1955,7 +2005,7 @@ export async function listBreakApprovals(orgId: string, status?: BreakApprovalSt
   return items
 }
 
-export async function reviewBreakApproval(params: { id: string, status: BreakApprovalStatus, note?: string, reviewerId?: string }): Promise<BreakApproval | 'NOT_FOUND' | 'DB_ERROR'> {
+export async function reviewBreakApproval(params: { id: string, status: BreakApprovalStatus, note?: string, reviewerId?: string, actorRole?: string }): Promise<BreakApproval | 'NOT_FOUND' | 'DB_ERROR'> {
   const now = new Date()
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -1965,6 +2015,24 @@ export async function reviewBreakApproval(params: { id: string, status: BreakApp
     if (existing.status !== params.status) update.status = params.status
     const { data, error } = await sb.from('break_approvals').update(update).eq('id', params.id).select('*').single()
     if (error || !data) return 'DB_ERROR'
+    
+    // HR LOG
+    if (params.reviewerId && params.actorRole) {
+      await createHRLog({
+        org_id: data.org_id,
+        actor_user_id: params.reviewerId,
+        actor_role: params.actorRole,
+        employee_user_id: data.member_id,
+        module: 'time',
+        entity_table: 'break_approvals',
+        entity_id: params.id,
+        field_name: 'status',
+        old_value: existing.status,
+        new_value: params.status,
+        reason: params.note || 'Break approval review'
+      })
+    }
+
     return mapBreakApprovalFromRow(data)
   }
   const idx = breakApprovalsMem.findIndex(a => a.id === params.id)
@@ -3541,12 +3609,31 @@ export async function listPayrollLines(periodId: string) {
   return payrollLines.filter(l => l.payrollPeriodId === periodId)
 }
 
-export async function addFine(input: { memberId: string, orgId: string, date: string, reason: string, amount: number, currency: string, createdBy: string }) {
+import { createHRLog } from './hr-log'
+
+export async function addFine(input: { memberId: string, orgId: string, date: string, reason: string, amount: number, currency: string, createdBy: string, actorRole?: string }) {
   const now = new Date()
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
-    const { error } = await sb.from('member_fines').insert({ member_id: input.memberId, org_id: input.orgId, date: input.date, reason: input.reason, amount: input.amount, currency: input.currency, created_by: input.createdBy, created_at: now })
+    const { data: inserted, error } = await sb.from('member_fines').insert({ member_id: input.memberId, org_id: input.orgId, date: input.date, reason: input.reason, amount: input.amount, currency: input.currency, created_by: input.createdBy, created_at: now }).select().single()
     if (error) return 'DB_ERROR'
+    
+    if (input.actorRole && inserted) {
+      await createHRLog({
+        org_id: input.orgId,
+        actor_user_id: input.createdBy,
+        actor_role: input.actorRole,
+        employee_user_id: input.memberId,
+        module: 'payroll',
+        entity_table: 'member_fines',
+        entity_id: inserted.id,
+        field_name: 'amount',
+        old_value: null,
+        new_value: input.amount.toString(),
+        reason: input.reason
+      })
+    }
+
     try {
       const amountLabel = `${input.currency} ${input.amount.toFixed(2)}`
       const title = 'Fine added to your payroll'
@@ -3555,7 +3642,11 @@ export async function addFine(input: { memberId: string, orgId: string, date: st
     } catch {}
     return 'OK'
   }
-  fines.push({ id: newId(), ...input, createdAt: now.getTime() })
+  const newFine = { id: newId(), ...input, createdAt: now.getTime() }
+  fines.push(newFine)
+  if (input.actorRole) {
+     // In-memory logging if needed, but we focus on Supabase
+  }
   try {
     const amountLabel = `${input.currency} ${input.amount.toFixed(2)}`
     const title = 'Fine added to your payroll'

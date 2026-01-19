@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const note = body.note || ''
   if (!id || !status || !['approved', 'rejected'].includes(status)) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   const reviewerId = req.headers.get('x-user-id') || undefined
-  const res = await reviewBreakApproval({ id, status, note, reviewerId } as any)
+  const res = await reviewBreakApproval({ id, status, note, reviewerId, actorRole: role } as any)
   if (res === 'NOT_FOUND') return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
   if (res === 'DB_ERROR') return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
   return NextResponse.json({ item: res })

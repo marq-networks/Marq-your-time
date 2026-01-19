@@ -14,6 +14,7 @@ const items = [
   { href: '/my/time', label: 'My Day' },
   { href: '/my/activity', label: 'My Activity' },
   { href: '/my/earnings', label: 'My Earnings' },
+  { href: '/my-adjustments', label: 'My Adjustments' },
   { href: '/projects', label: 'Projects' },
   { href: '/time/logs', label: 'Time Logs' },
   { href: '/schedule/roster', label: 'Schedule' },
@@ -24,6 +25,7 @@ const items = [
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/reports', label: 'Reports' },
+  { href: '/hr-adjustments-log', label: 'HR Log' },
   { href: '/engagement/surveys', label: 'Engagement Surveys' },
   { href: '/engagement/my', label: 'My Engagement' },
   { href: '/analytics/insights', label: 'Insights' },
@@ -109,6 +111,8 @@ export default function SidebarNav() {
           if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'My Engagement') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Insights') return ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'HR Log') return canReports || ['admin','owner','super_admin','manager','hr'].includes(overrideRole)
+          if (i.label === 'My Adjustments') return overrideRole !== 'super_admin'
           const currentRole = overrideRole
           if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
           return true

@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabaseServer } from '@lib/supabase'
 import { publishNotification, getOrganization, listUsers, listTeamMemberIds, generatePayrollLines, listPayrollLines } from '@lib/db'
 import { sendMail } from '@lib/mailer'
 import { queueWebhookEvent } from '@lib/webhooks/queue'
+import { createHRLog } from '@lib/hr-log'
 
 export type PeriodStatusV12 = 'pending' | 'processing' | 'approved' | 'completed'
 export interface PayrollPeriodV12 {
@@ -110,7 +111,7 @@ export async function listMemberRows(payroll_period_id: string) {
   return memRows.filter(r => r.payroll_period_id === payroll_period_id)
 }
 
-export async function addAdjustment(input: { member_payroll_id: string, type: 'bonus'|'deduction'|'fine', amount: number, reason: string, created_by: string }) {
+export async function addAdjustment(input: { member_payroll_id: string, type: 'bonus'|'deduction'|'fine', amount: number, reason: string, created_by: string, creator_role?: string }) {
   const now = new Date()
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
@@ -121,6 +122,26 @@ export async function addAdjustment(input: { member_payroll_id: string, type: 'b
       const adjTotal = Number(row.adjustments_total || 0) + (input.type === 'deduction' || input.type === 'fine' ? -Math.abs(input.amount) : Math.abs(input.amount))
       const net = Number(row.base_salary||0) + Number(row.overtime_amount||0) - Number(row.short_deduction||0) - Number(row.fines_total||0) + adjTotal
       await sb.from('member_payroll').update({ adjustments_total: adjTotal, net_salary: net }).eq('id', input.member_payroll_id)
+      
+      // LOG HR ADJUSTMENT
+      if (input.created_by && input.creator_role) {
+         const { data: period } = await sb.from('payroll_periods_v12').select('org_id').eq('id', row.payroll_period_id).single()
+         if (period?.org_id) {
+            await createHRLog({
+              org_id: period.org_id,
+              actor_user_id: input.created_by,
+              actor_role: input.creator_role,
+              employee_user_id: row.member_id,
+              module: 'payroll',
+              entity_table: 'payroll_adjustments',
+              entity_id: data.id,
+              field_name: 'amount', // We are adding a row, so 'amount' is key
+              old_value: null,
+              new_value: { type: input.type, amount: input.amount, reason: input.reason },
+              reason: input.reason || 'Payroll adjustment'
+            })
+         }
+      }
     }
     return data as PayrollAdjustmentRow
   }

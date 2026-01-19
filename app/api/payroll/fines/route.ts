@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const allowed = ['admin','manager','finance','owner','super_admin']
   if (role && !allowed.includes(role)) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
   if (!memberId || !orgId || !date || !reason || !amount) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
-  const r = await addFine({ memberId, orgId, date, reason, amount, currency, createdBy: actor })
+  const r = await addFine({ memberId, orgId, date, reason, amount, currency, createdBy: actor, actorRole: role })
   const codes: Record<string, number> = { DB_ERROR: 500 }
   if (typeof r === 'string' && r !== 'OK') return NextResponse.json({ error: r }, { status: codes[r] || 400 })
   return NextResponse.json({ ok: true })

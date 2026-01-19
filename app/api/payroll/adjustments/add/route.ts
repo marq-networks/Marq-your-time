@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   const allowed = ['admin','manager','finance','super_admin']
   if (!allowed.includes(role)) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
   if (!member_payroll_id || !type || (amount === undefined || amount === null) || !reason) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
-  const res = await addAdjustment({ member_payroll_id, type, amount, reason, created_by: actor })
+  const res = await addAdjustment({ member_payroll_id, type, amount, reason, created_by: actor, creator_role: role })
   if (typeof res === 'string') return NextResponse.json({ error: res }, { status: 400 })
   return NextResponse.json({ adjustment: res })
 }
