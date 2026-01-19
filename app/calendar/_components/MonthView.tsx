@@ -104,7 +104,7 @@ export function MonthView({ date, events, onDateClick }: MonthViewProps) {
       </div>
       
       {/* Calendar Grid */}
-      <div className="grid grid-cols-7 auto-rows-fr flex-1 bg-white/10 gap-px border-l border-white/10 overflow-hidden">
+      <div className="grid grid-cols-7 auto-rows-fr flex-1 bg-white/10 gap-px border-l border-white/10 overflow-y-auto custom-scrollbar">
         {days.map(({ date: d, isCurrentMonth }, idx) => {
           const dayEvents = getEventsForDay(d)
           const isToday = new Date().toDateString() === d.toDateString()
@@ -115,7 +115,7 @@ export function MonthView({ date, events, onDateClick }: MonthViewProps) {
               key={idx} 
               onClick={() => onDateClick(d)}
               className={`
-                min-h-[140px] p-3 cursor-pointer transition-all duration-300 relative group
+                min-h-[100px] p-2 cursor-pointer transition-all duration-300 relative group
                 ${!isCurrentMonth ? 'bg-gray-50/50 opacity-60' : 'bg-white/40 hover:bg-white/80'}
                 ${isToday ? '!bg-white !opacity-100 ring-inset ring-2 ring-primary/30 z-10 shadow-lg' : ''}
                 ${isWeekend && isCurrentMonth && !isToday ? 'bg-gray-50/30' : ''}
