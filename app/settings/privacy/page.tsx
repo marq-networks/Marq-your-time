@@ -17,6 +17,7 @@ export default function PrivacySettingsPage() {
   const [policies, setPolicies] = useState<Policy[]>([])
   const [requests, setRequests] = useState<RequestItem[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [requestSearch, setRequestSearch] = useState('')
 
   const loadPolicies = async (oid: string) => {
     const res = await fetch(`/api/privacy/retention-policies?org_id=${encodeURIComponent(oid)}`)
@@ -59,7 +60,18 @@ export default function PrivacySettingsPage() {
         </GlassCard>
 
         <GlassCard title="Privacy Requests" right={<GlassSelect value={statusFilter} onChange={e=>{ const v = e.target.value; setStatusFilter(v); loadRequests(orgId, v||undefined) }}><option value="">All</option><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="rejected">Rejected</option></GlassSelect>}>
-          <GlassTable columns={['ID','Subject','Type','Status','Actions']} rows={requests.map(r=>[
+          <div className="row" style={{margin:'0 0 12px 0'}}>
+            <div style={{flex:1,minWidth:220}}>
+              <div className="label">Search requests</div>
+              <GlassInput value={requestSearch} onChange={e=>setRequestSearch(e.target.value)} placeholder="Search by ID or subject" />
+            </div>
+          </div>
+          <GlassTable columns={['ID','Subject','Type','Status','Actions']} rows={requests.filter(r=>{
+            const q = requestSearch.trim().toLowerCase()
+            if (!q) return true
+            const text = `${r.id} ${r.subjectType}:${r.subjectId} ${r.requestType}`.toLowerCase()
+            return text.includes(q)
+          }).map(r=>[
             r.id,
             `${r.subjectType}:${r.subjectId}`,
             r.requestType,

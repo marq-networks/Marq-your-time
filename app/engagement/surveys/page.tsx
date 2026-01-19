@@ -21,6 +21,7 @@ export default function SurveysAdminPage() {
   const [newSurvey, setNewSurvey] = useState<{ title: string, description: string, is_anonymous: boolean, closes_at?: string, questions: QuestionInput[] }>({ title:'', description:'', is_anonymous: true, closes_at: undefined, questions: [] })
   const [results, setResults] = useState<any|null>(null)
   const [viewSurveyId, setViewSurveyId] = useState<string|undefined>(undefined)
+  const [search, setSearch] = useState('')
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   useEffect(()=>{ loadOrgs() }, [])
@@ -65,7 +66,13 @@ export default function SurveysAdminPage() {
   }
 
   const columns = ['Title','Created','Closes','Anonymous','Avg Scale','Response Rate','Actions']
-  const rows = items.map(it => [ it.title, new Date(it.created_at).toLocaleDateString(), it.closes_at ? new Date(it.closes_at).toLocaleDateString() : '-', it.is_anonymous ? 'Yes' : 'No', (Math.round(it.avg_scale*100)/100).toFixed(2), it.response_rate===null?'-':`${Math.round((it.response_rate||0)*100)}%`, <div className="row" style={{gap:8}}><GlassButton onClick={()=>{ setViewSurveyId(it.id); }}>View Results</GlassButton></div> ])
+  const filteredItems = items.filter(it => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    const text = `${it.title||''}`.toLowerCase()
+    return text.includes(q)
+  })
+  const rows = filteredItems.map(it => [ it.title, new Date(it.created_at).toLocaleDateString(), it.closes_at ? new Date(it.closes_at).toLocaleDateString() : '-', it.is_anonymous ? 'Yes' : 'No', (Math.round(it.avg_scale*100)/100).toFixed(2), it.response_rate===null?'-':`${Math.round((it.response_rate||0)*100)}%`, <div className="row" style={{gap:8}}><GlassButton onClick={()=>{ setViewSurveyId(it.id); }}>View Results</GlassButton></div> ])
 
   return (
     <AppShell title="Engagement Surveys">
@@ -77,6 +84,10 @@ export default function SurveysAdminPage() {
               <option value="">Select org</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
             </GlassSelect>
+          </div>
+          <div style={{flex:1,minWidth:200}}>
+            <div className="label">Search surveys</div>
+            <input className="input" placeholder="Search by title" value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
           {viewSurveyId && (
             <div>

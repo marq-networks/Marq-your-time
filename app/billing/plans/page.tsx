@@ -14,6 +14,7 @@ export default function BillingPlansPage() {
   const [current, setCurrent] = useState<any>(null)
   const [seats, setSeats] = useState('')
   const [preview, setPreview] = useState<{ monthly: number, currency: string } | null>(null)
+  const [search, setSearch] = useState('')
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadPlans = async () => { const res = await fetch('/api/billing/plans/list', { cache:'no-store' }); const d = await res.json(); setPlans(d.items||[]) }
@@ -31,7 +32,13 @@ export default function BillingPlansPage() {
   useEffect(()=>{ if(orgId) loadCurrent(orgId) }, [orgId])
 
   const columns = ['Code','Name','Price/Seat','Price/Login','Currency','Action']
-  const rows = plans.map(p => [ p.code, p.name, `$${p.price_per_seat}`, p.price_per_login? `$${p.price_per_login}`:'-', p.currency, <GlassButton key={p.id} onClick={()=>{ subscribe(p.id) }}>Choose</GlassButton> ])
+  const filteredPlans = plans.filter(p => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    const text = `${p.code||''} ${p.name||''} ${p.currency||''}`.toLowerCase()
+    return text.includes(q)
+  })
+  const rows = filteredPlans.map(p => [ p.code, p.name, `$${p.price_per_seat}`, p.price_per_login? `$${p.price_per_login}`:'-', p.currency, <GlassButton key={p.id} onClick={()=>{ subscribe(p.id) }}>Choose</GlassButton> ])
 
   return (
     <AppShell title="Billing Plans">
@@ -71,6 +78,12 @@ export default function BillingPlansPage() {
 
       <div className="glass-panel bg-gradient-to-br from-[#d9c7b2] via-[#e8ddce] to-[#c9b8a4]" style={{padding:20,borderRadius:28,border:'1px solid rgba(255,255,255,0.35)',backdropFilter:'blur(12px)'}}>
         <div className="card-title">Available Plans</div>
+        <div className="row" style={{margin:'12px 0'}}>
+          <div style={{flex:1,maxWidth:260}}>
+            <div className="label">Search plans</div>
+            <input className="input" placeholder="Search by code, name, currency" value={search} onChange={e=>setSearch(e.target.value)} />
+          </div>
+        </div>
         <GlassTable columns={columns} rows={rows} />
       </div>
     </AppShell>

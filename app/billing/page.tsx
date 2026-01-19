@@ -13,6 +13,8 @@ export default function BillingPage() {
   const [orgId, setOrgId] = useState('')
   const [invoices, setInvoices] = useState<any[]>([])
   const [org, setOrg] = useState<any | undefined>()
+  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch] = useState('')
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'admin' }}); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadOrg = async (id: string) => { const res = await fetch(`/api/org/${id}`, { cache:'no-store' }); const d = await res.json(); setOrg(d.org) }
@@ -22,7 +24,14 @@ export default function BillingPage() {
   useEffect(()=>{ if(orgId) { loadOrg(orgId); loadInvoices(orgId) } }, [orgId])
 
   const columns = ['Invoice #','Date','Period','Subtotal','Tax','Total','Status','Action']
-  const rows = invoices.map(inv => [ inv.invoiceNumber, inv.invoiceDate, `${inv.billingPeriodStart} → ${inv.billingPeriodEnd}`, fmtCurrency(inv.subtotal), fmtCurrency(inv.tax), fmtCurrency(inv.total), inv.status, <GlassButton href={`/billing/${inv.id}`}>View</GlassButton> ])
+  const filteredInvoices = invoices.filter(inv => {
+    const matchesStatus = statusFilter ? inv.status === statusFilter : true
+    const q = search.trim().toLowerCase()
+    if (!q) return matchesStatus
+    const text = `${inv.invoiceNumber||''} ${inv.invoiceDate||''} ${inv.billingPeriodStart||''} ${inv.billingPeriodEnd||''}`.toLowerCase()
+    return matchesStatus && text.includes(q)
+  })
+  const rows = filteredInvoices.map(inv => [ inv.invoiceNumber, inv.invoiceDate, `${inv.billingPeriodStart} → ${inv.billingPeriodEnd}`, fmtCurrency(inv.subtotal), fmtCurrency(inv.tax), fmtCurrency(inv.total), inv.status, <GlassButton href={`/billing/${inv.id}`}>View</GlassButton> ])
 
   return (
     <AppShell title="Billing">
@@ -49,6 +58,21 @@ export default function BillingPage() {
       </GlassCard>
 
       <GlassCard title="Invoices">
+        <div className="row" style={{marginBottom:12, gap:12}}>
+          <div style={{flex:1,minWidth:180}}>
+            <div className="label">Search</div>
+            <input className="input" placeholder="Search by number or date" value={search} onChange={e=>setSearch(e.target.value)} />
+          </div>
+          <div style={{width:200}}>
+            <div className="label">Status</div>
+            <GlassSelect value={statusFilter} onChange={(e:any)=>setStatusFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="open">Open</option>
+              <option value="paid">Paid</option>
+              <option value="void">Void</option>
+            </GlassSelect>
+          </div>
+        </div>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>

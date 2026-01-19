@@ -16,6 +16,8 @@ export default function OrgList() {
   const [inviteUrl, setInviteUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
+  const [search, setSearch] = useState('')
+  const [subscriptionFilter, setSubscriptionFilter] = useState('')
   const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '').toLowerCase() : ''
 
   const load = async () => {
@@ -36,7 +38,13 @@ export default function OrgList() {
   }
 
   const columns = ['Logo','Name','Subscription','Seats Used/Total','Price/Login','Status','Actions']
-  const rows = orgs.map((o: any) => [
+  const filteredOrgs = orgs.filter(o => {
+    const matchesSubscription = subscriptionFilter ? o.subscriptionType === subscriptionFilter : true
+    const q = search.trim().toLowerCase()
+    const matchesSearch = !q || o.orgName.toLowerCase().includes(q) || o.subscriptionType.toLowerCase().includes(q)
+    return matchesSubscription && matchesSearch
+  })
+  const rows = filteredOrgs.map((o: any) => [
     <div key={o.id} style={{width:28,height:28,borderRadius:8,background:'#111',border:'1px solid var(--border)'}}></div>,
     o.orgName,
     o.subscriptionType,
@@ -49,6 +57,20 @@ export default function OrgList() {
   return (
     <AppShell title="Organizations">
       <GlassCard title="Organization List" right={role==='super_admin' ? <GlassButton variant="primary" onClick={()=>{ setInviteEmail(''); setInviteUrl(''); setInviteOpen(true) }}>Invite Organization</GlassButton> : undefined}>
+        <div className="row" style={{marginBottom:12, gap:12}}>
+          <div style={{flex:1,minWidth:180}}>
+            <div className="label">Search</div>
+            <input className="input" placeholder="Search by name or subscription" value={search} onChange={e=>setSearch(e.target.value)} />
+          </div>
+          <div style={{width:200}}>
+            <div className="label">Subscription</div>
+            <select className="input" value={subscriptionFilter} onChange={e=>setSubscriptionFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+        </div>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
       <GlassModal open={inviteOpen} title="Invite Organization" onClose={()=>setInviteOpen(false)}>

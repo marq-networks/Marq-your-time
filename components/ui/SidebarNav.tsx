@@ -17,6 +17,7 @@ const items = [
   { href: '/projects', label: 'Projects' },
   { href: '/time/logs', label: 'Time Logs' },
   { href: '/schedule/roster', label: 'Schedule' },
+  { href: '/calendar', label: 'Calendar' },
   { href: '/leave', label: 'Leave' },
   { href: '/leave/approvals', label: 'Leave Approvals' },
   { href: '/break/approvals', label: 'Break Approvals' },
@@ -89,6 +90,7 @@ export default function SidebarNav() {
           if (i.label === 'Projects') return overrideRole !== 'super_admin'
           if (i.label === 'Time Logs') return (canReports || canTime || ['employee','member'].includes(overrideRole)) && overrideRole !== 'super_admin'
           if (i.label === 'Schedule') return canTime && overrideRole !== 'super_admin'
+          if (i.label === 'Calendar') return true
           if (i.label === 'Leave') return overrideRole !== 'super_admin'
           if (i.label === 'Leave Approvals') return canUsers && overrideRole !== 'super_admin'
           if (i.label === 'Break Approvals') return canUsers || ['manager','hr','admin','owner','super_admin'].includes(overrideRole)

@@ -22,6 +22,7 @@ export default function OrgStructurePage() {
   const [newDeptName, setNewDeptName] = useState('')
   const [newRoleName, setNewRoleName] = useState('')
   const [newRoleLevel, setNewRoleLevel] = useState<number>(1)
+  const [memberSearch, setMemberSearch] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -142,7 +143,12 @@ export default function OrgStructurePage() {
   ])
 
   const memberColumns = ['Member','Department','Role','Manager']
-  const memberRows = members.map(m => {
+  const memberRows = members.filter(m => {
+    const q = memberSearch.trim().toLowerCase()
+    if (!q) return true
+    const name = `${m.firstName||m.first_name} ${m.lastName||m.last_name}`.trim().toLowerCase()
+    return name.includes(q)
+  }).map(m => {
     return [
       `${m.firstName||m.first_name} ${m.lastName||m.last_name}`.trim(),
       (
@@ -185,6 +191,12 @@ export default function OrgStructurePage() {
         </GlassCard>
 
         <GlassCard title="Team Mapping">
+          <div className="row" style={{marginBottom:12, gap:12}}>
+            <div style={{flex:1,minWidth:220}}>
+              <div className="label">Search members</div>
+              <input className="input" value={memberSearch} onChange={e=>setMemberSearch(e.target.value)} placeholder="Search by name" />
+            </div>
+          </div>
           <GlassTable columns={memberColumns} rows={memberRows} />
         </GlassCard>
       </div>

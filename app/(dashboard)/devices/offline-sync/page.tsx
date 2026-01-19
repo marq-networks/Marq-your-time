@@ -22,6 +22,8 @@ export default function OfflineSyncPage() {
   const [rangeEnd, setRangeEnd] = useState('')
   const [openQueueId, setOpenQueueId] = useState<string|null>(null)
   const [items, setItems] = useState<{ item_index: number, payload_type: string, payload: any }[]>([])
+  const [statusFilter, setStatusFilter] = useState('')
+  const [batchSearch, setBatchSearch] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -73,11 +75,20 @@ export default function OfflineSyncPage() {
   }, [batches])
 
   const filteredBatches = useMemo(() => {
-    if (!rangeStart && !rangeEnd) return batches
     const s = rangeStart ? new Date(rangeStart + 'T00:00:00').getTime() : 0
     const e = rangeEnd ? new Date(rangeEnd + 'T23:59:59').getTime() : Number.MAX_SAFE_INTEGER
-    return batches.filter(b => { const t = new Date(b.received_at).getTime(); return t >= s && t <= e })
-  }, [batches, rangeStart, rangeEnd])
+    const q = batchSearch.trim().toLowerCase()
+    return batches.filter(b => {
+      const t = new Date(b.received_at).getTime()
+      if (rangeStart || rangeEnd) {
+        if (t < s || t > e) return false
+      }
+      if (statusFilter && b.status !== statusFilter) return false
+      if (!q) return true
+      const text = `${b.local_batch_id||''} ${(b as any).device_id||''} ${b.batch_type||''} ${b.status||''}`.toLowerCase()
+      return text.includes(q)
+    })
+  }, [batches, rangeStart, rangeEnd, statusFilter, batchSearch])
 
   const stats = useMemo(() => {
     const total = filteredBatches.length
@@ -142,6 +153,21 @@ export default function OfflineSyncPage() {
 
         <div style={{ marginTop: 16 }}>
           <GlassCard title="Batches">
+            <div className="row" style={{marginBottom:12, gap:12}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div className="label">Search batches</div>
+                <input className="input" placeholder="Search by ID, device, status" value={batchSearch} onChange={e=>setBatchSearch(e.target.value)} />
+              </div>
+              <div style={{width:200}}>
+                <div className="label">Status</div>
+                <GlassSelect value={statusFilter} onChange={(e:any)=>setStatusFilter(e.target.value)}>
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="applied">Applied</option>
+                  <option value="error">Error</option>
+                </GlassSelect>
+              </div>
+            </div>
             <GlassTable columns={batchCols} rows={filteredBatches.map(b => [
               b.local_batch_id,
               b.batch_type,

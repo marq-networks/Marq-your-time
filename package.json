@@ -26,6 +26,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
     "framer-motion": "^12.24.12",
+    "lucide-react": "^0.562.0",
     "next": "14.2.5",
     "nodemailer": "^7.0.11",
     "react": "18.3.1",
