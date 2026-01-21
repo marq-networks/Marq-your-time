@@ -1,5 +1,6 @@
 import { Organization, OrganizationInvite, OrgCreationInvite, SaaSSettings, User, Department, Role, Permission, TimeSession, BreakSession, DailyTimeSummary, TimeAnomaly, MemberPrivacySettings, TrackingSession, ActivityEvent, ActivityAppAlias, ScreenshotMeta, PayrollPeriod, MemberPayrollLine, SalaryType, MemberFine, MemberAdjustment, NotificationItem, NotificationPreferences, MemberRole, Survey, SurveyQuestion, SurveyResponse, HolidayCalendar, Holiday, DataRetentionPolicy, PrivacyRequest, PrivacyRequestStatus, OrgMembership, SupportTicket, SupportComment, OrgCategoryRule, OrgUrlOverride, AttendanceStatus, BreakType, BreakRule, BreakApproval, BreakAbuseFlag, BreakApprovalStatus } from './types'
 import { isSupabaseConfigured, supabaseServer } from './supabase'
+import { getApprovedDailySummaries } from './timesheets'
 import { newId, newToken } from './token'
 import { canConsumeSeat, canReduceSeats, isInviteExpired, inviteWindowHours } from './rules'
 import { categorizeUrl } from './categorization'
@@ -3797,7 +3798,57 @@ export async function generatePayrollLines(orgId: string, periodId: string) {
     if (isSupabaseConfigured()) {
       const sb = supabaseServer()
       const { data: rows } = await sb.from('daily_time_summaries').select('*').eq('member_id', u.id).eq('org_id', orgId).gte('date', start).lte('date', end)
-      const d = (rows || []).map(mapDailySummaryFromRow)
+      let d = (rows || []).map(mapDailySummaryFromRow)
+
+      // OVERRIDE with Approved Timesheet Data if available
+      try {
+        const approved = await getApprovedDailySummaries(orgId, u.id, start, end)
+        if (approved && approved.length > 0) {
+          d = d.map(existing => {
+            const match = approved.find((a: any) => a.date === existing.date)
+            if (match) {
+               return {
+                 ...existing,
+                 workedMinutes: match.workedMinutes,
+                 paidBreakMinutes: match.paidBreakMinutes, 
+                 unpaidBreakMinutes: match.unpaidBreakMinutes,
+                 extraMinutes: match.extraMinutes,
+                 // Recalculate short minutes based on scheduled vs approved worked
+                 shortMinutes: Math.max(0, existing.scheduledMinutes - match.workedMinutes)
+               }
+            }
+            return existing
+          })
+          
+          for (const a of approved) {
+            if (!d.find(existing => existing.date === a.date)) {
+               d.push({
+                 id: 'manual-' + a.date,
+                 orgId,
+                 memberId: u.id,
+                 date: a.date,
+                 scheduledMinutes: 0,
+                 workedMinutes: a.workedMinutes,
+                 activeMinutes: 0,
+                 manualMinutes: 0,
+                 idleMinutes: 0,
+                 paidBreakMinutes: a.paidBreakMinutes,
+                 unpaidBreakMinutes: a.unpaidBreakMinutes,
+                 extraMinutes: a.extraMinutes,
+                 shortMinutes: 0,
+                 isHoliday: false,
+                 isLeave: false,
+                 leaveId: undefined,
+                 notes: 'Approved Timesheet Entry',
+                 lastActivityAt: undefined
+               })
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch approved timesheets for payroll', e)
+      }
+
       const totals = aggregateDaily(d)
       const finesTotal = await sumFinesSupabase(sb, u.id, orgId, start, end)
       const adjustmentsTotal = await sumAdjustmentsSupabase(sb, u.id, orgId, start, end)

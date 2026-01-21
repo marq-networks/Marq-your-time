@@ -21,9 +21,16 @@ export default function MyAdjustmentsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
+  function getCookie(name: string) {
+    if (typeof document === 'undefined') return ''
+    return document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(`${name}=`))?.split('=')[1] || ''
+  }
+
   useEffect(() => { 
+    const uid = getCookie('current_user_id')
+    if (!uid) { window.location.href = '/auth/login'; return }
     try { 
-      const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''))
+      const r = normalizeRoleForApi(getCookie('current_role'))
       setRole(r) 
     } catch {} 
   }, [])
@@ -31,15 +38,18 @@ export default function MyAdjustmentsPage() {
   const loadOrgs = async () => {
     // For employees, typically 'my' orgs
     const endpoint = '/api/orgs/my'
-    const res = await fetch(endpoint, { cache: 'no-store' })
-    const data = await res.json()
-    const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
-    setOrgs(items)
-    if (!orgId && items.length) {
-      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
-      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
-      setOrgId(preferred)
-    }
+    try {
+      const res = await fetch(endpoint, { cache: 'no-store' })
+      if (res.status === 401) { window.location.href = '/auth/login'; return }
+      const data = await res.json()
+      const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
+      setOrgs(items)
+      if (!orgId && items.length) {
+        const cookieOrgId = getCookie('current_org_id')
+        const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+        setOrgId(preferred)
+      }
+    } catch (e) { console.error(e) }
   }
 
   const loadLogs = async () => {
@@ -56,7 +66,13 @@ export default function MyAdjustmentsPage() {
     if (dateTo) url += `&to=${dateTo}`
     
     try {
-      const res = await fetch(url, { cache: 'no-store' })
+      const res = await fetch(url, { 
+        cache: 'no-store',
+        headers: {
+          'x-user-id': getCookie('current_user_id'),
+          'x-role': getCookie('current_role')
+        }
+      })
       const data = await res.json()
       setLogs(data.items || [])
     } catch (e) {

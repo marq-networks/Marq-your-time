@@ -39,23 +39,44 @@ export default function HRAdjustmentsPage() {
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  function getCookie(name: string) {
+    if (typeof document === 'undefined') return ''
+    return document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(`${name}=`))?.split('=')[1] || ''
+  }
+
   useEffect(() => { 
+    // Auth Check
+    const uid = getCookie('current_user_id')
+    if (!uid) {
+      // If no cookie, try to see if we are logged out
+      window.location.href = '/auth/login'
+      return
+    }
+
     try { 
-      const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''))
+      const r = normalizeRoleForApi(getCookie('current_role'))
       setRole(r) 
     } catch {} 
   }, [])
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
-    const res = await fetch(endpoint, { cache: 'no-store' })
-    const data = await res.json()
-    const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
-    setOrgs(items)
-    if (!orgId && items.length) {
-      const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
-      const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
-      setOrgId(preferred)
+    try {
+      const res = await fetch(endpoint, { cache: 'no-store' })
+      if (res.status === 401) {
+         window.location.href = '/auth/login'
+         return
+      }
+      const data = await res.json()
+      const items: Org[] = Array.isArray(data.items) ? (data.items as Org[]) : []
+      setOrgs(items)
+      if (!orgId && items.length) {
+        const cookieOrgId = getCookie('current_org_id')
+        const preferred = items.find(o => o.id === cookieOrgId)?.id || items[0].id
+        setOrgId(preferred)
+      }
+    } catch (e) {
+      console.error(e)
     }
   }
 
@@ -76,7 +97,13 @@ export default function HRAdjustmentsPage() {
     if (dateTo) url += `&to=${dateTo}`
     
     try {
-      const res = await fetch(url, { cache: 'no-store' })
+      const res = await fetch(url, { 
+        cache: 'no-store',
+        headers: {
+          'x-user-id': getCookie('current_user_id'),
+          'x-role': getCookie('current_role')
+        }
+      })
       const data = await res.json()
       setLogs(data.items || [])
     } catch (e) {
@@ -131,27 +158,42 @@ export default function HRAdjustmentsPage() {
         const fd = new FormData()
         fd.append('file', file)
         fd.append('orgId', orgId)
-        const upRes = await fetch('/api/hr-adjustments-log/upload', { method: 'POST', body: fd })
-        if (!upRes.ok) throw new Error('Upload failed')
+        const upRes = await fetch('/api/hr-adjustments-log/upload', { 
+          method: 'POST', 
+          body: fd,
+          headers: {
+            'x-user-id': getCookie('current_user_id'),
+            'x-role': getCookie('current_role')
+          }
+        })
+        if (!upRes.ok) {
+           const errData = await upRes.json().catch(() => ({}))
+           throw new Error(errData.error || errData.details?.message || `Upload failed: ${upRes.statusText}`)
+        }
         const upData = await upRes.json()
         attachment = { path: upData.path, url: upData.url, name: file.name }
       }
 
       const payload = {
-        orgId,
-        employeeUserId: formData.employeeUserId,
+        org_id: orgId,
+        employee_user_id: formData.employeeUserId,
         module: formData.module,
-        entityTable: 'manual_entry',
-        fieldName: formData.fieldName || 'manual_adjustment',
-        oldValue: formData.oldValue,
-        newValue: formData.newValue,
+        entity_table: 'manual_entry',
+        entity_id: null,
+        field_name: formData.fieldName || 'manual_adjustment',
+        old_value: formData.oldValue,
+        new_value: formData.newValue,
         reason: formData.reason,
-        metadata: attachment ? { attachment } : undefined
+        attachment_path: attachment ? attachment.path : null
       }
 
       const res = await fetch('/api/hr-adjustments-log/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': getCookie('current_user_id'),
+          'x-role': getCookie('current_role')
+        },
         body: JSON.stringify(payload)
       })
       if (!res.ok) {

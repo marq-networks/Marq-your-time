@@ -16,10 +16,13 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1')
   const offset = (page - 1) * limit
 
-  const actorId = req.headers.get('x-user-id')
-  const actorRole = (req.headers.get('x-role') || '').toLowerCase()
+  const actorId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
+  const actorRole = (req.headers.get('x-role') || req.cookies.get('current_role')?.value || '').toLowerCase()
 
   if (!actorId) {
+    console.log('[HR_LOG_LIST] UNAUTHORIZED: Missing actorId')
+    console.log('Headers:', Object.fromEntries(req.headers))
+    console.log('Cookies:', req.cookies.getAll())
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
   }
 
@@ -29,18 +32,16 @@ export async function GET(req: NextRequest) {
 
   // 1. Permission Check
   // Check if actor is in the org and get their role
-  const { data: membership } = await sb
-    .from('org_users')
-    .select('role')
-    .eq('org_id', orgId)
-    .eq('user_id', actorId)
-    .single()
+  const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
+  const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
 
-  if (!membership) {
+  const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+  
+  if (!effectiveRole) {
     return NextResponse.json({ error: 'FORBIDDEN_ORG_ACCESS' }, { status: 403 })
   }
 
-  const isAdmin = ['admin', 'super_admin', 'owner'].includes(membership.role)
+  const isAdmin = ['admin', 'super_admin', 'owner'].includes(effectiveRole)
 
   // If not admin, ensure they are only requesting their own logs
   // OR force the filter to their own ID

@@ -15,12 +15,14 @@ const items = [
   { href: '/my/activity', label: 'My Activity' },
   { href: '/my/earnings', label: 'My Earnings' },
   { href: '/my-adjustments', label: 'My Adjustments' },
+  { href: '/my-timesheets', label: 'My Timesheets' },
   { href: '/projects', label: 'Projects' },
   { href: '/time/logs', label: 'Time Logs' },
   { href: '/schedule/roster', label: 'Schedule' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/leave', label: 'Leave' },
   { href: '/leave/approvals', label: 'Leave Approvals' },
+  { href: '/timesheets/approvals', label: 'Timesheet Approvals' },
   { href: '/break/approvals', label: 'Break Approvals' },
   { href: '/activity/overview', label: 'Activity Overview' },
   { href: '/analytics', label: 'Analytics' },
@@ -113,6 +115,8 @@ export default function SidebarNav() {
           if (i.label === 'Insights') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'HR Log') return canReports || ['admin','owner','super_admin','manager','hr'].includes(overrideRole)
           if (i.label === 'My Adjustments') return overrideRole !== 'super_admin'
+          if (i.label === 'My Timesheets') return ['employee','member'].includes(overrideRole)
+          if (i.label === 'Timesheet Approvals') return ['admin','owner','super_admin','manager','hr'].includes(overrideRole)
           const currentRole = overrideRole
           if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
           return true

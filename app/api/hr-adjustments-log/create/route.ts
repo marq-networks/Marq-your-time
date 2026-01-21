@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
   } = body
 
   // Headers for actor context
-  const actor_user_id = req.headers.get('x-user-id')
-  const actor_role = (req.headers.get('x-role') || '').toLowerCase()
+  const actor_user_id = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
+  const actor_role = (req.headers.get('x-role') || req.cookies.get('current_role')?.value || '').toLowerCase()
 
   // 1. Validation
   if (!actor_user_id || !org_id) {
@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Check role
-  const allowedRoles = ['admin', 'super_admin', 'owner']
+  const allowedRoles = ['admin', 'super_admin', 'owner', 'manager']
   if (!allowedRoles.includes(actor_role)) {
-    return NextResponse.json({ error: 'FORBIDDEN_ROLE' }, { status: 403 })
+    return NextResponse.json({ error: 'FORBIDDEN_ROLE', details: `Role ${actor_role} not allowed` }, { status: 403 })
   }
 
   // Check required fields
@@ -46,14 +46,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Check if actor belongs to org (Double check)
-  const { data: membership } = await sb
-    .from('org_users')
-    .select('role')
-    .eq('org_id', org_id)
-    .eq('user_id', actor_user_id)
-    .single()
+  const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actor_user_id).eq('org_id', org_id).maybeSingle()
+  const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actor_user_id).eq('org_id', org_id).maybeSingle()
 
-  if (!membership || !allowedRoles.includes(membership.role)) {
+  const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+
+  if (!effectiveRole || !allowedRoles.includes(effectiveRole)) {
     return NextResponse.json({ error: 'FORBIDDEN_ORG_ACCESS' }, { status: 403 })
   }
 
@@ -61,7 +59,7 @@ export async function POST(req: NextRequest) {
   const { error } = await createHRLog({
     org_id,
     actor_user_id,
-    actor_role: membership.role,
+    actor_role: effectiveRole,
     employee_user_id,
     module,
     entity_table,

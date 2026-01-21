@@ -12,12 +12,34 @@ export async function POST(req: NextRequest) {
     }
 
     const sb = supabaseServer()
+
+    // Permission Check
+    const actorId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
+    if (!actorId) {
+       return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+    }
+
+    const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
+    const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
+    const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+
+    if (!effectiveRole || !['admin', 'super_admin', 'owner', 'manager'].includes(effectiveRole)) {
+      return NextResponse.json({ error: 'FORBIDDEN', details: `Role ${effectiveRole} not allowed` }, { status: 403 })
+    }
+
     const ext = file.name.split('.').pop()
     const fileName = `${orgId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     
     // Convert File to ArrayBuffer for Supabase upload
     const buffer = await file.arrayBuffer()
     
+    // Ensure bucket exists
+    const { data: bucket } = await sb.storage.getBucket('hr-adjustments')
+    if (!bucket) {
+      console.log('Bucket hr-adjustments not found, creating...')
+      await sb.storage.createBucket('hr-adjustments', { public: false, fileSizeLimit: 5242880 }) // 5MB
+    }
+
     const { data, error } = await sb.storage
       .from('hr-adjustments')
       .upload(fileName, buffer, {
@@ -27,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error('Upload error:', error)
-      return NextResponse.json({ error: 'UPLOAD_FAILED' }, { status: 500 })
+      return NextResponse.json({ error: 'UPLOAD_FAILED', details: error }, { status: 500 })
     }
 
     // Get public URL (or just return path)
