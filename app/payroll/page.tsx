@@ -7,6 +7,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Period = { id: string, name: string, startDate: string, endDate: string, status: string }
@@ -25,6 +27,7 @@ export default function PayrollDashboardPage() {
   const [fineOpen, setFineOpen] = useState(false)
   const [fineTarget, setFineTarget] = useState<{ memberId: string, currency: string } | null>(null)
   const [fineForm, setFineForm] = useState({ date: '', amount: 0, reason: '' })
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
  
   const loadOrgs = async () => {
@@ -72,6 +75,39 @@ export default function PayrollDashboardPage() {
     setFineOpen(false)
     setFineForm({ date: '', amount: 0, reason: '' })
     loadSummary(orgId, selected)
+  }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId || !selected) return
+    setIsExporting(true)
+    try {
+      const exportItems = lines
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: 'memberName' },
+        { header: 'Department', accessor: 'departmentName' },
+        { header: 'Scheduled', accessor: (l) => fmtHM(l.totalScheduledMinutes) },
+        { header: 'Worked', accessor: (l) => fmtHM(l.totalWorkedMinutes) },
+        { header: 'Extra', accessor: (l) => fmtHM(l.totalExtraMinutes) },
+        { header: 'Short', accessor: (l) => fmtHM(l.totalShortMinutes) },
+        { header: 'Base', accessor: (l) => fmtCurrency(l.baseEarnings, l.currency) },
+        { header: 'Extra Pay', accessor: (l) => fmtCurrency(l.extraEarnings, l.currency) },
+        { header: 'Deduction', accessor: (l) => fmtCurrency(l.deductionForShort, l.currency) },
+        { header: 'Fines', accessor: (l) => fmtCurrency(l.finesTotal, l.currency) },
+        { header: 'Adjustments', accessor: (l) => fmtCurrency(l.adjustmentsTotal, l.currency) },
+        { header: 'Net', accessor: (l) => fmtCurrency(l.netPayable, l.currency) },
+      ]
+
+      const periodName = periods.find(p => p.id === selected)?.name || 'Period'
+      const filename = `marq_payroll_${periodName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}`
+      
+      if (type === 'csv') exportToCsv(exportItems, exportColumns, filename)
+      else exportToPdf(exportItems, exportColumns, `Payroll Summary - ${periodName}`, filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const columns = ['Member','Department','Scheduled','Worked','Extra','Short','Base','Extra','Short Deduction','Fines','Adjustments','Net','Actions']
@@ -145,6 +181,9 @@ export default function PayrollDashboardPage() {
       </GlassCard>
 
       <GlassCard title="Member Payroll">
+        <div className="row" style={{justifyContent: 'flex-end', marginBottom: 12}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+        </div>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 

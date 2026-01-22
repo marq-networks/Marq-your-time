@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type ApiClient = { id: string, name: string, scopes: string[], is_active: boolean, created_at: string, last_used_at?: string|null }
 type Webhook = { id: string, name: string, target_url: string, events: string[], is_active: boolean, created_at: string, last_triggered_at?: string|null }
@@ -22,6 +24,8 @@ export default function IntegrationsApiPage() {
   const [newHook, setNewHook] = useState({ name: '', target_url: '', events: [] as string[] })
   const [viewHook, setViewHook] = useState<Webhook | null>(null)
   const [history, setHistory] = useState<EventRow[]>([])
+  const [isExportingClients, setIsExportingClients] = useState(false)
+  const [isExportingHooks, setIsExportingHooks] = useState(false)
   const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
@@ -42,6 +46,50 @@ export default function IntegrationsApiPage() {
     const d = await r.json(); if(d.item){ setCreateHookOpen(false); setNewHook({ name:'', target_url:'', events:[] }); await loadHooks(orgId); alert(`Secret: ${d.secret}`) }
   }
   const toggleHook = async (id: string, active: boolean) => { await fetch('/api/integrations/webhooks', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ action:'toggle', id, is_active: active }) }); await loadHooks(orgId) }
+
+  const handleExportClients = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExportingClients(true)
+    try {
+      const filename = `marq_api_clients_${new Date().toISOString().split('T')[0]}`
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Scopes', accessor: (c: any) => c.scopes.join(', ') },
+        { header: 'Created', accessor: (c: any) => new Date(c.created_at).toLocaleString() },
+        { header: 'Last Used', accessor: (c: any) => c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '-' },
+        { header: 'Status', accessor: (c: any) => c.is_active ? 'Active' : 'Inactive' }
+      ]
+      if (type === 'csv') await exportToCsv(clients, exportColumns, filename)
+      else await exportToPdf(clients, exportColumns, 'API Keys', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExportingClients(false)
+    }
+  }
+
+  const handleExportHooks = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExportingHooks(true)
+    try {
+      const filename = `marq_webhooks_${new Date().toISOString().split('T')[0]}`
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Target URL', accessor: 'target_url' },
+        { header: 'Events', accessor: (h: any) => h.events.join(', ') },
+        { header: 'Status', accessor: (h: any) => h.is_active ? 'Active' : 'Inactive' },
+        { header: 'Last Triggered', accessor: (h: any) => h.last_triggered_at ? new Date(h.last_triggered_at).toLocaleString() : '-' }
+      ]
+      if (type === 'csv') await exportToCsv(hooks, exportColumns, filename)
+      else await exportToPdf(hooks, exportColumns, 'Webhooks', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExportingHooks(false)
+    }
+  }
 
   const apiColumns = ['Name','Scopes','Created','Last Used','Status','Actions']
   const apiRows = clients.map(c => [ c.name, c.scopes.join(', '), new Date(c.created_at).toLocaleString(), c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '-', c.is_active ? <span className="badge">Active</span> : <span className="badge">Inactive</span>, <div style={{display:'flex',gap:8}}><GlassButton variant='secondary' onClick={()=>toggleClient(c.id, !c.is_active)}>{c.is_active?'Deactivate':'Activate'}</GlassButton></div> ])
@@ -65,11 +113,11 @@ export default function IntegrationsApiPage() {
           <GlassButton onClick={()=>setCreateKeyOpen(true)}>Create API Key</GlassButton>
           <GlassButton onClick={()=>setCreateHookOpen(true)}>Add Webhook</GlassButton>
         </div>
-        <GlassCard title="API Keys">
+        <GlassCard title="API Keys" right={<ExportMenu onExport={handleExportClients} isExporting={isExportingClients} />}>
           <GlassTable columns={apiColumns} rows={apiRows} />
         </GlassCard>
         <div style={{height:12}} />
-        <GlassCard title="Webhooks">
+        <GlassCard title="Webhooks" right={<ExportMenu onExport={handleExportHooks} isExporting={isExportingHooks} />}>
           <GlassTable columns={hookColumns} rows={hookRows} />
         </GlassCard>
       </div>

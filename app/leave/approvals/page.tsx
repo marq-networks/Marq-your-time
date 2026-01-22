@@ -7,6 +7,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 
@@ -20,6 +22,37 @@ export default function LeaveApprovalsPage() {
   const [role, setRole] = useState('')
   const [actorId, setActorId] = useState('')
   const [history, setHistory] = useState<any[]>([])
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const allItems = [
+        ...items.map(i => ({ ...i, status: 'pending' })),
+        ...history
+      ]
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: 'member_id' },
+        { header: 'Type', accessor: 'type_code' },
+        { header: 'Start Date', accessor: 'start_date' },
+        { header: 'End Date', accessor: 'end_date' },
+        { header: 'Days', accessor: (i) => String(i.days_count || 0) },
+        { header: 'Reason', accessor: 'reason' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Reviewed At', accessor: (i) => i.reviewed_at ? new Date(i.reviewed_at).toLocaleString() : '-' },
+        { header: 'Note', accessor: 'review_note' },
+      ]
+      const filename = `marq_leave_approvals_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') exportToCsv(allItems, exportColumns, filename)
+      else exportToPdf(allItems, exportColumns, 'Leave Approvals', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -101,6 +134,9 @@ export default function LeaveApprovalsPage() {
 
   return (
     <AppShell title="Leave Approvals">
+      <div className="row" style={{justifyContent:'flex-end',marginBottom:16}}>
+        <ExportMenu isExporting={isExporting} onExport={handleExport} />
+      </div>
       <GlassCard title="Organization">
         {role === 'super_admin' ? (
           <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>

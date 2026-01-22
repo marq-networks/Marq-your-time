@@ -8,6 +8,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import Toast from '@components/Toast'
 import usePermission from '@lib/hooks/usePermission'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Role = { id: string, name: string, permissions: string[] }
@@ -21,6 +23,7 @@ export default function RolesPage() {
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [newRole, setNewRole] = useState<{name:string,permissions:string[]}>({ name:'', permissions: [] })
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => {
     const res = await fetch('/api/org/list', { cache: 'no-store' })
@@ -37,6 +40,30 @@ export default function RolesPage() {
 
   useEffect(() => { loadOrgs() }, [])
   useEffect(() => { if (orgId) loadRoles(orgId) }, [orgId])
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = roles
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Permissions', accessor: (r) => r.permissions.join(', ') }
+      ]
+
+      const filename = `marq_roles_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Roles & Permissions', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const togglePerm = (list: string[], p: string) => list.includes(p) ? list.filter(x=>x!==p) : [...list, p]
 
@@ -81,7 +108,12 @@ export default function RolesPage() {
   const canManageRoles = usePermission('manage_users').allowed && usePermission('manage_settings').allowed
   return (
     <AppShell title="Roles & Permissions">
-      <GlassCard title="Roles & Permissions" right={canManageRoles ? <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Add Role</GlassButton> : undefined}>
+      <GlassCard title="Roles & Permissions" right={
+        <div className="row" style={{gap:12,alignItems:'center'}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+          {canManageRoles && <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Add Role</GlassButton>}
+        </div>
+      }>
         <div className="row" style={{marginBottom:12,gap:12}}>
           <div>
             <div className="label">Organization</div>

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import usePermission from '@lib/hooks/usePermission'
@@ -68,6 +70,71 @@ export default function AnalyticsPage() {
   const [members, setMembers] = useState<any[]>([])
   const [costHours, setCostHours] = useState<{ date: string, totalWorkedMinutes: number, payrollCost: number }[]>([])
   const [sortKey, setSortKey] = useState('worked')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportDepartments = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = deptPerf.map(d => ({
+        name: d.department_name,
+        members: d.members_count || 0,
+        worked: Math.round((d.worked_minutes || 0) / 60),
+        extra: Math.round((d.extra_minutes || 0) / 60),
+        productivity: `${Math.round(d.productivity_score || 0)}%`
+      }))
+
+      const columns: ExportColumn[] = [
+        { header: 'Department', accessor: 'name' },
+        { header: 'Members', accessor: 'members' },
+        { header: 'Worked Hours', accessor: 'worked' },
+        { header: 'Extra Hours', accessor: 'extra' },
+        { header: 'Productivity Score', accessor: 'productivity' }
+      ]
+
+      const filename = `marq_analytics_departments_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, columns, filename)
+      else await exportToPdf(exportItems, columns, 'Department Performance', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleExportMembers = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = members.map(m => ({
+        name: m.name,
+        dept: m.dept,
+        worked: Math.round((m.worked_minutes || 0) / 60),
+        extra: Math.round((m.extra_minutes || 0) / 60),
+        short: Math.round((m.short_minutes || 0) / 60),
+        productivity: `${Math.round(m.productivity || 0)}%`,
+        net_pay: `$${Math.round(m.net_pay || 0).toLocaleString()}`
+      }))
+
+      const columns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Dept', accessor: 'dept' },
+        { header: 'Worked', accessor: 'worked' },
+        { header: 'Extra', accessor: 'extra' },
+        { header: 'Short', accessor: 'short' },
+        { header: 'Productivity', accessor: 'productivity' },
+        { header: 'Net Pay', accessor: 'net_pay' }
+      ]
+
+      const filename = `marq_analytics_members_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, columns, filename)
+      else await exportToPdf(exportItems, columns, 'Member Leaderboard', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const res = await fetch('/api/org/list', { cache:'no-store' })
@@ -236,7 +303,7 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="grid-1 mt-5">
-        <GlassCard title="Department Performance">
+        <GlassCard title="Department Performance" right={<ExportMenu onExport={handleExportDepartments} isExporting={isExporting} />}>
           <div style={{ overflowX:'auto' }}>
           <GlassTable
             columns={["Department","Members","Worked Hours","Extra Hours","Productivity Score"]}
@@ -256,7 +323,8 @@ export default function AnalyticsPage() {
       </div>
 
       <GlassCard title="Member Leaderboard" right={(
-        <div className="row mt-5">
+        <div className="row mt-5" style={{ gap: 8 }}>
+          <ExportMenu onExport={handleExportMembers} isExporting={isExporting} />
           <GlassSelect value={sortKey} onChange={(e:any)=>setSortKey(e.target.value)}>
             <option value="worked">Worked</option>
             <option value="extra">Extra</option>

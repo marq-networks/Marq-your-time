@@ -13,15 +13,25 @@ export interface CalendarEvent {
   status: string // e.g. 'approved', 'pending', 'late', 'present'
   startTime?: number // minutes from midnight
   endTime?: number // minutes from midnight
+  startAt?: string // ISO string for client-side local time calc
+  endAt?: string // ISO string for client-side local time calc
   title: string
   metadata?: any
+}
+
+function getMinutesFromTimestamp(timestamp: string | null): number | undefined {
+  if (!timestamp) return undefined
+  const date = new Date(timestamp)
+  if (isNaN(date.getTime())) return undefined
+  return date.getUTCHours() * 60 + date.getUTCMinutes()
 }
 
 export async function getCalendarEventsForUsers(
   userIds: string[],
   orgId: string,
   from: string,
-  to: string
+  to: string,
+  projectId?: string
 ): Promise<CalendarEvent[]> {
   const events: CalendarEvent[] = []
   const sb = isSupabaseConfigured() ? supabaseServer() : null
@@ -31,13 +41,19 @@ export async function getCalendarEventsForUsers(
   }
   
   // 1. Fetch Work Sessions (Attendance)
-  const { data: sessions } = await sb
+  let query = sb
     .from('time_sessions')
     .select('*')
     .in('member_id', userIds)
     .eq('org_id', orgId)
     .gte('date', from)
     .lte('date', to)
+
+  if (projectId) {
+    query = query.eq('project_id', projectId)
+  }
+
+  const { data: sessions } = await query
 
   if (sessions) {
     sessions.forEach((s: any) => {
@@ -47,8 +63,10 @@ export async function getCalendarEventsForUsers(
         date: s.date,
         type: 'attendance',
         status: s.status,
-        startTime: s.start_time,
-        endTime: s.end_time,
+        startTime: getMinutesFromTimestamp(s.start_time),
+        endTime: getMinutesFromTimestamp(s.end_time),
+        startAt: s.start_time,
+        endAt: s.end_time,
         title: s.project_name ? `Work: ${s.project_name}` : 'Work Session',
         metadata: {
             projectId: s.project_id,
@@ -78,8 +96,10 @@ export async function getCalendarEventsForUsers(
                     date: session.date,
                     type: 'break',
                     status: 'completed',
-                    startTime: b.start_time,
-                    endTime: b.end_time,
+                    startTime: getMinutesFromTimestamp(b.start_time),
+                    endTime: getMinutesFromTimestamp(b.end_time),
+                    startAt: b.start_time,
+                    endAt: b.end_time,
                     title: b.label || 'Break',
                     metadata: {
                         isPaid: b.is_paid
@@ -88,6 +108,11 @@ export async function getCalendarEventsForUsers(
             }
         })
     }
+  }
+
+  // If filtering by project, we skip non-project events (leaves, holidays, daily summaries)
+  if (projectId) {
+    return events
   }
 
   // 3. Fetch Leave Requests
@@ -186,8 +211,9 @@ export async function getCalendarEvents(
   userId: string,
   orgId: string,
   from: string,
-  to: string
+  to: string,
+  projectId?: string
 ): Promise<CalendarEvent[]> {
-    return getCalendarEventsForUsers([userId], orgId, from, to)
+    return getCalendarEventsForUsers([userId], orgId, from, to, projectId)
 }
 

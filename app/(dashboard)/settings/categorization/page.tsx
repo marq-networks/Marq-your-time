@@ -6,6 +6,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import Toast from '@components/Toast'
 import TagPill from '@components/ui/TagPill'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { UrlCategory } from '@lib/categorization'
 
 const DEFAULT_CATEGORIES: UrlCategory[] = [
@@ -20,6 +22,10 @@ export default function CategorizationSettings() {
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   
+  // Export State
+  const [isExportingRules, setIsExportingRules] = useState(false)
+  const [isExportingOverrides, setIsExportingOverrides] = useState(false)
+
   // New Override Form
   const [newUrl, setNewUrl] = useState('')
   const [newCategory, setNewCategory] = useState<string>('Work-related')
@@ -71,6 +77,30 @@ export default function CategorizationSettings() {
       load()
     } else {
       setToast({ m: 'Failed to update rule', t: 'error' })
+    }
+  }
+
+  const handleExportOverrides = async (type: 'csv' | 'pdf') => {
+    setIsExportingOverrides(true)
+    try {
+      const exportItems = overrides.map(o => ({
+        url: o.urlPattern,
+        category: o.categoryKey,
+        created: new Date(o.createdAt).toLocaleString()
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'URL Pattern', accessor: 'url' },
+        { header: 'Category', accessor: 'category' },
+        { header: 'Created', accessor: 'created' },
+      ]
+      const filename = `url_overrides_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'URL Overrides', filename)
+    } catch (e) {
+      console.error(e)
+      setToast({ m: 'Export failed', t: 'error' })
+    } finally {
+      setIsExportingOverrides(false)
     }
   }
 
@@ -181,7 +211,7 @@ export default function CategorizationSettings() {
             </div>
           </GlassCard>
 
-          <GlassCard title="URL Overrides">
+          <GlassCard title="URL Overrides" right={<ExportMenu onExport={handleExportOverrides} isExporting={isExportingOverrides} />}>
             <div style={{marginBottom:12,opacity:0.8,fontSize:13}}>
               Add rules for specific domains or paths to fine-tune how work and distractions are recognized.
             </div>

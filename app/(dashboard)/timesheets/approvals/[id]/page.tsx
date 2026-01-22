@@ -5,6 +5,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 export default function TimesheetReviewPage() {
   const params = useParams()
@@ -13,9 +15,35 @@ export default function TimesheetReviewPage() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [reason, setReason] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const userId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
   const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = data?.items || []
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'date' },
+        { header: 'Worked', accessor: (it) => `${Math.round(it.totals.worked_minutes / 60)}h ${it.totals.worked_minutes % 60}m` },
+        { header: 'Breaks', accessor: (it) => `${it.totals.break_minutes}m` }
+      ]
+      
+      const filename = `marq_timesheet_${id}_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Timesheet Detail', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadData = async () => {
     if (!id) return
@@ -136,7 +164,7 @@ export default function TimesheetReviewPage() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <GlassCard title="Daily Breakdown">
+        <GlassCard title="Daily Breakdown" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
           <GlassTable columns={['Date', 'Worked', 'Breaks']} rows={itemRows} />
         </GlassCard>
       </div>

@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type DeviceRow = { device_name: string, org: string, agent_version?: string | null, update_status?: string | null, last_seen?: string | null }
@@ -17,6 +19,7 @@ export default function AgentVersionsPage() {
   const [minVer, setMinVer] = useState('')
   const [dlUrl, setDlUrl] = useState('')
   const [blockBelow, setBlockBelow] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]) }
   const loadMin = async () => { const res = await fetch('/api/hq/agent-version/minimum', { cache:'no-store', headers:{ 'x-role':'super_admin' }}); const d = await res.json(); setMinVer(d.minimum_version||''); setDlUrl(d.download_url||''); setBlockBelow(!!d.block_below) }
@@ -42,6 +45,33 @@ export default function AgentVersionsPage() {
   const columns = ['Device','Organization','Agent Version','Status','Last Seen']
   const rows = devices.map(d => [ d.device_name, d.org, d.agent_version || '-', <span className="badge">{d.update_status || 'unknown'}</span>, d.last_seen ? new Date(d.last_seen).toLocaleString() : '-' ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = devices
+      const exportColumns: ExportColumn[] = [
+        { header: 'Device', accessor: 'device_name' },
+        { header: 'Organization', accessor: 'org' },
+        { header: 'Agent Version', accessor: (d) => d.agent_version || '-' },
+        { header: 'Status', accessor: (d) => d.update_status || 'unknown' },
+        { header: 'Last Seen', accessor: (d) => d.last_seen ? new Date(d.last_seen).toLocaleString() : '-' }
+      ]
+      
+      const filename = `marq_agent_versions_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Agent Versions', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Agent Versions">
       <GlassCard title="Filters">
@@ -65,7 +95,7 @@ export default function AgentVersionsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Devices">
+      <GlassCard title="Devices" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 

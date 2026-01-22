@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -16,11 +18,38 @@ export default function MemberInsightsPage({ params }: { params: { member_id: st
   const [start, setStart] = useState(new Date(Date.now()-6*86400000).toISOString().slice(0,10))
   const [end, setEnd] = useState(new Date().toISOString().slice(0,10))
   const [items, setItems] = useState<Snapshot[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]) }
   const loadItems = async () => { if (!orgId || !memberId) return; const qs = new URLSearchParams(); qs.set('org_id', orgId); qs.set('target_type', 'member'); qs.set('target_id', memberId); qs.set('period_start', start); qs.set('period_end', end); const res = await fetch(`/api/ai-insights/list?${qs.toString()}`, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]) }
   const generate = async () => { if (!orgId || !memberId) return; await fetch('/api/ai-insights/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-user-id':'demo-user' }, body: JSON.stringify({ org_id: orgId, target_type: 'member', target_id: memberId, period_start: start, period_end: end }) }); loadItems() }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'snapshotDate' },
+        { header: 'Summary', accessor: (item) => item.summary || 'No summary' },
+        { header: 'Created', accessor: (item) => new Date(item.createdAt).toLocaleString() }
+      ]
+      const filename = `member_insights_${memberId}_${start}_${end}`
+      if (type === 'csv') {
+        await exportToCsv(items, exportColumns, filename)
+      } else {
+        await exportToPdf(items, exportColumns, 'Member Insights', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) { loadMembers(orgId); loadItems() } }, [orgId, start, end])
@@ -30,6 +59,7 @@ export default function MemberInsightsPage({ params }: { params: { member_id: st
       <div style={{ background: 'linear-gradient(135deg, #d9c7b2, #e8ddce 50%, #c9b8a4)', padding: 8, borderRadius: 28 }}>
         <GlassCard title="Filters" right={(
           <div className="row" style={{ gap:12 }}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
             <GlassButton variant="primary" onClick={()=>generate()} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Generate</GlassButton>
           </div>
         )}>

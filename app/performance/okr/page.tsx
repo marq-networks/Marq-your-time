@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Dept = { id: string, name: string }
@@ -32,6 +34,66 @@ export default function OKRPage() {
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
   const [items, setItems] = useState<OKRSet[]>([])
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      // Flatten data for export
+      const exportItems: any[] = []
+      items.forEach(set => {
+        set.objectives.forEach(obj => {
+          obj.key_results.forEach(kr => {
+            exportItems.push({
+              setTitle: set.title,
+              level: set.level,
+              objectiveTitle: obj.title,
+              weight: obj.weight,
+              krLabel: kr.label,
+              current: kr.current_value,
+              target: kr.target_value,
+              unit: kr.unit || '',
+              progress: progressPercent(kr)
+            })
+          })
+        })
+      })
+
+      if (exportItems.length === 0) {
+        alert('No OKR items to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'OKR Set', accessor: 'setTitle' },
+        { header: 'Level', accessor: 'level' },
+        { header: 'Objective', accessor: 'objectiveTitle' },
+        { header: 'Weight', accessor: (i) => String(i.weight) },
+        { header: 'Key Result', accessor: 'krLabel' },
+        { header: 'Current', accessor: (i) => `${i.current}${i.unit ? ' ' + i.unit : ''}` },
+        { header: 'Target', accessor: (i) => `${i.target}${i.unit ? ' ' + i.unit : ''}` },
+        { header: 'Progress', accessor: (i) => `${i.progress}%` }
+      ]
+
+      const filename = `marq_okrs_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Performance OKRs', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadDepartments = async (oid: string) => { const res = await fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setDepartments(d.items||[]) }
@@ -55,7 +117,7 @@ export default function OKRPage() {
 
   return (
     <AppShell title="Performance & OKRs">
-      <GlassCard title="Filters">
+      <GlassCard title="Filters" right={<ExportMenu isExporting={isExporting} onExport={handleExport} />}>
         <div className="grid grid-3">
           <div>
             <div className="label">Organization</div>

@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 
@@ -15,6 +17,7 @@ export default function BillingPlansPage() {
   const [seats, setSeats] = useState('')
   const [preview, setPreview] = useState<{ monthly: number, currency: string } | null>(null)
   const [search, setSearch] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadPlans = async () => { const res = await fetch('/api/billing/plans/list', { cache:'no-store' }); const d = await res.json(); setPlans(d.items||[]) }
@@ -38,6 +41,34 @@ export default function BillingPlansPage() {
     const text = `${p.code||''} ${p.name||''} ${p.currency||''}`.toLowerCase()
     return text.includes(q)
   })
+  
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = filteredPlans
+      const exportColumns: ExportColumn[] = [
+        { header: 'Code', accessor: 'code' },
+        { header: 'Name', accessor: 'name' },
+        { header: 'Price/Seat', accessor: (p) => `$${p.price_per_seat}` },
+        { header: 'Price/Login', accessor: (p) => p.price_per_login ? `$${p.price_per_login}` : '-' },
+        { header: 'Currency', accessor: 'currency' }
+      ]
+      
+      const filename = `marq_billing_plans_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Billing Plans', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const rows = filteredPlans.map(p => [ p.code, p.name, `$${p.price_per_seat}`, p.price_per_login? `$${p.price_per_login}`:'-', p.currency, <GlassButton key={p.id} onClick={()=>{ subscribe(p.id) }}>Choose</GlassButton> ])
 
   return (
@@ -78,11 +109,12 @@ export default function BillingPlansPage() {
 
       <div className="glass-panel bg-gradient-to-br from-[#d9c7b2] via-[#e8ddce] to-[#c9b8a4]" style={{padding:20,borderRadius:28,border:'1px solid rgba(255,255,255,0.35)',backdropFilter:'blur(12px)'}}>
         <div className="card-title">Available Plans</div>
-        <div className="row" style={{margin:'12px 0'}}>
+        <div className="row" style={{margin:'12px 0', justifyContent: 'space-between', alignItems: 'flex-end'}}>
           <div style={{flex:1,maxWidth:260}}>
             <div className="label">Search plans</div>
             <input className="input" placeholder="Search by code, name, currency" value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
         </div>
         <GlassTable columns={columns} rows={rows} />
       </div>

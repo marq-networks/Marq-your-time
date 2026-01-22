@@ -7,6 +7,8 @@ import GlassInput from '@components/ui/GlassInput'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type Member = { id: string, firstName: string, lastName: string }
 
@@ -20,6 +22,7 @@ export default function ProjectsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [formData, setFormData] = useState<any>({})
   const [role, setRole] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     try {
@@ -107,6 +110,62 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      let exportItems: any[] = []
+      let exportColumns: ExportColumn[] = []
+      let filename = `marq_${activeTab}_${new Date().toISOString().split('T')[0]}`
+
+      if (activeTab === 'clients') {
+        exportItems = clients
+        exportColumns = [
+          { header: 'Name', accessor: 'name' },
+          { header: 'Email', accessor: 'email' },
+          { header: 'Status', accessor: 'status' },
+          { header: 'Address', accessor: 'address' },
+        ]
+      } else if (activeTab === 'projects') {
+        exportItems = projects
+        exportColumns = [
+          { header: 'Name', accessor: 'name' },
+          { header: 'Client', accessor: (p) => clients.find(c => c.id === p.clientId)?.name || '-' },
+          { header: 'Status', accessor: 'status' },
+          { header: 'Code', accessor: 'code' },
+          { header: 'Manager', accessor: (p) => members.find(m => m.id === p.managerId) ? `${members.find(m => m.id === p.managerId)!.firstName} ${members.find(m => m.id === p.managerId)!.lastName}` : '-' },
+          { header: 'Description', accessor: 'description' },
+        ]
+      } else if (activeTab === 'tasks') {
+        exportItems = tasks
+        exportColumns = [
+          { header: 'Title', accessor: 'title' },
+          { header: 'Project', accessor: (t) => projects.find(p => p.id === t.projectId)?.name || '-' },
+          { header: 'Status', accessor: 'status' },
+          { header: 'Priority', accessor: 'priority' },
+          { header: 'Assignee', accessor: (t) => members.find(m => m.id === t.assigneeId) ? `${members.find(m => m.id === t.assigneeId)!.firstName} ${members.find(m => m.id === t.assigneeId)!.lastName}` : '-' },
+          { header: 'Description', accessor: 'description' },
+        ]
+      }
+
+      if (exportItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      if (type === 'csv') {
+        exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        exportToPdf(exportItems, exportColumns, activeTab.charAt(0).toUpperCase() + activeTab.slice(1), filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Project Management">
       <div className="row" style={{ gap: 16, marginBottom: 24 }}>
@@ -114,6 +173,10 @@ export default function ProjectsPage() {
         <GlassButton variant={activeTab === 'projects' ? 'primary' : 'secondary'} onClick={() => setActiveTab('projects')}>Projects</GlassButton>
         <GlassButton variant={activeTab === 'tasks' ? 'primary' : 'secondary'} onClick={() => setActiveTab('tasks')}>Tasks</GlassButton>
         <div style={{ flex: 1 }} />
+        <ExportMenu 
+          onExport={handleExport}
+          isExporting={isExporting} 
+        />
         <GlassButton onClick={() => { setFormData({}); setCreateModalOpen(true) }}>Create New {activeTab.slice(0, -1)}</GlassButton>
       </div>
 

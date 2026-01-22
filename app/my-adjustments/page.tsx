@@ -6,6 +6,8 @@ import GlassInput from '@components/ui/GlassInput'
 import GlassSelect from '@components/ui/GlassSelect'
 import AdjustmentLogTable from '@components/hr/AdjustmentLogTable'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 
@@ -15,6 +17,7 @@ export default function MyAdjustmentsPage() {
   const [orgId, setOrgId] = useState('')
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   
   // Filters
   const [moduleId, setModuleId] = useState('')
@@ -86,9 +89,35 @@ export default function MyAdjustmentsPage() {
   useEffect(() => { if (orgId) { loadLogs(); } }, [orgId])
   useEffect(() => { if (orgId) loadLogs() }, [moduleId, dateFrom, dateTo])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = logs
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: (l: any) => new Date(l.created_at).toLocaleDateString() },
+        { header: 'Action', accessor: 'action_type' },
+        { header: 'Module', accessor: 'module' },
+        { header: 'Description', accessor: 'description' },
+        { header: 'Status', accessor: 'status' }
+      ]
+      
+      const filename = `marq_my_adjustments_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'My Adjustments', filename)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="My Adjustments">
-      <GlassCard>
+      <GlassCard right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="grid grid-3" style={{gap:16, marginBottom:20}}>
            {/* If user belongs to multiple orgs, they can switch. If only one, maybe hide or show as read-only */}
            {orgs.length > 1 ? (

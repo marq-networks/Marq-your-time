@@ -14,8 +14,20 @@ export async function GET(req: NextRequest) {
   if (!allow(role)) return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
   if (!orgId) orgId = req.headers.get('x-org-id') || ''
   if (!orgId || !period) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
-  const res = await listPayslips(orgId, period)
-  if (!Array.isArray(res)) return NextResponse.json(res, { status: 400 })
-  return NextResponse.json({ items: res })
-}
 
+  const page = parseInt(searchParams.get('page') || '1')
+  const pageSize = parseInt(searchParams.get('pageSize') || '50')
+  const q = searchParams.get('q') || ''
+  const sort = searchParams.get('sort') || ''
+  const userIds = searchParams.get('userIds') ? searchParams.get('userIds')?.split(',') : undefined
+  const statusParam = searchParams.get('status') || undefined
+
+  // status param isn't fully supported in listPayslips yet aside from implicit 'mode'.
+  // But listPayslips returns what is available.
+  
+  const res = await listPayslips(orgId, period, { page, pageSize, q, sort, userIds, status: statusParam })
+  
+  if ('error' in res) return NextResponse.json(res, { status: 400 })
+  
+  return NextResponse.json(res)
+}

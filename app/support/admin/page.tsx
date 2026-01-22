@@ -9,6 +9,8 @@ import GlassInput from '@components/ui/GlassInput'
 import GlassTable from '@components/ui/GlassTable'
 import TagPill from '@components/ui/TagPill'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -24,6 +26,7 @@ export default function SupportAdminPage() {
   const [openDetail, setOpenDetail] = useState(false)
   const [detail, setDetail] = useState<{ ticket: Ticket, comments: Comment[] } | null>(null)
   const [newComment, setNewComment] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
@@ -46,6 +49,24 @@ export default function SupportAdminPage() {
     if (!detail || !newComment.trim()) return
     const res = await fetch('/api/support/tickets/comment', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': role || 'admin' }, body: JSON.stringify({ ticket_id: detail.ticket.id, user_id: detail.ticket.assignedToUserId || users[0]?.id || '', body: newComment }) })
     if (res.ok) { setNewComment(''); await openTicket(detail.ticket.id) }
+  }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = tickets
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Category', accessor: 'category' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Priority', accessor: 'priority' },
+        { header: 'Assignee', accessor: (t) => t.assignedToUserId ? (users.find(u=>u.id===t.assignedToUserId)?.firstName || 'Assigned') : 'Unassigned' },
+        { header: 'Created', accessor: (t) => new Date(t.createdAt).toLocaleString() }
+      ]
+      const filename = `support_tickets_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Support Tickets', filename)
+    } catch (e) { console.error(e); alert('Export failed') } finally { setIsExporting(false) }
   }
 
   useEffect(()=>{ loadOrgs() }, [])
@@ -106,7 +127,7 @@ export default function SupportAdminPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Tickets">
+      <GlassCard title="Tickets" right={<ExportMenu isExporting={isExporting} onExport={handleExport} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 

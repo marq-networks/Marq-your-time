@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 function LineChart({ points, color }: { points: { date: string, value: number }[], color: string }) {
   const max = Math.max(1, ...points.map(p => p.value))
@@ -21,6 +23,7 @@ function LineChart({ points, color }: { points: { date: string, value: number }[
 export default function HQBillingPage() {
   const [data, setData] = useState<any>({ mrr: 0, arr: 0, seat_utilization: 0, orgs: [], monthly: [] })
   const [forbidden, setForbidden] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async () => {
     const hdr = { 'x-role': 'super_admin' }
@@ -31,6 +34,34 @@ export default function HQBillingPage() {
   }
 
   useEffect(()=>{ load() }, [])
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = data.orgs || []
+      const exportColumns: ExportColumn[] = [
+        { header: 'Organization', accessor: 'org_name' },
+        { header: 'Plan', accessor: 'plan_code' },
+        { header: 'Seats', accessor: (o) => String(o.seats || 0) },
+        { header: 'MRR', accessor: (o) => `$${Math.round(o.mrr || 0).toLocaleString()}` },
+        { header: 'ARR', accessor: (o) => `$${Math.round(o.arr || 0).toLocaleString()}` },
+        { header: 'Status', accessor: 'status' }
+      ]
+
+      const filename = `marq_hq_billing_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'HQ Billing Organizations', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   if (forbidden) {
     return (
@@ -69,7 +100,7 @@ export default function HQBillingPage() {
         <LineChart points={(data.monthly||[]).map((m:any)=>({ date:m.month, value: m.revenue }))} color="#39FF14" />
       </GlassCard>
 
-      <GlassCard title="Organizations">
+      <GlassCard title="Organizations" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>

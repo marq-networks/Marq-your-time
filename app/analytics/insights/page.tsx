@@ -6,6 +6,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -27,6 +29,7 @@ export default function InsightsPage() {
   const [end, setEnd] = useState(new Date().toISOString().slice(0,10))
   const [items, setItems] = useState<Insight[]>([])
   const [open, setOpen] = useState<{ id?: string, details?: any, member_name?: string, department_name?: string, date_start?: string, date_end?: string, type?: string, severity?: string, summary?: string, acknowledged?: boolean } | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadDepsUsers = async (oid: string) => { if (!oid) return; const [dRes, uRes] = await Promise.all([ fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' }), fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }) ]); const [d,u] = await Promise.all([dRes.json(), uRes.json()]); setDepartments(d.items||[]); setMembers(u.items||[]) }
@@ -57,11 +60,44 @@ export default function InsightsPage() {
     </div>
   ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: 'member_name' },
+        { header: 'Department', accessor: (item) => item.department_name || '-' },
+        { header: 'Type', accessor: 'insight_type' },
+        { header: 'Severity', accessor: 'severity' },
+        { header: 'Summary', accessor: 'summary' },
+        { header: 'Start', accessor: (item) => item.date_start || '-' },
+        { header: 'End', accessor: (item) => item.date_end || '-' },
+        { header: 'Status', accessor: (item) => item.acknowledged ? 'Acknowledged' : 'Not acknowledged' },
+        { header: 'Created', accessor: (item) => item.created_at ? new Date(item.created_at).toLocaleDateString() : '-' }
+      ]
+      const filename = `marq_insights_${orgId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(items, exportColumns, filename)
+      } else {
+        await exportToPdf(items, exportColumns, 'Insights', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Insights">
       <div style={{ background: 'linear-gradient(135deg, #d9c7b2, #e8ddce 50%, #c9b8a4)', padding: 8, borderRadius: 28 }}>
       <GlassCard title="Filters" right={(
         <div className="row" style={{ gap:12 }}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
           <GlassButton variant="primary" onClick={()=>{ const today = new Date().toISOString().slice(0,10); setStart(today); setEnd(today) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Today</GlassButton>
           <GlassButton variant="primary" onClick={()=>{ const t = new Date().toISOString().slice(0,10); const s = new Date(Date.now()-6*86400000).toISOString().slice(0,10); setStart(s); setEnd(t) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 7 days</GlassButton>
           <GlassButton variant="primary" onClick={()=>{ const t = new Date().toISOString().slice(0,10); const s = new Date(Date.now()-13*86400000).toISOString().slice(0,10); setStart(s); setEnd(t) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 14 days</GlassButton>

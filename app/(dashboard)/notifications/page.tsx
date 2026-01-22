@@ -7,6 +7,8 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import GlassInput from '@components/ui/GlassInput'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
+import ExportMenu from '@/components/shared/ExportMenu'
 
 type Org = { id: string, orgName: string }
 type Member = { id: string, firstName: string, lastName: string }
@@ -31,6 +33,35 @@ export default function NotificationsPage() {
   const [sendUrl, setSendUrl] = useState('')
   const [sending, setSending] = useState(false)
   const [sendStatus, setSendStatus] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items.map(n => ({
+        title: n.title,
+        message: n.message,
+        type: n.type,
+        createdAt: new Date(n.createdAt).toLocaleString(),
+        isRead: n.isRead ? 'Yes' : 'No'
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Message', accessor: 'message' },
+        { header: 'Type', accessor: 'type' },
+        { header: 'Date', accessor: 'createdAt' },
+        { header: 'Read', accessor: 'isRead' },
+      ]
+      const filename = `marq_notifications_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Notifications', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const res = await fetch('/api/org/list', { cache:'no-store' })
@@ -230,7 +261,7 @@ export default function NotificationsPage() {
           </div>
         </div>
       </GlassCard>
-      <GlassCard title="Notification list">
+      <GlassCard title="Notification list" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>

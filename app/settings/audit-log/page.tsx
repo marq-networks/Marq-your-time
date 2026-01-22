@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassInput from '@components/ui/GlassInput'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 type AuditItem = {
   id: string
@@ -27,6 +29,7 @@ export default function AuditLogPage() {
   const [dateStart, setDateStart] = useState('')
   const [dateEnd, setDateEnd] = useState('')
   const [cursor, setCursor] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async (reset = true) => {
     if (!orgId) return
@@ -62,6 +65,34 @@ export default function AuditLogPage() {
 
   useEffect(() => { if (orgId) load(true) }, [orgId, eventType, actorId, dateStart, dateEnd])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      // Export currently loaded items
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Time', accessor: (it) => new Date(it.createdAt).toLocaleString() },
+        { header: 'Actor', accessor: (it) => it.actorUserId || '-' },
+        { header: 'Event', accessor: 'eventType' },
+        { header: 'Entity', accessor: (it) => `${it.entityType || ''}${it.entityId ? ':'+it.entityId : ''}` },
+        { header: 'Metadata', accessor: (it) => JSON.stringify(it.metadata || {}) }
+      ]
+      
+      const filename = `marq_audit_log_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Audit Log', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Audit Log">
       <div style={{display:'grid', gap:16}}>
@@ -77,7 +108,12 @@ export default function AuditLogPage() {
           </div>
         </GlassCard>
 
-        <GlassCard title="Audit Events" right={cursor ? <button onClick={()=>load(false)} style={{padding:'8px 12px'}}>Load more</button> : undefined}>
+        <GlassCard title="Audit Events" right={
+          <div style={{display:'flex', gap:8}}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
+            {cursor && <button onClick={()=>load(false)} style={{padding:'8px 12px'}}>Load more</button>}
+          </div>
+        }>
           <GlassTable columns={[
             'Time','Actor','Event','Entity','Metadata'
           ]} rows={items.map((it)=>[

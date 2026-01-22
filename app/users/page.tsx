@@ -9,6 +9,11 @@ import GlassSelect from '@components/ui/GlassSelect'
 import usePermission from '@lib/hooks/usePermission'
 import Toast from '@components/Toast'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { useListQuery } from '@/lib/hooks/useListQuery'
+import FilterBar from '@/components/filters/FilterBar'
+import SortSelect from '@/components/filters/SortSelect'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -32,7 +37,10 @@ export default function UsersPage() {
   const canManageUsers = usePermission('manage_users').allowed
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
   const [loginStatus, setLoginStatus] = useState<Record<string,'logged_in'|'not_logged_in'>>({})
+  const [isExporting, setIsExporting] = useState(false)
 
+  const { filters, setFilters, search } = useListQuery()
+  
   const roleName = (id?: string) => roles.find(r=>r.id===id)?.name || '-'
   const deptName = (id?: string) => departments.find(d=>d.id===id)?.name || '-'
 
@@ -48,22 +56,39 @@ export default function UsersPage() {
       setOrgId(preferred)
     }
   }
-  const loadData = async (oid: string) => {
+
+  const loadMeta = async (oid: string) => {
     if (!oid) return
-    const [uRes, rRes, dRes] = await Promise.all([
-      fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }),
+    const [rRes, dRes] = await Promise.all([
       fetch(`/api/role/list?orgId=${oid}`, { cache:'no-store' }),
       fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' })
     ])
-    const [u, r, d] = await Promise.all([uRes.json(), rRes.json(), dRes.json()])
-    const userItems: User[] = u.items || []
-    setUsers(userItems)
+    const [r, d] = await Promise.all([rRes.json(), dRes.json()])
     setRoles(r.items || [])
     setDepartments(d.items || [])
+  }
+
+  const loadUsers = async () => {
+    if (!orgId) return
+    
+    const params = new URLSearchParams()
+    params.set('orgId', orgId)
+    if (search) params.set('q', search)
+    if (filters.status) params.set('status', filters.status)
+    if (filters.role) params.set('role', filters.role) // Maps to roleId
+    if (filters.deptId) params.set('deptId', filters.deptId)
+    if (filters.sort) params.set('sort', filters.sort)
+    
+    const res = await fetch(`/api/user/list?${params.toString()}`, { cache:'no-store' })
+    const u = await res.json()
+    const userItems: User[] = u.items || []
+    setUsers(userItems)
+    
+    // Login status check
     const statusMap: Record<string,'logged_in'|'not_logged_in'> = {}
     await Promise.all(userItems.map(async (user) => {
       try {
-        const res = await fetch(`/api/time/today?member_id=${user.id}&org_id=${oid}`, { cache: 'no-store' })
+        const res = await fetch(`/api/time/today?member_id=${user.id}&org_id=${orgId}`, { cache: 'no-store' })
         if (!res.ok) {
           statusMap[user.id] = 'not_logged_in'
           return
@@ -79,7 +104,34 @@ export default function UsersPage() {
   }
 
   useEffect(() => { loadOrgs() }, [])
-  useEffect(() => { if (orgId) loadData(orgId) }, [orgId])
+  useEffect(() => { if (orgId) { loadMeta(orgId); loadUsers(); } }, [orgId])
+  useEffect(() => { if (orgId) loadUsers() }, [filters, search])
+
+  // Filter Config
+  const filterConfig = useMemo(() => [
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'status' as const,
+      options: [
+        { label: 'Active', value: 'active' },
+        { label: 'Suspended', value: 'suspended' },
+        { label: 'Invited', value: 'invited' }
+      ]
+    },
+    {
+      key: 'role',
+      label: 'Role',
+      type: 'select' as const,
+      options: roles.map(r => ({ label: r.name, value: r.id }))
+    },
+    {
+      key: 'deptId',
+      label: 'Department',
+      type: 'select' as const,
+      options: departments.map(d => ({ label: d.name, value: d.id }))
+    }
+  ], [roles, departments])
   useEffect(() => {
     const closeOnOutside = (e: MouseEvent) => {
       if (!openMenuId) return
@@ -103,21 +155,21 @@ export default function UsersPage() {
     }
     const res = await fetch('/api/user/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) })
     const data = await res.json()
-    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', roleName:'', profileImage:'' }); loadData(orgId) }
+    if (res.ok) { setAddOpen(false); setToast({ m:'User created', t:'success' }); setForm({ firstName:'', lastName:'', email:'', password:'', salary:'', workingDays: [], workingHoursPerDay: '', departmentId:'', roleId:'', roleName:'', profileImage:'' }); loadUsers() }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
   const suspend = async (id: string) => {
     const res = await fetch(`/api/user/${id}/suspend`, { method:'POST' })
     const data = await res.json()
-    if (res.ok) { setToast({ m:'User suspended', t:'success' }); loadData(orgId) }
+    if (res.ok) { setToast({ m:'User suspended', t:'success' }); loadUsers() }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
   const activate = async (id: string) => {
     const res = await fetch(`/api/user/${id}/activate`, { method:'POST' })
     const data = await res.json()
-    if (res.ok) { setToast({ m:'User activated', t:'success' }); loadData(orgId) }
+    if (res.ok) { setToast({ m:'User activated', t:'success' }); loadUsers() }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
@@ -137,7 +189,7 @@ export default function UsersPage() {
     }
     const res = await fetch(`/api/user/${editUser.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     const data = await res.json()
-    if (res.ok) { setToast({ m:'User updated', t:'success' }); setEditUser(undefined); loadData(orgId) }
+    if (res.ok) { setToast({ m:'User updated', t:'success' }); setEditUser(undefined); loadUsers() }
     else setToast({ m: data.error || 'Error', t:'error' })
   }
 
@@ -175,20 +227,89 @@ export default function UsersPage() {
     </div>
   ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('orgId', orgId)
+      if (search) params.set('q', search)
+      if (filters.status) params.set('status', filters.status)
+      if (filters.role) params.set('role', filters.role)
+      if (filters.deptId) params.set('deptId', filters.deptId)
+      if (filters.sort) params.set('sort', filters.sort)
+      
+      const res = await fetch(`/api/user/list?${params.toString()}`, { cache:'no-store' })
+      const u = await res.json()
+      const exportItems: User[] = u.items || []
+
+      if (exportItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: (u) => `${u.firstName} ${u.lastName}` },
+        { header: 'Email', accessor: 'email' },
+        { header: 'Role', accessor: (u) => roleName(u.roleId) },
+        { header: 'Department', accessor: (u) => deptName(u.departmentId) },
+        { header: 'Status', accessor: 'status' },
+      ]
+
+      const filename = `marq_users_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        exportToPdf(exportItems, exportColumns, 'Users', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Users">
-      <GlassCard title="Users" right={canManageUsers ? <GlassButton variant="primary" onClick={()=>setAddOpen(true)}>Add User</GlassButton> : undefined}>
-        <div className="row" style={{marginBottom:12,gap:12}}>
-          <div>
-            <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
-              <option value="">Select org</option>
-              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
-          </div>
+      <div className="mb-6 space-y-4">
+        {/* Org Selector */}
+        <div className="w-64 mb-4">
+          <div className="label">Organization</div>
+          <GlassSelect value={orgId} onChange={(e: React.ChangeEvent<HTMLSelectElement>)=>setOrgId(e.target.value)}>
+            <option value="">Select org</option>
+            {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+          </GlassSelect>
         </div>
-        <GlassTable columns={columns} rows={rows} />
-      </GlassCard>
+
+        <FilterBar 
+          pageKey="users" 
+          orgId={orgId} 
+          config={filterConfig} 
+          showSavedViews
+        >
+          <SortSelect 
+            options={[
+              { label: 'Name (A-Z)', value: 'first_name:asc' },
+              { label: 'Name (Z-A)', value: 'first_name:desc' },
+              { label: 'Newest', value: 'created_at:desc' },
+              { label: 'Oldest', value: 'created_at:asc' }
+            ]}
+            value={filters.sort || 'first_name:asc'}
+            onChange={(val) => setFilters({ ...filters, sort: val })}
+          />
+        </FilterBar>
+
+        <GlassCard title="Users" right={
+          <div className="row" style={{gap:8, alignItems: 'center'}}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
+            {canManageUsers && <GlassButton variant="primary" onClick={()=>setAddOpen(true)}>Add User</GlassButton>}
+          </div>
+        }>
+          <GlassTable columns={columns} rows={rows} />
+        </GlassCard>
+      </div>
 
       <GlassModal open={addOpen} title="Create User" onClose={()=>setAddOpen(false)}>
         <div className="grid grid-2">

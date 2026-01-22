@@ -8,6 +8,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import Toast from '@components/Toast'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string, createdAt: number }
@@ -22,6 +24,7 @@ export default function DepartmentsPage() {
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
@@ -52,6 +55,31 @@ export default function DepartmentsPage() {
   useEffect(() => { if (orgId) loadData(orgId) }, [orgId])
 
   const membersCount = (id: string) => users.filter(u => u.departmentId === id).length
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = departments
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Members Count', accessor: (d) => membersCount(d.id).toString() },
+        { header: 'Created At', accessor: (d) => new Date(d.createdAt).toLocaleString() }
+      ]
+
+      const filename = `marq_departments_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Departments', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const create = async () => {
     const res = await fetch('/api/department/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ orgId, name: newName }) })
@@ -92,6 +120,7 @@ export default function DepartmentsPage() {
     <AppShell title="Departments">
       <GlassCard title="Departments" right={<div className="row" style={{gap:12,alignItems:'center'}}>
         {dataSource && <span className="badge">{dataSource==='supabase' ? 'Supabase' : 'Memory'}</span>}
+        <ExportMenu onExport={handleExport} isExporting={isExporting} />
         <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Add Department</GlassButton>
       </div>}>
         <div className="row" style={{marginBottom:12,gap:12}}>

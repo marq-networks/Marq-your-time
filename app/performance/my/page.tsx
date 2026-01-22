@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -30,6 +32,7 @@ export default function MyPerformancePage() {
 
   const [checkOpen, setCheckOpen] = useState(false)
   const [checkForm, setCheckForm] = useState({ period_start: '', period_end: '', summary: '', self_score: '' })
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]); if(!memberId && d.items?.length) setMemberId(d.items[0].id) }
@@ -57,6 +60,32 @@ export default function MyPerformancePage() {
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId){ loadMembers(orgId) } }, [orgId])
   useEffect(()=>{ if(orgId && memberId){ loadOKRs(); loadCheckins() } }, [orgId, memberId])
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = checkins
+      const exportColumns: ExportColumn[] = [
+        { header: 'Period', accessor: (i) => `${i.period_start} - ${i.period_end}` },
+        { header: 'Summary', accessor: 'summary' },
+        { header: 'Self Score', accessor: (i) => i.self_score ?? '-' },
+        { header: 'Manager Score', accessor: (i) => i.manager_score ?? '-' },
+        { header: 'Date', accessor: (i) => new Date(i.created_at).toLocaleDateString() }
+      ]
+      
+      const filename = `marq_my_performance_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'My Performance Check-ins', filename)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   return (
     <AppShell title="My Performance">
@@ -103,7 +132,7 @@ export default function MyPerformancePage() {
         </GlassCard>
       ))}
 
-      <GlassCard title="Self Check-ins" right={<GlassButton onClick={()=>setCheckOpen(true)}>New</GlassButton>}>
+      <GlassCard title="Self Check-ins" right={<div className="row" style={{gap:8}}><ExportMenu onExport={handleExport} isExporting={isExporting} /><GlassButton onClick={()=>setCheckOpen(true)}>New</GlassButton></div>}>
         <div className="grid grid-1">
           {(checkins||[]).map(c => (
             <div key={c.id} className="row" style={{gap:8, alignItems:'center'}}>

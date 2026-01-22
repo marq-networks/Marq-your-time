@@ -1,59 +1,27 @@
-/* ===== PAGE CANVAS (INSIDE APPSHELL CONTENT ONLY) ===== */
-.pageCanvas {
-  position: relative;
-  z-index: 0;
-}
-
-/* Background layers – NOT fixed anymore */
-.bg,
-.glow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Dark base */
-/* .bg {
-  background: linear-gradient(
-    180deg,
-    #0b0b0f 0%,
-    #0b0b0f 50%,
-    #0a0a0c 100%
-  );
-} */
-
-/* Soft glow accents */
-.glow {
-  opacity: 0.35;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(255,255,255,0.10), transparent 38%),
-    radial-gradient(circle at 82% 10%, rgba(16,185,129,0.22), transparent 45%),
-    radial-gradient(circle at 50% 85%, rgba(255,255,255,0.06), transparent 50%);
-}
-
-/* ===== PAGE WRAPPER ===== */
+/* ===== PAGE LAYOUT ===== */
 .page {
   position: relative;
   z-index: 1;
-  height: calc(100vh - 140px);
   display: flex;
-  min-height: calc(100vh - 140px); /* ✅ better */
   flex-direction: column;
   gap: 18px;
-  padding: 24px 16px;
-  color: #0a0a0c;
+  /* AppShell usually provides padding, but if we need extra: */
+  padding-bottom: 24px;
+  color: var(--color-text-primary);
+  min-height: 100%;
 }
 
 /* ===== GLASS CARDS ===== */
 .card {
-  border-radius: 26px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.05);
+  border-radius: 24px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-panel);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+  /* Use a softer shadow or variable if available */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  transition: all 0.2s ease;
 }
 
 .cardPad {
@@ -80,289 +48,176 @@
 .titleWrap {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .title {
-  font-size: 28px;
-  font-weight: 650;
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--color-text-primary);
 }
 
 .subtitle {
   font-size: 13px;
-  color: #0a0a0c;
+  color: var(--color-text-secondary);
 }
 
-/* ===== ICON BUTTON ===== */
+/* ===== BUTTONS & CONTROLS ===== */
 .iconBtn {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  color: #0a0a0c;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-secondary);
+  transition: all 0.2s;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 .iconBtn:hover {
-  background: rgba(255,255,255,0.10);
-  color: #3333;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
-.iconBtn:active {
-  transform: scale(0.96);
-}
-
-/* ===== RIGHT CONTROLS ===== */
 .rightBlock {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
-/* ===== SEGMENTED CONTROL ===== */
 .segment {
-  display: inline-flex;
-  padding: 6px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
+  display: flex;
+  background: var(--color-bg-subtle);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-subtle);
 }
 
 .segmentBtn {
-  border: 0;
-  background: transparent;
-  color: #0a0a0c;
-  font-weight: 600;
+  padding: 6px 12px;
   font-size: 13px;
-  padding: 10px 16px;
-  border-radius: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  border-radius: 7px;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
 }
 
 .segmentBtn:hover {
-  color: #3333;
-  background: rgba(255,255,255,0.08);
+  color: var(--color-text-primary);
 }
 
 .segmentBtnActive {
-  color: #3333;
-  background: rgba(255,255,255,0.14);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+  background: var(--color-bg-panel);
+  color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-/* ===== BUTTONS ===== */
 .ghostBtn {
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  color: #0a0a0c;
-  font-weight: 650;
-  font-size: 13px;
-  padding: 10px 14px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: all 0.2s;
   cursor: pointer;
 }
 
 .ghostBtn:hover {
-  background: rgba(255,255,255,0.10);
-  color: #3333;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .primaryBtn {
-  border-radius: 18px;
-  border: 0;
-  background: #6ee7b7;
-  color: #0a0a0c;
-  font-weight: 750;
-  font-size: 13px;
-  padding: 10px 14px;
-  cursor: pointer;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-}
-
-/* ===== FILTERS ===== */
-.filtersHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px;
-}
-
-.filtersLeft {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.badgeIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.filtersTitle {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.filtersMeta {
-  font-size: 12px;
-  color: rgba(255,255,255,0.45);
-  margin-left: 6px;
-}
-
-.resetBtn {
-  border: 0;
-  background: transparent;
-  color: #3333;
-  font-weight: 650;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  background: var(--color-primary);
+  border: none;
+  border-radius: 10px;
+  transition: all 0.2s;
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.2);
 }
 
-.resetBtn:hover {
-  color: #0a0a0c;
+.primaryBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
-/* ===== FILTER GRID ===== */
-.filtersBody {
-  padding: 0 18px 18px;
-}
-
-.grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-@media (max-width: 900px) {
-  .grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 520px) {
-  .grid { grid-template-columns: 1fr; }
-}
-
-.field {
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  padding: 12px;
-}
-
-.fieldLabel {
-  font-size: 11px;
-  font-weight: 650;
-  color: #3333;
-  margin-bottom: 8px;
-}
-
-.select {
-  width: 100%;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,0.35);
-  color: #333333;
-  padding: 10px 12px;
-  font-size: 13px;
-}
-
-/* ===== CHIPS ===== */
-.chips {
-  margin-top: 12px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  padding: 6px 10px;
-  font-size: 12px;
-}
-
-.chipX {
-  background: none;
-  border: 0;
-  color: #3333;
-  cursor: pointer;
-}
-
-/* ===== CALENDAR ===== */
+/* ===== CALENDAR AREA ===== */
 .calendarCard {
-  flex: 1;
-  min-height: 0;
+  position: relative;
+  min-height: 600px; /* Ensure height for spinner */
+  display: flex;
+  flex-direction: column;
 }
 
 .calendarInner {
-  padding: 14px;
-  height: 100%;
-   overflow: auto;  
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-/* optional: nicer scroll */
-.calendarInner::-webkit-scrollbar { width: 10px; }
-.calendarInner::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.14);
-  border-radius: 999px;
-}
-.calendarInner::-webkit-scrollbar-track { background: transparent; }
-
-/* ===== LOADING ===== */
+/* ===== LOADING STATE ===== */
 .loading {
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: rgba(0,0,0,0.40);
-  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(4px);
+  border-radius: 24px;
 }
 
 .loadingBox {
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  padding: 22px 26px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  padding: 24px;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 .spinner {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  border: 4px solid rgba(110,231,183,0.25);
-  border-top-color: rgba(110,231,183,0.95);
-  animation: spin 1s linear infinite;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border-subtle);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingText {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }

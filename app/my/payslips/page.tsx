@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -39,6 +41,38 @@ export default function MyPayslipsPage() {
   const [periodId, setPeriodId] = useState('')
   const [items, setItems] = useState<Payslip[]>([])
   const [role, setRole] = useState('')
+
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'Period', accessor: (p) => `${p.periodStart} - ${p.periodEnd}` },
+        { header: 'Slip Number', accessor: 'slipNumber' },
+        { header: 'Net Salary', accessor: (p) => fmtCurrency(p.netSalary, p.currency) },
+        { header: 'Created At', accessor: (p) => new Date(p.createdAt).toLocaleDateString() }
+      ]
+
+      const filename = `my_payslips_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(items, exportColumns, filename)
+      } else {
+        await exportToPdf(items, exportColumns, 'My Payslips', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -157,7 +191,7 @@ export default function MyPayslipsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="My Payslips">
+      <GlassCard title="My Payslips" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>

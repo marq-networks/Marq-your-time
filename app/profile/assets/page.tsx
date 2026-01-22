@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Item = { asset_tag: string, category: string, model?: string | null, assigned_at: string }
 
 export default function MyAssetsPage() {
   const [items, setItems] = useState<Item[]>([])
   const [memberId, setMemberId] = useState<string>('demo-user')
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async () => {
     if (!memberId) return setItems([])
@@ -17,12 +20,40 @@ export default function MyAssetsPage() {
     setItems(d.items||[])
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Asset Tag', accessor: 'asset_tag' },
+        { header: 'Category', accessor: 'category' },
+        { header: 'Model', accessor: (item) => item.model || '' },
+        { header: 'Assigned Date', accessor: (item) => new Date(item.assigned_at).toLocaleDateString() }
+      ]
+      const filename = `my_assets_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(items, exportColumns, filename)
+      } else {
+        await exportToPdf(items, exportColumns, 'My Assets', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   useEffect(()=>{ load() }, [memberId])
 
   return (
     <AppShell title="My Assets">
       <div className="col" style={{ gap: 16 }}>
         <GlassCard title="Assigned Assets" right={<div className="row" style={{gap:8}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
           <input className="input" value={memberId} onChange={e=> setMemberId(e.target.value)} placeholder="Member ID" />
           <GlassButton variant="secondary" onClick={load}>Refresh</GlassButton>
         </div>}>

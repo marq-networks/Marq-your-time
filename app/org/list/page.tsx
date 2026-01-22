@@ -6,6 +6,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import Toast from '@components/Toast'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string, subscriptionType: string, usedSeats: number, totalLicensedSeats: number, pricePerLogin: number }
 
@@ -18,6 +20,7 @@ export default function OrgList() {
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
   const [search, setSearch] = useState('')
   const [subscriptionFilter, setSubscriptionFilter] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '').toLowerCase() : ''
 
   const load = async () => {
@@ -54,9 +57,43 @@ export default function OrgList() {
     <a className="btn btn-primary" href={`/org/${o.id}`}>Open</a>
   ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (filteredOrgs.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'orgName' },
+        { header: 'Subscription', accessor: 'subscriptionType' },
+        { header: 'Used Seats', accessor: 'usedSeats' },
+        { header: 'Total Seats', accessor: 'totalLicensedSeats' },
+        { header: 'Price', accessor: 'pricePerLogin' },
+        { header: 'Status', accessor: () => 'active' }
+      ]
+      const filename = `marq_orgs_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(filteredOrgs, exportColumns, filename)
+      } else {
+        await exportToPdf(filteredOrgs, exportColumns, 'Organizations', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Organizations">
-      <GlassCard title="Organization List" right={role==='super_admin' ? <GlassButton variant="primary" onClick={()=>{ setInviteEmail(''); setInviteUrl(''); setInviteOpen(true) }}>Invite Organization</GlassButton> : undefined}>
+      <GlassCard title="Organization List" right={
+        <div className="row" style={{gap:8}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+          {role==='super_admin' && <GlassButton variant="primary" onClick={()=>{ setInviteEmail(''); setInviteUrl(''); setInviteOpen(true) }}>Invite Organization</GlassButton>}
+        </div>
+      }>
         <div className="row" style={{marginBottom:12, gap:12}}>
           <div style={{flex:1,minWidth:180}}>
             <div className="label">Search</div>

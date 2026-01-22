@@ -19,7 +19,12 @@ export function ListView({ startDate, events, onDateClick }: ListViewProps) {
   }, [startDate])
 
   const getEventsForDay = (d: Date) => {
-    const dateStr = d.toISOString().slice(0, 10)
+    // Use local date string to avoid timezone shifts
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
+    
     return events.filter(e => e.date === dateStr)
   }
 
@@ -52,7 +57,13 @@ export function ListView({ startDate, events, onDateClick }: ListViewProps) {
     }
   }
 
-  const formatTime = (minutes?: number) => {
+  const formatTime = (minutes?: number, iso?: string) => {
+    if (iso) {
+      const d = new Date(iso)
+      if (!isNaN(d.getTime())) {
+         return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      }
+    }
     if (minutes === undefined) return ''
     const h = Math.floor(minutes / 60)
     const m = minutes % 60
@@ -131,7 +142,7 @@ export function ListView({ startDate, events, onDateClick }: ListViewProps) {
                              </p>
                              {e.startTime !== undefined && (
                                <p className="text-[10px] opacity-80 font-mono">
-                                 {formatTime(e.startTime)}
+                                 {formatTime(e.startTime, e.startAt)}
                                </p>
                              )}
                           </div>

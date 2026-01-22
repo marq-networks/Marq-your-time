@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Dept = { id: string, name: string }
@@ -16,6 +18,7 @@ export default function TeamInsightsPage({ params }: { params: { department_id: 
   const [start, setStart] = useState(new Date(Date.now()-6*86400000).toISOString().slice(0,10))
   const [end, setEnd] = useState(new Date().toISOString().slice(0,10))
   const [items, setItems] = useState<Snapshot[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadDeps = async (oid: string) => { const res = await fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setDeps(d.items||[]) }
@@ -25,11 +28,36 @@ export default function TeamInsightsPage({ params }: { params: { department_id: 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) { loadDeps(orgId); loadItems() } }, [orgId, start, end])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'snapshotDate' },
+        { header: 'Summary', accessor: 'summary' },
+        { header: 'Metadata', accessor: (i) => JSON.stringify(i.metadata || {}) }
+      ]
+      
+      const filename = `marq_team_insights_${depId}_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Team Insights', filename)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Team Insights">
       <div style={{ background: 'linear-gradient(135deg, #d9c7b2, #e8ddce 50%, #c9b8a4)', padding: 8, borderRadius: 28 }}>
         <GlassCard title="Filters" right={(
           <div className="row" style={{ gap:12 }}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
             <GlassButton variant="primary" onClick={()=>generate()} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Generate</GlassButton>
           </div>
         )}>

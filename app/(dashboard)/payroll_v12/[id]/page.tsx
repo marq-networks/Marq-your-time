@@ -7,6 +7,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Period = { id: string, period_start: string, period_end: string, status: string }
@@ -22,6 +24,7 @@ export default function PayrollDetailPageV12() {
   const [adjOpen, setAdjOpen] = useState(false)
   const [targetRow, setTargetRow] = useState<Row | null>(null)
   const [adj, setAdj] = useState({ type: 'bonus', amount: 0, reason: '' })
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadData = async () => {
@@ -46,6 +49,45 @@ export default function PayrollDetailPageV12() {
 
   const approve = async () => { await fetch('/api/payroll/periods/approve', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'manager' }, body: JSON.stringify({ payroll_period_id: id }) }); loadData() }
   const submitAdj = async () => { if (!targetRow) return; await fetch('/api/payroll/adjustments/add', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'manager' }, body: JSON.stringify({ member_payroll_id: targetRow.id, type: adj.type, amount: adj.amount, reason: adj.reason }) }); setAdjOpen(false); loadData() }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const mMap = new Map(members.map(m => [m.id, `${m.firstName} ${m.lastName}`.trim()]))
+      const exportItems = rows.map(r => ({
+        member: mMap.get(r.member_id) || r.member_id,
+        worked: String(Math.round(r.worked_minutes/60)),
+        extra: String(Math.round(r.extra_minutes/60)),
+        short: String(Math.round(r.short_minutes/60)),
+        base: `$${Math.round(r.base_salary).toLocaleString()}`,
+        overtime: `$${Math.round(r.overtime_amount).toLocaleString()}`,
+        deductions: `$${Math.round(r.short_deduction).toLocaleString()}`,
+        fines: `$${Math.round(r.fines_total).toLocaleString()}`,
+        adjustments: `$${Math.round(r.adjustments_total).toLocaleString()}`,
+        net: `$${Math.round(r.net_salary).toLocaleString()}`
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: 'member' },
+        { header: 'Worked (h)', accessor: 'worked' },
+        { header: 'Extra (h)', accessor: 'extra' },
+        { header: 'Short (h)', accessor: 'short' },
+        { header: 'Base', accessor: 'base' },
+        { header: 'Overtime', accessor: 'overtime' },
+        { header: 'Deductions', accessor: 'deductions' },
+        { header: 'Fines', accessor: 'fines' },
+        { header: 'Adjustments', accessor: 'adjustments' },
+        { header: 'Net Salary', accessor: 'net' }
+      ]
+      const filename = `payroll_${period?.period_start}_${period?.period_end}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Payroll Report', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const columns = ['Member','Worked','Extra','Short','Base','Overtime','Deductions','Fines','Adjustments','Net','Actions']
   const memberMap = new Map(members.map(m => [m.id, `${m.firstName} ${m.lastName}`.trim()]))
@@ -82,9 +124,7 @@ export default function PayrollDetailPageV12() {
           <div><div className="label">Period</div><div className="subtitle">{period? `${period.period_start} → ${period.period_end}` : ''}</div></div>
           <div><div className="label">Status</div><span className="tag-pill accent">{period?.status||''}</span></div>
           <div className="row" style={{ alignItems:'end', gap:8 }}>
-            <GlassButton variant="primary" onClick={()=>window.open(`/api/payroll/export?payroll_period_id=${id}&format=csv`, '_blank')} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Export CSV</GlassButton>
-            <GlassButton variant="primary" onClick={()=>window.open(`/api/payroll/export?payroll_period_id=${id}&format=xlsx`, '_blank')} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Export Excel</GlassButton>
-            <GlassButton variant="primary" onClick={()=>window.open(`/api/payroll/export?payroll_period_id=${id}&format=pdf`, '_blank')} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Export PDF</GlassButton>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
             <GlassButton variant="primary" onClick={approve} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Approve Payroll</GlassButton>
           </div>
         </div>

@@ -10,14 +10,35 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
 export function DayView({ date, events, isAdmin = false }: DayViewProps) {
   // Filter for this day
-  const dateStr = date.toISOString().slice(0, 10)
+  // Use local date string to avoid timezone shifts
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const dateStr = `${year}-${month}-${day}`
+
   const dayEvents = events.filter(e => e.date === dateStr)
 
   const getEventStyle = (e: CalendarEvent) => {
-    if (e.startTime === undefined) return {} 
-    const start = e.startTime
-    const end = e.endTime || (start + 60)
-    const duration = end - start
+    let start = e.startTime
+    let end = e.endTime
+
+    // Prefer local time from ISO string
+    if (e.startAt) {
+        const d = new Date(e.startAt)
+        if (!isNaN(d.getTime())) {
+            start = d.getHours() * 60 + d.getMinutes()
+        }
+    }
+    if (e.endAt) {
+        const d = new Date(e.endAt)
+        if (!isNaN(d.getTime())) {
+            end = d.getHours() * 60 + d.getMinutes()
+        }
+    }
+
+    if (start === undefined) return {} 
+    const finalEnd = end || (start + 60)
+    const duration = finalEnd - start
     
     return {
       top: `${(start / 1440) * 100}%`,

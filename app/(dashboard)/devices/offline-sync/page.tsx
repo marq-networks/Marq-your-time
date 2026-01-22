@@ -6,6 +6,8 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Batch = { local_batch_id: string, batch_type: string, status: string, item_count: number, received_at: string, processed_at: string|null, error_message: string|null }
@@ -24,6 +26,7 @@ export default function OfflineSyncPage() {
   const [items, setItems] = useState<{ item_index: number, payload_type: string, payload: any }[]>([])
   const [statusFilter, setStatusFilter] = useState('')
   const [batchSearch, setBatchSearch] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -110,6 +113,32 @@ export default function OfflineSyncPage() {
     setOpenQueueId(queueId)
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const exportItems = filteredBatches
+      const exportColumns: ExportColumn[] = [
+        { header: 'Local Batch ID', accessor: 'local_batch_id' },
+        { header: 'Type', accessor: 'batch_type' },
+        { header: 'Items', accessor: (b) => String(b.item_count) },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Received At', accessor: 'received_at' },
+        { header: 'Processed At', accessor: (b) => b.processed_at || '-' },
+        { header: 'Error', accessor: (b) => b.error_message || '-' },
+      ]
+
+      const filename = `marq_offline_batches_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') exportToCsv(exportItems, exportColumns, filename)
+      else exportToPdf(exportItems, exportColumns, 'Offline Sync Batches', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Offline Sync">
       <div className="min-h-screen bg-gradient-to-br from-[#d9c7b2] via-[#e8ddce] to-[#c9b8a4] p-6">
@@ -166,6 +195,10 @@ export default function OfflineSyncPage() {
                   <option value="applied">Applied</option>
                   <option value="error">Error</option>
                 </GlassSelect>
+              </div>
+              <div>
+                <div className="label">&nbsp;</div>
+                <ExportMenu onExport={handleExport} isExporting={isExporting} />
               </div>
             </div>
             <GlassTable columns={batchCols} rows={filteredBatches.map(b => [

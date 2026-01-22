@@ -7,31 +7,72 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const orgId = searchParams.get('org_id') || ''
-    const date = searchParams.get('date') || new Date().toISOString().slice(0,10)
+    // Date handling: support range or single date (default to today)
+    const date = searchParams.get('date')
+    const from = searchParams.get('from') || date || new Date().toISOString().slice(0,10)
+    const to = searchParams.get('to') || date || new Date().toISOString().slice(0,10)
+    
     const departmentId = searchParams.get('department_id') || undefined
-    const memberId = searchParams.get('member_id') || undefined
+    const memberId = searchParams.get('member_id') || undefined // Legacy
+    const userIds = searchParams.get('userIds') ? searchParams.get('userIds')?.split(',') : (memberId ? [memberId] : undefined)
+    
+    const q = (searchParams.get('q') || '').toLowerCase()
+    const projectId = searchParams.get('projectId') || searchParams.get('project_id')
+    const clientId = searchParams.get('clientId') || searchParams.get('client_id')
+    const idleGt = parseInt(searchParams.get('idle_gt') || '0')
+    const missingScreenshots = searchParams.get('missing_screenshots') === 'true'
+    const sort = searchParams.get('sort') || ''
+    
     if (!orgId) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
-    const { summaries, sessions } = await listDailyLogs({ orgId, date, memberId: memberId || undefined })
+    
+    // Fetch logs for the range
+    const { summaries, sessions } = await listDailyLogs({ orgId, from, to })
+    
     const users = await listUsers(orgId)
     const departments = await listDepartments(orgId)
     const rules = await listOrgCategoryRules(orgId)
     const deptMap = new Map(departments.map(d => [d.id, d.name]))
     const userMap = new Map(users.map(u => [u.id, u]))
+    
     const filteredUserIds = departmentId ? users.filter(u => u.departmentId === departmentId).map(u => u.id) : undefined
+
+    // Filter sessions by projectId/clientId if provided
+    let filteredSessions = sessions || []
+    if (projectId) {
+      filteredSessions = filteredSessions.filter((s: any) => s.projectId === projectId || s.project_id === projectId || (s.projects && s.projects.id === projectId))
+    }
+    if (clientId) {
+      filteredSessions = filteredSessions.filter((s: any) => {
+        // projects might be { id, name, clients: { id, name } }
+        const p = s.projects
+        const c = p?.clients
+        return c?.id === clientId || s.client_id === clientId
+      })
+    }
+    
     const sb = isSupabaseConfigured() ? supabaseServer() : null
     let eventsAgg: Map<string, { active: number, productive: number, unproductive: number, idle: number, screenshots: number, topApps: {name:string, minutes:number, category:string}[], topUrls: {url:string, minutes:number, category:string}[] }> = new Map()
+    
     if (sb) {
-      const sessRows = sessions || []
-      const byMember = new Map<string, string[]>(Object.entries(sessRows.reduce((acc: any, r: any) => { (acc[r.memberId] = acc[r.memberId] || []).push(r.id); return acc }, {}) || {}))
-      const memberIds = filteredUserIds ? filteredUserIds : Array.from(byMember.keys())
+    const sessRows = filteredSessions
+    const byMember = new Map<string, string[]>(Object.entries(sessRows.reduce((acc: any, r: any) => { (acc[r.memberId] = acc[r.memberId] || []).push(r.id); return acc }, {}) || {}))
       
-      const sessIds = sessRows.map((r: any) => r.id)
+      // If userIds filter provided, limit processing
+      const memberIds = userIds || (filteredUserIds ? filteredUserIds : Array.from(byMember.keys()))
+      
+      // We need to fetch tracking sessions for ALL relevant time sessions
+      // Optimization: Only fetch for filtered members if list is small?
+      // For now, fetch all related to the sessions we have.
+      const sessIds = sessRows.filter((r:any) => memberIds.includes(r.memberId)).map((r: any) => r.id)
+      
       const { data: tsRows } = sessIds.length ? await sb!.from('tracking_sessions').select('id, member_id').in('time_session_id', sessIds) : { data: [] }
       
       const tsByMember = new Map<string, string[]>(Object.entries(tsRows?.reduce((acc: any, r: any) => { (acc[r.member_id] = acc[r.member_id] || []).push(r.id); return acc }, {}) || {}))
       const allTsIds = Array.from(tsByMember.values()).flat()
+      
       const { data: evRows } = allTsIds.length ? await sb!.from('activity_events').select('*').in('tracking_session_id', allTsIds) : { data: [] }
       const { data: scRows } = allTsIds.length ? await sb!.from('screenshots').select('*').in('tracking_session_id', allTsIds) : { data: [] }
+      
       for (const mId of memberIds) {
         const tsIds = tsByMember.get(mId) || []
         const rawEvents = (evRows || []).filter((e: any) => tsIds.includes(e.tracking_session_id))
@@ -116,59 +157,61 @@ export async function GET(req: NextRequest) {
     const memberIdsFromSessions = (sessions || []).map((s: any) => s.memberId)
     const allMemberIds = Array.from(new Set([...memberIdsFromSummaries, ...memberIdsFromSessions]))
     
-    // Filter by department/member filter if needed
+    // Filter by department/member filter
     const relevantMemberIds = allMemberIds.filter(mid => 
       (filteredUserIds ? filteredUserIds.includes(mid) : true) &&
-      (memberId ? mid === memberId : true)
+      (userIds ? userIds.includes(mid) : true)
     )
 
-    const rows = relevantMemberIds.map(mid => {
+    let rows = relevantMemberIds.map(mid => {
       const u = userMap.get(mid)
       if (!u) return null
 
-      // Find existing summary or create placeholder
-      const s = (summaries || []).find(sum => sum.memberId === mid) || {
-        memberId: mid,
-        orgId,
-        date,
-        scheduledMinutes: 0,
-        workedMinutes: 0,
-        paidBreakMinutes: 0,
-        unpaidBreakMinutes: 0,
-        extraMinutes: 0,
-        shortMinutes: 0,
-        status: 'absent',
-        isHoliday: false
-      }
+      // Aggregate summaries for this member
+      const userSummaries = (summaries || []).filter(sum => sum.memberId === mid)
+      
+      const totalWorked = userSummaries.reduce((sum, s) => sum + (s.workedMinutes || 0), 0)
+      // Determine status: if any day has status 'extra', maybe 'extra'? 
+      // Or just 'normal' if worked > 0?
+      // For overview range, status is ambiguous. We can show 'Active' if worked > 0, else 'Absent'.
+      // Or we can just omit status for range view.
+      // But preserving existing logic for single date:
+      const lastSummary = userSummaries[userSummaries.length - 1] // Roughly last day
+      let status = lastSummary?.status || 'absent'
 
       const a = eventsAgg.get(mid) || { active: 0, productive: 0, unproductive: 0, idle: 0, screenshots: 0, topApps: [], topUrls: [] }
       
-      // Real-time calculation
-      const openSession = (sessions || []).find((sess: any) => sess.memberId === mid && sess.status === 'open')
-      let worked = s.workedMinutes
-      if (openSession) {
-          const currentDuration = Math.max(0, (now - openSession.startTime) / 60000)
+      // Real-time calculation (only for OPEN sessions)
+      const openSessions = (filteredSessions || []).filter((sess: any) => sess.memberId === mid && sess.status === 'open')
+      let worked = totalWorked
+      for (const sess of openSessions) {
+          const currentDuration = Math.max(0, (now - sess.startTime) / 60000)
           worked += currentDuration
       }
   
-      let status = s.status
-      const scheduled = s.scheduledMinutes
-      if (scheduled === 0) {
-          status = worked > 0 ? 'normal' : 'unconfigured'
-      } else if (worked === 0) {
-          status = 'absent'
-      } else if (worked > scheduled) {
-          status = 'extra'
-      } else if (worked < scheduled) {
-          status = 'short'
+      // Recalculate status for single date or just use 'normal' if worked > 0
+      if (userSummaries.length <= 1) {
+          const s = userSummaries[0] || { scheduledMinutes: 0, workedMinutes: 0, isHoliday: false }
+           const scheduled = s.scheduledMinutes || 0
+           if (scheduled === 0) {
+              status = worked > 0 ? 'normal' : 'unconfigured'
+          } else if (worked === 0) {
+              status = 'absent'
+          } else if (worked > scheduled) {
+              status = 'extra'
+          } else if (worked < scheduled) {
+              status = 'short'
+          }
+          if (s.isHoliday && status === 'absent') status = 'unconfigured'
+      } else {
+          status = worked > 0 ? 'normal' : 'absent'
       }
-      if (s.isHoliday && status === 'absent') status = 'unconfigured'
-  
+
       return {
         memberId: mid,
         memberName: `${u.firstName} ${u.lastName}`,
         departmentName: deptMap.get(u.departmentId || '') || '',
-        date,
+        date: from === to ? from : `${from} - ${to}`,
         workedHours: worked,
         trackedActiveMinutes: a.active,
         productiveMinutes: a.productive,
@@ -179,12 +222,44 @@ export async function GET(req: NextRequest) {
         topUrls: a.topUrls || [],
         status: status
       }
-    }).filter(Boolean)
+    }).filter(Boolean) as any[]
+
+    // Apply filters
+    if (q) {
+      rows = rows.filter(r => 
+        r.topApps.some((a:any) => a.name.toLowerCase().includes(q)) || 
+        r.topUrls.some((u:any) => u.url.toLowerCase().includes(q))
+      )
+    }
+    if (idleGt > 0) {
+      rows = rows.filter(r => r.idleMinutes > idleGt)
+    }
+    if (missingScreenshots) {
+      // Logic: User has worked but 0 screenshots? Or just 0 screenshots?
+      // "missing_screenshots=true" usually implies they should have them.
+      // Let's assume worked > 0 AND screenshots === 0
+      rows = rows.filter(r => r.workedHours > 10 && r.screenshots === 0) 
+      // Added >10 mins threshold to avoid noise
+    }
+    
+    // Sorting
+    if (sort) {
+      const [field, dir] = sort.split(':')
+      const m = dir === 'desc' ? -1 : 1
+      rows.sort((a, b) => {
+        if (field === 'worked') return (a.workedHours - b.workedHours) * m
+        if (field === 'idle') return (a.idleMinutes - b.idleMinutes) * m
+        if (field === 'productive') return (a.productiveMinutes - b.productiveMinutes) * m
+        if (field === 'unproductive') return (a.unproductiveMinutes - b.unproductiveMinutes) * m
+        return 0
+      })
+    }
+
     const totals = rows.reduce((acc: any, r: any) => { acc.tracked += r.trackedActiveMinutes; acc.productive += r.productiveMinutes; acc.unproductive += r.unproductiveMinutes; acc.idle += r.idleMinutes; acc.screenshots += r.screenshots; return acc }, { tracked: 0, productive: 0, unproductive: 0, idle: 0, screenshots: 0 })
+    
     return NextResponse.json({ items: rows, totals })
   } catch (err: any) {
     console.error('Activity Overview Error:', err)
     return NextResponse.json({ error: err.message || 'INTERNAL_ERROR' }, { status: 500 })
   }
 }
-

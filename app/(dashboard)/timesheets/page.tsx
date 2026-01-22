@@ -6,6 +6,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -21,6 +23,8 @@ export default function TimesheetsPage() {
   const [leave, setLeave] = useState<any[]>([])
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<any>({ date:'', reason:'', new_start:'', new_end:'', new_minutes:'' })
+  const [timesheetData, setTimesheetData] = useState<any[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => {
     const r = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id': 'admin' } })
@@ -60,8 +64,9 @@ export default function TimesheetsPage() {
   }
 
   const loadRows = async () => {
-    if (!orgId || !memberId || days.length === 0) { setRows([]); return }
+    if (!orgId || !memberId || days.length === 0) { setRows([]); setTimesheetData([]); return }
     const out: React.ReactNode[][] = []
+    const raw: any[] = []
     for (const day of days) {
       const r = await fetch(`/api/time/logs?org_id=${orgId}&date=${day}&member_id=${memberId}`, { cache:'no-store' })
       const d = await r.json()
@@ -71,8 +76,44 @@ export default function TimesheetsPage() {
       const short = s ? s.shortMinutes : 0
       const isLeave = leave.some((lr:any)=> day >= lr.start_date && day <= lr.end_date)
       out.push([ day, isLeave? <span className="badge">Leave</span> : `${Math.floor(worked/60)}:${String(worked%60).padStart(2,'0')}`, `+${Math.floor(extra/60)}:${String(extra%60).padStart(2,'0')}`, `-${Math.floor(short/60)}:${String(short%60).padStart(2,'0')}`, <GlassButton onClick={()=>{ setForm({ date:day, reason:'', new_start:'', new_end:'', new_minutes:'' }); setOpen(true) }}>Request change</GlassButton> ])
+      raw.push({
+        date: day,
+        workedMinutes: worked,
+        extraMinutes: extra,
+        shortMinutes: short,
+        status: isLeave ? 'Leave' : 'Working'
+      })
     }
     setRows(out)
+    setTimesheetData(raw)
+  }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (timesheetData.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'date' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Worked', accessor: (item) => `${Math.floor(item.workedMinutes/60)}:${String(item.workedMinutes%60).padStart(2,'0')}` },
+        { header: 'Extra', accessor: (item) => `${Math.floor(item.extraMinutes/60)}:${String(item.extraMinutes%60).padStart(2,'0')}` },
+        { header: 'Short', accessor: (item) => `${Math.floor(item.shortMinutes/60)}:${String(item.shortMinutes%60).padStart(2,'0')}` }
+      ]
+      const filename = `marq_timesheets_${orgId}_${memberId}_${days[0]}_${days[days.length-1]}`
+      if (type === 'csv') {
+        await exportToCsv(timesheetData, exportColumns, filename)
+      } else {
+        await exportToPdf(timesheetData, exportColumns, 'Timesheet', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const submit = async () => {
@@ -118,7 +159,7 @@ export default function TimesheetsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Timesheet">
+      <GlassCard title="Timesheet" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 

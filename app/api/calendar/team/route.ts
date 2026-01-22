@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   // Filters: department, user_ids (comma separated)
   const departmentId = searchParams.get('department')
   const userIdsParam = searchParams.get('users')
+  const projectId = searchParams.get('project_id')
   
   // Auth
   const requesterId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const events = await getCalendarEventsForUsers(targetUserIds, orgId, from, to)
+    const events = await getCalendarEventsForUsers(targetUserIds, orgId, from, to, projectId || undefined)
     return NextResponse.json({ events })
   } catch (error) {
     console.error('Calendar Team API Error:', error)

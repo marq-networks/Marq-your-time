@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type MFA = { id: string, userId: string, mfaType: 'email_otp'|'totp', secret?: string, isEnabled: boolean }
 type Device = { id: string, deviceLabel?: string, lastIp?: string, lastUsedAt?: number }
@@ -17,6 +19,7 @@ export default function SecuritySettings() {
   const [devices, setDevices] = useState<Device[]>([])
   const [totpSecret, setTotpSecret] = useState<string>('')
   const [otpauthUri, setOtpauthUri] = useState<string>('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async () => {
     const sres = await fetch(`/api/security/mfa/status?user_id=${userId}&org_id=${orgId}`, { cache:'no-store' })
@@ -27,6 +30,21 @@ export default function SecuritySettings() {
     const dres = await fetch(`/api/security/trusted-devices?user_id=${userId}`, { cache:'no-store' })
     const dd = await dres.json()
     setDevices(dd.items || [])
+  }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = devices
+      const exportColumns: ExportColumn[] = [
+        { header: 'Device', accessor: (d) => d.deviceLabel || 'Unknown' },
+        { header: 'Last IP', accessor: (d) => d.lastIp || '-' },
+        { header: 'Last Used', accessor: (d) => d.lastUsedAt ? new Date(d.lastUsedAt).toLocaleString() : '-' }
+      ]
+      const filename = `marq_security_devices_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Trusted Devices', filename)
+    } catch (e) { console.error(e); alert('Export failed') } finally { setIsExporting(false) }
   }
 
   useEffect(()=>{ load() }, [])
@@ -90,7 +108,7 @@ export default function SecuritySettings() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Trusted Devices">
+      <GlassCard title="Trusted Devices" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
     </AppShell>

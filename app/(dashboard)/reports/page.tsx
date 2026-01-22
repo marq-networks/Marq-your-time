@@ -5,8 +5,12 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassTable from '@components/ui/GlassTable'
-import GlassModal from '@components/ui/GlassModal'
-import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
+import { useListQuery } from '@/lib/hooks/useListQuery'
+import { normalizeRoleForApi } from '@/lib/permissions'
+import FilterBar from '@/components/filters/FilterBar'
+import DateRangePicker from '@/components/filters/DateRangePicker'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
@@ -17,27 +21,50 @@ function dateISO(d: Date) { return d.toISOString().slice(0,10) }
 function rangeQuick(key: '7'|'30') { const end = new Date(); const start = new Date(end.getTime() - (key==='7'? 6:29)*24*60*60*1000); return { start: dateISO(start), end: dateISO(end) } }
 
 export default function ReportsPage() {
+  const { filters, setFilters } = useListQuery()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [deps, setDeps] = useState<Department[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [roles, setRoles] = useState<MemberRole[]>([])
   const [orgId, setOrgId] = useState('')
-  const [departmentId, setDepartmentId] = useState('')
-  const [memberId, setMemberId] = useState('')
-  const [managerId, setManagerId] = useState('')
-  const [memberRoleId, setMemberRoleId] = useState('')
   const [reportType, setReportType] = useState<'attendance'|'timesheet'|'activity'|'payroll'|'billing'|'leave'>('attendance')
   const [format, setFormat] = useState<'csv'|'xlsx'|'pdf'>('csv')
-  const [status, setStatus] = useState<string>('')
   const [runAsync, setRunAsync] = useState(false)
-  const [start, setStart] = useState<string>(rangeQuick('7').start)
-  const [end, setEnd] = useState<string>(rangeQuick('7').end)
   const [rows, setRows] = useState<string[][]>([])
   const [columns, setColumns] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [templates, setTemplates] = useState<any>(null)
   const [jobs, setJobs] = useState<any[]>([])
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = (jobs || []).map(j => ({
+        created: new Date(j.created_at).toLocaleString(),
+        type: j.report_type,
+        status: j.status,
+        params: JSON.stringify(j.params),
+        url: j.file_url || ''
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Created', accessor: 'created' },
+        { header: 'Type', accessor: 'type' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Params', accessor: 'params' },
+        { header: 'Download URL', accessor: 'url' },
+      ]
+      const filename = `report_jobs_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Report Jobs', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => { const r = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'admin' } }); const d = await r.json(); setOrgs(d.items||[]) }
   const loadDepsUsers = async (org: string) => {
@@ -60,12 +87,14 @@ export default function ReportsPage() {
   const generate = async () => {
     if (!orgId) return
     setDownloading(true)
+    const start = filters.from || rangeQuick('7').start
+    const end = filters.to || rangeQuick('7').end
     const payload: any = { org_id: orgId, report_type: reportType, format, params: { date_start: start, date_end: end, include_inactive: false }, async: runAsync }
-    if (memberId) payload.params.member_ids = [memberId]
-    if (departmentId) payload.params.department_ids = [departmentId]
-    if (status && (reportType==='leave' || reportType==='billing' || reportType==='payroll')) payload.params.status = status
-    if (managerId) payload.params.manager_id = managerId
-    if (memberRoleId) payload.params.member_role_ids = [memberRoleId]
+    if (filters.memberId) payload.params.member_ids = [filters.memberId]
+    if (filters.departmentId) payload.params.department_ids = [filters.departmentId]
+    if (filters.status && (reportType==='leave' || reportType==='billing' || reportType==='payroll')) payload.params.status = filters.status
+    if (filters.managerId) payload.params.manager_id = filters.managerId
+    if (filters.memberRoleId) payload.params.member_role_ids = [filters.memberRoleId]
     const res = await fetch('/api/reports/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify(payload) })
     if (res.ok && !runAsync) {
       const ct = res.headers.get('content-type') || ''
@@ -112,6 +141,14 @@ export default function ReportsPage() {
 
   const loadJobs = async () => { if (!orgId) return; const r = await fetch(`/api/reports/jobs?org_id=${orgId}&limit=20`, { cache:'no-store', headers:{ 'x-role': role || 'admin' } }); const d = await r.json(); setJobs(d.items||[]) }
 
+  const filterConfig = useMemo(() => [
+    { key: 'departmentId', label: 'Department', type: 'select' as const, options: deps.map(d=>({label:d.name, value:d.id})) },
+    { key: 'memberId', label: 'Member', type: 'select' as const, options: users.map(u=>({label:`${u.firstName} ${u.lastName}`, value:u.id})) },
+    { key: 'memberRoleId', label: 'Role', type: 'select' as const, options: roles.map(r=>({label:r.name, value:r.id})) },
+    { key: 'status', label: 'Status', type: 'select' as const, options: [{label:'Active', value:'active'}, {label:'Inactive', value:'inactive'}] },
+    { key: 'date', label: 'Date Range', type: 'date-range' as const }
+  ], [deps, users, roles])
+
   return (
     <AppShell title="Reports">
       <div style={{ backgroundImage:'linear-gradient(135deg, #d9c7b2, #e8ddce, #c9b8a4)', borderRadius:'var(--radius-large)', padding:12 }}>
@@ -145,73 +182,11 @@ export default function ReportsPage() {
               </GlassSelect>
             </div>
           </div>
-        </GlassCard>
-
-        <GlassCard title="Filters" right={<div className="row" style={{ gap:8 }}>
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeQuick('7'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 7 days</GlassButton>
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeQuick('30'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 30 days</GlassButton>
-        </div>}>
-          <div className="grid-3">
-            <div>
-              <div className="label">Date start</div>
-              <input className="input" type="date" value={start} onChange={e=>setStart(e.target.value)} />
-            </div>
-            <div>
-              <div className="label">Date end</div>
-              <input className="input" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
-            </div>
-            <div>
-              <div className="label">Department</div>
-              <GlassSelect value={departmentId} onChange={(e:any)=>setDepartmentId(e.target.value)}>
-                <option value="">All</option>
-                {deps.map(d=> <option key={d.id} value={d.id}>{d.name}</option>)}
-              </GlassSelect>
-            </div>
-            <div>
-              <div className="label">Member</div>
-              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
-                <option value="">All</option>
-                {users.map(u=> <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-              </GlassSelect>
-            </div>
-            <div>
-              <div className="label">Manager</div>
-              <GlassSelect value={managerId} onChange={(e:any)=>setManagerId(e.target.value)}>
-                <option value="">All</option>
-                {users.map(u=> <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-              </GlassSelect>
-            </div>
-            <div>
-              <div className="label">Role</div>
-              <GlassSelect value={memberRoleId} onChange={(e:any)=>setMemberRoleId(e.target.value)}>
-                <option value="">All</option>
-                {roles.map(r=> <option key={r.id} value={r.id}>{r.name} (L{r.level})</option>)}
-              </GlassSelect>
-            </div>
-            {(reportType==='leave' || reportType==='billing' || reportType==='payroll') && (
-              <div>
-                <div className="label">Status</div>
-                <GlassSelect value={status} onChange={(e:any)=>setStatus(e.target.value)}>
-                  <option value="">All</option>
-                  {reportType==='leave' && (<>
-                    <option value="approved">approved</option>
-                    <option value="pending">pending</option>
-                    <option value="rejected">rejected</option>
-                  </>)}
-                  {reportType==='billing' && (<>
-                    <option value="active">active</option>
-                    <option value="trialing">trialing</option>
-                    <option value="cancelled">cancelled</option>
-                  </>)}
-                  {reportType==='payroll' && (<>
-                    <option value="open">open</option>
-                    <option value="closed">closed</option>
-                    <option value="processed">processed</option>
-                  </>)}
-                </GlassSelect>
-              </div>
-            )}
+          
+          <div style={{ marginTop: 20 }}>
+            <FilterBar pageKey="reports" orgId={orgId} config={filterConfig} showSavedViews />
           </div>
+
           <div className="row" style={{ marginTop:12 }}>
             <GlassButton variant="primary" onClick={()=>{ if (!orgId || downloading) return; generate() }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>{downloading? 'Generating...' : 'Generate & Download'}</GlassButton>
             <label className="row" style={{ gap:8, marginLeft:12 }}>
@@ -225,7 +200,7 @@ export default function ReportsPage() {
           <GlassTable columns={columns} rows={rows} />
         </GlassCard>
 
-        <GlassCard title="Job History">
+        <GlassCard title="Job History" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
           <GlassTable columns={[ 'Created', 'Type', 'Status', 'Params', 'Download' ]} rows={(jobs||[]).map(j=>[
             new Date(j.created_at).toLocaleString(),
             j.report_type,

@@ -1,14 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Filter, Plus } from 'lucide-react'
 import AppShell from '@components/ui/AppShell'
 import { CalendarEvent } from '@lib/calendar-service'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 import { MonthView } from './_components/MonthView'
 import { WeekView } from './_components/WeekView'
 import { DayView } from './_components/DayView'
 import { ListView } from './_components/ListView'
 import { DayDetailModal } from './_components/DayDetailModal'
+import { useListQuery } from '@/lib/hooks/useListQuery'
+import FilterBar from '@/components/filters/FilterBar'
 import styles from './page.module.css'
 
 type ViewMode = 'month' | 'week' | 'day' | 'list'
@@ -37,62 +42,81 @@ function headerTitle(view: ViewMode, date: Date) {
 }
 
 export default function CalendarPage() {
+  const searchParams = useSearchParams()
+  const { filters, setFilters, updateFilter, search, setSearch } = useListQuery()
   const [view, setView] = useState<ViewMode>('month')
   const [date, setDate] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedDayModal, setSelectedDayModal] = useState<Date | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
-  // Admin filtering
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = events
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Date', accessor: 'date' },
+        { header: 'Type', accessor: 'type' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Start', accessor: (e) => e.startAt ? new Date(e.startAt).toLocaleTimeString() : (e.startTime !== undefined ? `${Math.floor(e.startTime/60)}:${String(e.startTime%60).padStart(2,'0')}` : '-') },
+        { header: 'End', accessor: (e) => e.endAt ? new Date(e.endAt).toLocaleTimeString() : (e.endTime !== undefined ? `${Math.floor(e.endTime/60)}:${String(e.endTime%60).padStart(2,'0')}` : '-') },
+      ]
+      const filename = `marq_calendar_${view}_${date.toISOString().split('T')[0]}`
+      if (type === 'csv') exportToCsv(exportItems, exportColumns, filename)
+      else exportToPdf(exportItems, exportColumns, 'Calendar Events', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Admin filtering data
   const [users, setUsers] = useState<any[]>([])
-  const [selectedUserId, setSelectedUserId] = useState('')
+  const [departments, setDepartments] = useState<any[]>([])
+  const [projects, setProjects] = useState<any[]>([])
   const [role, setRole] = useState('')
-
-  // Filters (you can wire these into API later)
-  const [department, setDepartment] = useState('')
-  const [project, setProject] = useState('')
-  const [status, setStatus] = useState('')
-
-  const [filtersOpen, setFiltersOpen] = useState(true)
-
+  const [orgId, setOrgId] = useState('')
+  
   const isAdmin = role === 'admin' || role === 'super_admin' || role === 'owner'
 
-  const chips = useMemo(() => {
-    const out: { key: string; label: string; onRemove: () => void }[] = []
-    if (selectedUserId) out.push({ key: 'user', label: `User: ${selectedUserId}`, onRemove: () => setSelectedUserId('') })
-    if (department) out.push({ key: 'dept', label: `Department: ${department}`, onRemove: () => setDepartment('') })
-    if (project) out.push({ key: 'proj', label: `Project: ${project}`, onRemove: () => setProject('') })
-    if (status) out.push({ key: 'status', label: `Status: ${status}`, onRemove: () => setStatus('') })
-    return out
-  }, [selectedUserId, department, project, status])
-
+  // Load initial data
   useEffect(() => {
     const r = getCookie('current_role')
+    const oid = getCookie('current_org_id')
     setRole(r)
+    setOrgId(oid)
 
-    const uid = getCookie('current_user_id')
-    if (!selectedUserId) setSelectedUserId(uid)
-
-    if (r === 'admin' || r === 'super_admin' || r === 'owner') loadUsers()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (r === 'admin' || r === 'super_admin' || r === 'owner') {
+      loadAdminData(oid)
+    }
   }, [])
 
-  const loadUsers = async () => {
-    const orgId = getCookie('current_org_id')
-    if (!orgId) return
+  const loadAdminData = async (oid: string) => {
+    if (!oid) return
     try {
-      const res = await fetch(`/api/user/list?orgId=${orgId}`)
-      const d = await res.json()
-      if (d.items) setUsers(d.items)
+      const [uRes, dRes, pRes] = await Promise.all([
+        fetch(`/api/user/list?orgId=${oid}`),
+        fetch(`/api/department/list?orgId=${oid}`),
+        fetch(`/api/projects/list?org_id=${oid}`)
+      ])
+      const [u, d, p] = await Promise.all([uRes.json(), dRes.json(), pRes.json()])
+      if (u.items) setUsers(u.items)
+      if (d.items) setDepartments(d.items)
+      if (p.items) setProjects(p.items)
     } catch (e) {
       console.error(e)
     }
   }
 
+  // Fetch events when date/view/filters change
   useEffect(() => {
-    if (selectedUserId) fetchEvents()
+    if (role) fetchEvents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, view, selectedUserId])
+  }, [date, view, searchParams.toString(), role])
 
   const fetchEvents = async () => {
     setLoading(true)
@@ -123,11 +147,23 @@ export default function CalendarPage() {
     const toStr = to.toISOString().slice(0, 10)
 
     try {
-      const endpoint = isAdmin
-        ? `/api/calendar/user/${selectedUserId}?from=${fromStr}&to=${toStr}`
-        : `/api/calendar/my?from=${fromStr}&to=${toStr}`
+      let endpoint = ''
+      const params = new URLSearchParams()
+      params.set('from', fromStr)
+      params.set('to', toStr)
 
-      const res = await fetch(endpoint)
+      if (isAdmin) {
+        // Use team endpoint for admins
+        endpoint = `/api/calendar/team`
+        if (filters.userIds) params.set('users', filters.userIds)
+        if (filters.departmentId) params.set('department', filters.departmentId)
+        if (filters.projectId) params.set('project_id', filters.projectId) // Note: team endpoint might need update to support project_id
+      } else {
+        // Use my endpoint for regular users
+        endpoint = `/api/calendar/my`
+      }
+
+      const res = await fetch(`${endpoint}?${params.toString()}`)
       const data = await res.json()
       setEvents(data?.events || [])
     } catch (err) {
@@ -147,24 +183,29 @@ export default function CalendarPage() {
     setDate(newDate)
   }
 
-  const resetFilters = () => {
-    setSelectedUserId('')
-    setDepartment('')
-    setProject('')
-    setStatus('')
-  }
+  const filterConfig = useMemo(() => [
+    { 
+      key: 'userIds', 
+      label: 'Members', 
+      type: 'multi-select' as const, 
+      options: users.map(u => ({ label: `${u.firstName} ${u.lastName}`, value: u.id })) 
+    },
+    {
+      key: 'departmentId',
+      label: 'Department',
+      type: 'select' as const,
+      options: departments.map(d => ({ label: d.name, value: d.id }))
+    },
+    {
+      key: 'projectId',
+      label: 'Project',
+      type: 'select' as const,
+      options: projects.map(p => ({ label: p.name, value: p.id }))
+    }
+  ], [users, departments, projects])
 
   return (
-
-    <div className={styles.pageCanvas}>
-  <div className={styles.bg} />
-  <div className={styles.glow} />
-
-  <div className={styles.page}>
     <AppShell title="Calendar">
-      <div className={styles.bg} />
-      <div className={styles.glow} />
-
       <div className={styles.page}>
         {/* Header Card */}
         <div className={styles.card}>
@@ -197,6 +238,8 @@ export default function CalendarPage() {
                 ))}
               </div>
 
+              <ExportMenu isExporting={isExporting} onExport={handleExport} />
+
               <button className={styles.ghostBtn} onClick={() => setDate(new Date())}>
                 Today
               </button>
@@ -211,80 +254,13 @@ export default function CalendarPage() {
 
         {/* Filters Card (Admin) */}
         {isAdmin && (
-          <div className={styles.card}>
-            <div className={styles.filtersHead}>
-              <div className={styles.filtersLeft}>
-                <button className={styles.filtersLeft} onClick={() => setFiltersOpen((v) => !v)}>
-                  <span className={styles.badgeIcon}>
-                    <Filter size={16} />
-                  </span>
-                  <span className={styles.filtersTitle}>Filters</span>
-                  <span className={styles.filtersMeta}>{filtersOpen ? 'Hide' : 'Show'}</span>
-                </button>
-              </div>
-
-              <button className={styles.resetBtn} onClick={resetFilters}>
-                Reset
-              </button>
-            </div>
-
-            {filtersOpen && (
-              <div className={styles.filtersBody}>
-                <div className={styles.grid}>
-                  <div className={styles.field}>
-                    <div className={styles.fieldLabel}>Assignee</div>
-                    <select className={styles.select} value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-                      <option value="">All Users</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.firstName} {u.lastName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className={styles.field}>
-                    <div className={styles.fieldLabel}>Department</div>
-                    <select className={styles.select} value={department} onChange={(e) => setDepartment(e.target.value)}>
-                      <option value="">Any</option>
-                      <option value="tech">Technology</option>
-                      <option value="hr">HR</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.field}>
-                    <div className={styles.fieldLabel}>Project</div>
-                    <select className={styles.select} value={project} onChange={(e) => setProject(e.target.value)}>
-                      <option value="">Any</option>
-                      <option value="alpha">Alpha</option>
-                      <option value="beta">Beta</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.field}>
-                    <div className={styles.fieldLabel}>Status</div>
-                    <select className={styles.select} value={status} onChange={(e) => setStatus(e.target.value)}>
-                      <option value="">Any</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </div>
-                </div>
-
-                {chips.length > 0 && (
-                  <div className={styles.chips}>
-                    {chips.map((c) => (
-                      <span key={c.key} className={styles.chip}>
-                        {c.label}
-                        <button className={styles.chipX} onClick={c.onRemove}>
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="mb-6">
+            <FilterBar 
+              pageKey="calendar" 
+              orgId={orgId} 
+              config={filterConfig} 
+              showSavedViews
+            />
           </div>
         )}
 
@@ -321,7 +297,5 @@ export default function CalendarPage() {
         )}
       </div>
     </AppShell>
-      </div>
-</div>
   )
 }

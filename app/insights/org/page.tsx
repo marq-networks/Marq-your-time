@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Snapshot = { id: string, orgId: string, targetType: string, targetId?: string, snapshotDate: string, summary?: string, metadata?: any, createdAt: number }
@@ -13,6 +15,7 @@ export default function OrgInsightsPage() {
   const [start, setStart] = useState(new Date(Date.now()-6*86400000).toISOString().slice(0,10))
   const [end, setEnd] = useState(new Date().toISOString().slice(0,10))
   const [items, setItems] = useState<Snapshot[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadItems = async () => { if (!orgId) return; const qs = new URLSearchParams(); qs.set('org_id', orgId); qs.set('target_type', 'org'); qs.set('period_start', start); qs.set('period_end', end); const res = await fetch(`/api/ai-insights/list?${qs.toString()}`, { cache:'no-store' }); const d = await res.json(); setItems(d.items||[]) }
@@ -21,11 +24,36 @@ export default function OrgInsightsPage() {
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) loadItems() }, [orgId, start, end])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'snapshotDate' },
+        { header: 'Summary', accessor: 'summary' },
+        { header: 'Metadata', accessor: (i) => JSON.stringify(i.metadata || {}) }
+      ]
+      
+      const filename = `marq_org_insights_${orgId}_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Org Insights', filename)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Org Insights">
       <div style={{ background: 'linear-gradient(135deg, #d9c7b2, #e8ddce 50%, #c9b8a4)', padding: 8, borderRadius: 28 }}>
         <GlassCard title="Filters" right={(
           <div className="row" style={{ gap:12 }}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
             <GlassButton variant="primary" onClick={()=>generate()} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Generate</GlassButton>
           </div>
         )}>

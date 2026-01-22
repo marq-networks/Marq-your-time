@@ -4,12 +4,15 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 function fmtCurrency(v: number, curr = 'USD') { try { return new Intl.NumberFormat(undefined, { style:'currency', currency: curr }).format(v) } catch { return `${curr} ${v.toFixed(2)}` } }
 
 export default function InvoicePage({ params }: { params: { invoiceId: string }}) {
   const [inv, setInv] = useState<any | undefined>()
   const [items, setItems] = useState<any[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async () => { const res = await fetch(`/api/billing/getInvoiceById?id=${params.invoiceId}`, { cache:'no-store', headers:{ 'x-user-id':'admin' }}); const d = await res.json(); setInv(d.invoice); setItems(d.lineItems||[]) }
   useEffect(()=>{ load() }, [])
@@ -21,6 +24,34 @@ export default function InvoicePage({ params }: { params: { invoiceId: string }}
     await fetch('/api/email/broadcast', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ subject: `Invoice ${inv.invoiceNumber}`, html }) })
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (items.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Description', accessor: (it) => it.description || '' },
+        { header: 'Quantity', accessor: 'quantity' },
+        { header: 'Unit Price', accessor: (it) => fmtCurrency(it.unitPrice) },
+        { header: 'Total', accessor: (it) => fmtCurrency(it.total) }
+      ]
+      const filename = `marq_invoice_${inv?.invoiceNumber || params.invoiceId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(items, exportColumns, filename)
+      } else {
+        await exportToPdf(items, exportColumns, `Invoice ${inv?.invoiceNumber}`, filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const columns = ['Title','Description','Qty','Unit','Total']
   const rows = items.map(it => [ it.title, it.description || '', String(it.quantity), fmtCurrency(it.unitPrice), fmtCurrency(it.total) ])
 
@@ -28,7 +59,7 @@ export default function InvoicePage({ params }: { params: { invoiceId: string }}
     <AppShell title="Invoice">
       {inv && (
         <>
-          <GlassCard title={`Invoice ${inv.invoiceNumber}`} right={<div className="row" style={{gap:8}}><GlassButton onClick={sendInvoice}>Send Invoice</GlassButton><GlassButton onClick={()=>window.print()}>Download PDF</GlassButton><GlassButton onClick={markPaid}>Mark Paid</GlassButton></div>}>
+          <GlassCard title={`Invoice ${inv.invoiceNumber}`} right={<div className="row" style={{gap:8}}><ExportMenu onExport={handleExport} isExporting={isExporting} /><GlassButton onClick={sendInvoice}>Send Invoice</GlassButton><GlassButton onClick={()=>window.print()}>Download PDF</GlassButton><GlassButton onClick={markPaid}>Mark Paid</GlassButton></div>}>
             <div className="grid grid-3">
               <div>
                 <div className="label">Date</div>

@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type OrgItem = { org_id: string, name: string, created_at: string, members_count: number, active_devices: number, active_seats: number, monthly_tracked_hours: number, mrr: number }
 type TrendPoint = { date: string, tracked_hours: number, active_members: number, active_seats: number }
@@ -38,6 +40,7 @@ export default function SuperAdminHQ() {
   const [end, setEnd] = useState(dateISO(new Date()))
   const [sort, setSort] = useState('mrr')
   const [search, setSearch] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadAll = async () => {
     const hdr = { 'x-role': 'super_admin' }
@@ -67,6 +70,71 @@ export default function SuperAdminHQ() {
   const totalActiveUsers = filteredOrgs.reduce((s,o)=> s + o.members_count, 0)
   const totalTrackedHours = filteredOrgs.reduce((s,o)=> s + o.monthly_tracked_hours, 0)
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = filteredOrgs
+      if (exportItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'Organization', accessor: 'name' },
+        { header: 'Created Date', accessor: (item) => new Date(item.created_at).toLocaleDateString() },
+        { header: 'Members', accessor: 'members_count' },
+        { header: 'Seats', accessor: 'active_seats' },
+        { header: 'Tracked Hours', accessor: 'monthly_tracked_hours' },
+        { header: 'MRR', accessor: (item) => `$${Math.round(item.mrr||0).toLocaleString()}` },
+      ]
+
+      const filename = `marq_hq_orgs_${dateISO(new Date())}`
+
+      if (type === 'csv') {
+        exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        exportToPdf(exportItems, exportColumns, 'Organization Directory', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleExportRevenue = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = revenue.org_breakdown || []
+      const exportColumns: ExportColumn[] = [
+        { header: 'Organization', accessor: 'org_name' },
+        { header: 'Revenue', accessor: (r) => `$${Math.round(r.revenue||0).toLocaleString()}` }
+      ]
+      const filename = `marq_hq_revenue_${dateISO(new Date())}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Revenue per Organization', filename)
+    } catch (e) { console.error(e); alert('Export failed') } finally { setIsExporting(false) }
+  }
+
+  const handleExportDevices = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = devices
+      const exportColumns: ExportColumn[] = [
+        { header: 'Device name', accessor: 'device_name' },
+        { header: 'OS', accessor: 'device_os' },
+        { header: 'Org', accessor: 'org_name' },
+        { header: 'Last seen', accessor: (d) => new Date(d.last_seen).toLocaleString() },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Active sessions', accessor: (d) => String(d.active_sessions || 0) }
+      ]
+      const filename = `marq_hq_devices_${dateISO(new Date())}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Devices Across Organizations', filename)
+    } catch (e) { console.error(e); alert('Export failed') } finally { setIsExporting(false) }
+  }
+
   if (forbidden) {
     return (
       <AppShell title="Super Admin HQ">
@@ -84,6 +152,11 @@ export default function SuperAdminHQ() {
     <AppShell title="Super Admin HQ">
       <GlassCard title="Filters" right={(
         <div className="row" style={{gap:12}}>
+          <ExportMenu 
+            onExportCsv={() => handleExport('csv')} 
+            onExportPdf={() => handleExport('pdf')} 
+            isExporting={isExporting} 
+          />
           <GlassButton variant="primary" onClick={()=>{ const s = addDays(dateISO(new Date()), -6); setStart(s); setEnd(dateISO(new Date())) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 7 days</GlassButton>
           <GlassButton variant="primary" onClick={()=>{ const s = addDays(dateISO(new Date()), -29); setStart(s); setEnd(dateISO(new Date())) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 30 days</GlassButton>
         </div>
@@ -162,12 +235,12 @@ export default function SuperAdminHQ() {
         <GlassCard title="Monthly Revenue">
           <LineChart points={(revenue.monthly||[]).map((m:any)=>({ date:m.month, value:m.revenue }))} color="#39FF14" />
         </GlassCard>
-        <GlassCard title="Revenue per Organization">
+        <GlassCard title="Revenue per Organization" right={<ExportMenu onExport={handleExportRevenue} isExporting={isExporting} />}>
           <GlassTable columns={["Organization","Revenue"]} rows={(revenue.org_breakdown||[]).map((r:any)=> [r.org_name, `$${Math.round(r.revenue||0).toLocaleString()}`])} />
         </GlassCard>
       </div>
 
-      <GlassCard title="Devices Across Organizations">
+      <GlassCard title="Devices Across Organizations" right={<ExportMenu onExport={handleExportDevices} isExporting={isExporting} />}>
         <GlassTable columns={["Device name","OS","Org","Last seen","Status","Active sessions"]} rows={devices.map(d => [
           d.device_name,
           d.device_os,

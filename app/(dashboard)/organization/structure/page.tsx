@@ -4,7 +4,11 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
+import FilterBar from '@/components/filters/FilterBar'
+import { useListQuery } from '@/lib/hooks/useListQuery'
 import { useEffect, useMemo, useState } from 'react'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 async function fetchJSON(url: string, init?: RequestInit) {
   const res = await fetch(url, init)
@@ -13,6 +17,7 @@ async function fetchJSON(url: string, init?: RequestInit) {
 }
 
 export default function OrgStructurePage() {
+  const { filters, updateFilter } = useListQuery()
   const [orgId, setOrgId] = useState<string>('')
   const [departments, setDepartments] = useState<any[]>([])
   const [roles, setRoles] = useState<any[]>([])
@@ -22,7 +27,18 @@ export default function OrgStructurePage() {
   const [newDeptName, setNewDeptName] = useState('')
   const [newRoleName, setNewRoleName] = useState('')
   const [newRoleLevel, setNewRoleLevel] = useState<number>(1)
-  const [memberSearch, setMemberSearch] = useState('')
+  const [totalMembers, setTotalMembers] = useState(0)
+  const [isExporting, setIsExporting] = useState(false)
+  
+  const page = parseInt(filters.page || '1')
+  const pageSize = parseInt(filters.pageSize || '50')
+
+  const filterConfig = useMemo(() => [
+    { key: 'role', label: 'Role', type: 'select' as const, options: roles.map(r => ({ label: r.name, value: r.id })) },
+    { key: 'deptId', label: 'Department', type: 'select' as const, options: departments.map(d => ({ label: d.name, value: d.id })) },
+    { key: 'status', label: 'Status', type: 'status' as const },
+    { key: 'sort', label: 'Sort By', type: 'sort' as const, options: [{label:'Name (A-Z)', value:'name:asc'}, {label:'Name (Z-A)', value:'name:desc'}, {label:'Role', value:'role:asc'}] }
+  ], [roles, departments])
 
   useEffect(() => {
     (async () => {
@@ -34,19 +50,49 @@ export default function OrgStructurePage() {
     })()
   }, [])
 
+  // Load Meta (Depts, Roles)
   useEffect(() => {
     if (!orgId) return
     ;(async () => {
-      const [depsRes, rolesRes, usersRes] = await Promise.all([
+      const [depsRes, rolesRes] = await Promise.all([
         fetchJSON(`/api/department/list?orgId=${orgId}`),
-        fetchJSON(`/api/org/roles?org_id=${orgId}`),
-        fetchJSON(`/api/user/list?orgId=${orgId}`),
+        fetchJSON(`/api/org/roles?org_id=${orgId}`)
       ])
       setDepartments(depsRes.items || depsRes.departments || [])
       setRoles(rolesRes.items || [])
-      setMembers(usersRes.items || usersRes.users || [])
     })()
   }, [orgId])
+
+  // Load Members (with filters)
+  useEffect(() => {
+    if (!orgId) return
+    ;(async () => {
+      const q = filters.q || ''
+      const role = filters.role || ''
+      const deptId = filters.deptId || ''
+      const status = filters.status || ''
+      const sort = filters.sort || ''
+      
+      const query = new URLSearchParams({ 
+        orgId, 
+        page: String(page), 
+        pageSize: String(pageSize),
+        q,
+        roleId: role, // map 'role' filter to 'roleId' param if needed, or check API. Usually 'role' or 'roleId'. Let's assume roleId based on previous analysis.
+        deptId,
+        status,
+        sort
+      })
+      
+      try {
+        const usersRes = await fetchJSON(`/api/user/list?${query.toString()}`)
+        setMembers(usersRes.items || usersRes.users || [])
+        setTotalMembers(usersRes.total || 0)
+      } catch (e) {
+        console.error(e)
+      }
+    })()
+  }, [orgId, filters.q, filters.role, filters.deptId, filters.status, filters.sort, page, pageSize])
 
   const deptTree = useMemo(() => {
     const byParent: Record<string, any[]> = {}
@@ -96,6 +142,34 @@ export default function OrgStructurePage() {
     } catch (e) { console.error(e) }
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const exportItems = members
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: (m: any) => `${m.firstName||m.first_name} ${m.lastName||m.last_name}`.trim() },
+        { header: 'Email', accessor: 'email' },
+        { header: 'Department', accessor: (m: any) => departments.find(d => d.id === (m.departmentId||m.department_id))?.name || '-' },
+        { header: 'Role', accessor: (m: any) => roles.find(r => r.id === (m.memberRoleId||m.member_role_id||m.roleId))?.name || '-' },
+        { header: 'Manager', accessor: (m: any) => {
+             const mgr = members.find(u => u.id === (m.managerId||m.manager_id))
+             return mgr ? `${mgr.firstName||mgr.first_name} ${mgr.lastName||mgr.last_name}`.trim() : '-'
+        }},
+        { header: 'Status', accessor: 'status' }
+      ]
+
+      const filename = `marq_org_structure_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Organization Structure', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const deptColumns = ['Department','Actions']
   const deptRows = deptTree.map(d => [
     `${'—'.repeat(d.depth)} ${d.name}`,
@@ -143,12 +217,7 @@ export default function OrgStructurePage() {
   ])
 
   const memberColumns = ['Member','Department','Role','Manager']
-  const memberRows = members.filter(m => {
-    const q = memberSearch.trim().toLowerCase()
-    if (!q) return true
-    const name = `${m.firstName||m.first_name} ${m.lastName||m.last_name}`.trim().toLowerCase()
-    return name.includes(q)
-  }).map(m => {
+  const memberRows = members.map(m => {
     return [
       `${m.firstName||m.first_name} ${m.lastName||m.last_name}`.trim(),
       (
@@ -190,14 +259,35 @@ export default function OrgStructurePage() {
           <GlassTable columns={roleColumns} rows={roleRows} />
         </GlassCard>
 
-        <GlassCard title="Team Mapping">
-          <div className="row" style={{marginBottom:12, gap:12}}>
-            <div style={{flex:1,minWidth:220}}>
-              <div className="label">Search members</div>
-              <input className="input" value={memberSearch} onChange={e=>setMemberSearch(e.target.value)} placeholder="Search by name" />
-            </div>
+        <GlassCard title="Team Mapping" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
+          <div className="mb-4">
+             <FilterBar 
+               pageKey="org_structure" 
+               orgId={orgId} 
+               config={filterConfig} 
+             />
           </div>
           <GlassTable columns={memberColumns} rows={memberRows} />
+          {/* Pagination Controls */}
+          <div className="flex items-center justify-between mt-4">
+             <div className="text-sm opacity-60">
+               Showing {members.length} of {totalMembers} members
+             </div>
+             <div className="flex gap-2">
+               <GlassButton 
+                 disabled={page <= 1}
+                 onClick={() => updateFilter('page', String(page - 1))}
+               >
+                 Previous
+               </GlassButton>
+               <GlassButton 
+                 disabled={page * pageSize >= totalMembers}
+                 onClick={() => updateFilter('page', String(page + 1))}
+               >
+                 Next
+               </GlassButton>
+             </div>
+          </div>
         </GlassCard>
       </div>
     </AppShell>

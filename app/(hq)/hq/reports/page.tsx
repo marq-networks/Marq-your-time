@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassTable from '@components/ui/GlassTable'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 
@@ -21,9 +23,28 @@ export default function HQReportsPage() {
   const [util, setUtil] = useState(0)
   const [orgBreakdown, setOrgBreakdown] = useState<any[]>([])
   const [downloading, setDownloading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const r = await fetch('/api/hq/organizations', { cache:'no-store', headers:{ 'x-role':'super_admin' } }); const d = await r.json(); const items = (d.orgs||[]).map((o:any)=>({ id:o.org_id, orgName:o.org_name })); setOrgs(items) }
   const loadAgg = async () => { const r = await fetch('/api/hq/revenue', { cache:'no-store', headers:{ 'x-role':'super_admin' } }); const d = await r.json(); setMrr(Number(d.mrr||0)); setArr(Number(d.arr||0)); setUtil(Number(d.seat_utilization||0)); setOrgBreakdown(d.orgs||[]) }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = orgBreakdown || []
+      const exportColumns: ExportColumn[] = [
+        { header: 'Organization', accessor: 'org_name' },
+        { header: 'Plan', accessor: 'plan_code' },
+        { header: 'Seats', accessor: (o: any) => String(o.seats||0) },
+        { header: 'MRR', accessor: (o: any) => `$${Math.round(o.mrr||0).toLocaleString()}` },
+        { header: 'ARR', accessor: (o: any) => `$${Math.round(o.arr||0).toLocaleString()}` },
+        { header: 'Status', accessor: 'status' }
+      ]
+      const filename = `marq_hq_reports_orgs_${dateISO(new Date())}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Organizations by Plan and Revenue', filename)
+    } catch (e) { console.error(e); alert('Export failed') } finally { setIsExporting(false) }
+  }
 
   const generateBillingCSV = async () => {
     if (!orgId) return
@@ -63,7 +84,7 @@ export default function HQReportsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Organizations by Plan and Revenue">
+      <GlassCard title="Organizations by Plan and Revenue" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={["Organization","Plan","Seats","MRR","ARR","Status"]} rows={(orgBreakdown||[]).map((o:any)=>[
           o.org_name,
           o.plan_code,

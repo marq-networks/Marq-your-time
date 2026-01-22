@@ -8,6 +8,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import AdjustmentLogTable from '@components/hr/AdjustmentLogTable'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -19,6 +21,7 @@ export default function HRAdjustmentsPage() {
   const [members, setMembers] = useState<User[]>([])
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   
   // Filters
   const [moduleId, setModuleId] = useState('')
@@ -119,31 +122,33 @@ export default function HRAdjustmentsPage() {
   // Reload when filters change
   useEffect(() => { if (orgId) loadLogs() }, [moduleId, employeeId, dateFrom, dateTo])
 
-  const exportCSV = () => {
-    if (!logs.length) return
-    const headers = ['Date', 'Module', 'Employee', 'Field', 'Old Value', 'New Value', 'Reason', 'Actor']
-    const csvContent = [
-      headers.join(','),
-      ...logs.map((l: any) => [
-        l.created_at,
-        l.module,
-        `${l.employee.firstName} ${l.employee.lastName}`,
-        l.field_name,
-        JSON.stringify(l.old_value).replace(/,/g, ';'),
-        JSON.stringify(l.new_value).replace(/,/g, ';'),
-        l.reason.replace(/,/g, ';'),
-        `${l.actor.firstName} ${l.actor.lastName}`
-      ].join(','))
-    ].join('\n')
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.setAttribute('href', url)
-    link.setAttribute('download', `hr_adjustments_${new Date().toISOString().slice(0,10)}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      // Use current logs state
+      const exportItems = logs
+      
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'created_at' },
+        { header: 'Module', accessor: 'module' },
+        { header: 'Employee', accessor: (l) => `${l.employee?.firstName || ''} ${l.employee?.lastName || ''}` },
+        { header: 'Field', accessor: 'field_name' },
+        { header: 'Old Value', accessor: (l) => JSON.stringify(l.old_value) },
+        { header: 'New Value', accessor: (l) => JSON.stringify(l.new_value) },
+        { header: 'Reason', accessor: 'reason' },
+        { header: 'Actor', accessor: (l) => `${l.actor?.firstName || ''} ${l.actor?.lastName || ''}` },
+      ]
+
+      const filename = `marq_hr_adjustments_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') exportToCsv(exportItems, exportColumns, filename)
+      else exportToPdf(exportItems, exportColumns, 'HR Adjustments Log', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handleManualSubmit = async () => {
@@ -260,7 +265,10 @@ export default function HRAdjustmentsPage() {
           {['super_admin','admin','manager'].includes(role) && (       
              <GlassButton onClick={()=>setModalOpen(true)} style={{padding:'6px 12px', fontSize:13}}>+ Add Manual Entry</GlassButton>
           )}
-          <GlassButton onClick={exportCSV} disabled={logs.length === 0} style={{padding:'6px 12px', fontSize:13}}>Export CSV</GlassButton>
+          <ExportMenu 
+            onExport={handleExport} 
+            isExporting={isExporting}
+          />
         </div>
 
         <AdjustmentLogTable logs={logs} loading={loading} />

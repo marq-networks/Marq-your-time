@@ -1615,12 +1615,22 @@ export async function getTodaySummary(input: { memberId: string, orgId: string }
   }
 }
 
-export async function listDailyLogs(input: { orgId: string, date: string, memberId?: string }) {
+export async function listDailyLogs(input: { orgId: string, date?: string, from?: string, to?: string, memberId?: string }) {
   if (isSupabaseConfigured()) {
     const sb = supabaseServer()
-    const q = sb.from('daily_time_summaries').select('*').eq('org_id', input.orgId).eq('date', input.date)
-    const { data: summaries } = input.memberId ? await q.eq('member_id', input.memberId) : await q
-    const { data: sessions } = await sb.from('time_sessions').select('*, projects(name, clients(name)), tasks(title)').eq('org_id', input.orgId).eq('date', input.date)
+    let qSum = sb.from('daily_time_summaries').select('*').eq('org_id', input.orgId)
+    if (input.date) qSum = qSum.eq('date', input.date)
+    if (input.from) qSum = qSum.gte('date', input.from)
+    if (input.to) qSum = qSum.lte('date', input.to)
+    
+    const { data: summaries } = input.memberId ? await qSum.eq('member_id', input.memberId) : await qSum
+    
+    let qSess = sb.from('time_sessions').select('*, projects(id, name, clients(id, name)), tasks(id, title)').eq('org_id', input.orgId)
+    if (input.date) qSess = qSess.eq('date', input.date)
+    if (input.from) qSess = qSess.gte('date', input.from)
+    if (input.to) qSess = qSess.lte('date', input.to)
+    
+    const { data: sessions } = await qSess
     const sessIds = (sessions || []).map((r: any) => r.id)
     const { data: breaks } = await sb.from('break_sessions').select('*').in('time_session_id', sessIds)
     return {
@@ -3829,18 +3839,14 @@ export async function generatePayrollLines(orgId: string, periodId: string) {
                  date: a.date,
                  scheduledMinutes: 0,
                  workedMinutes: a.workedMinutes,
-                 activeMinutes: 0,
-                 manualMinutes: 0,
-                 idleMinutes: 0,
                  paidBreakMinutes: a.paidBreakMinutes,
                  unpaidBreakMinutes: a.unpaidBreakMinutes,
                  extraMinutes: a.extraMinutes,
                  shortMinutes: 0,
+                 status: 'normal',
                  isHoliday: false,
-                 isLeave: false,
-                 leaveId: undefined,
-                 notes: 'Approved Timesheet Entry',
-                 lastActivityAt: undefined
+                 createdAt: Date.now(),
+                 updatedAt: Date.now()
                })
             }
           }

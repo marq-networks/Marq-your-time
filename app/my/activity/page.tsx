@@ -8,6 +8,8 @@ import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
 import { useTracking } from '@components/TrackingProvider'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -25,6 +27,34 @@ export default function MyActivityPage() {
   const [data, setData] = useState<any>({ trackingOn: false, settings: { allowActivityTracking: false, allowScreenshots: false, maskPersonalWindows: true }, sessions: [], breaks: [], events: [], topApps: [], screenshots: [] })
   const [shot, setShot] = useState<any | undefined>(undefined)
   const [role, setRole] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const topApps = data.topApps || []
+      if (topApps.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'App', accessor: 'app' },
+        { header: 'Active Minutes', accessor: (a) => formatHM(a.minutes) },
+        { header: 'Category', accessor: (a) => a.category || '-' }
+      ]
+      const filename = `my_top_apps_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(topApps, exportColumns, filename)
+      } else {
+        await exportToPdf(topApps, exportColumns, 'Top Apps Today', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -226,9 +256,9 @@ export default function MyActivityPage() {
            <div className="subtitle" style={{ marginTop: 8 }}>Tracking is {data.trackingOn ? 'ON' : 'OFF'}</div>
            <div className="subtitle" style={{ marginTop: 6 }}>MARQ only logs active apps, websites, and work-related screen snapshots. Nothing is recorded outside your working hours.</div>
          </GlassCard>
-         <GlassCard title="Top Apps Today">
-           <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(clientTopApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
-         </GlassCard>
+         <GlassCard title="Top Apps Today" right={<ExportMenu isExporting={isExporting} onExport={handleExport} />}>
+          <GlassTable columns={['App', 'Active Minutes', 'Category']} rows={(clientTopApps || []).map((a: any) => [a.app, formatHM(a.minutes), a.category || '-'])} />
+        </GlassCard>
        </div>
        <div className='mt-10'>
          <div style={{marginBottom: 20}}>

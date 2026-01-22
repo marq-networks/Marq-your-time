@@ -4,11 +4,14 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 
 export default function OrgDetail({ params }: { params: { id: string } }) {
   const [org, setOrg] = useState<any>(null)
   const [revenue, setRevenue] = useState<any>(null)
   const [forbidden, setForbidden] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const load = async () => {
     const hdr = { 'x-role': 'super_admin' }
@@ -39,6 +42,29 @@ export default function OrgDetail({ params }: { params: { id: string } }) {
 
   if (!org) return <AppShell title="Org Details"><div className="glass-panel" style={{padding:20,borderRadius:28}}>Loading...</div></AppShell>
 
+  const monthlyRevenue = (revenue?.monthly || []).filter((m: any) => m.revenue > 0)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = monthlyRevenue
+      const exportColumns: ExportColumn[] = [
+        { header: 'Month', accessor: 'month' },
+        { header: 'Revenue', accessor: (m) => `$${Math.round(m.revenue || 0).toLocaleString()}` }
+      ]
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, `marq_org_${params.id}_revenue`)
+      } else {
+        await exportToPdf(exportItems, exportColumns, `Revenue History: ${org?.name || params.id}`, `marq_org_${params.id}_revenue`)
+      }
+    } catch (error) {
+      console.error('Export failed:', error)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Organization Details">
       <div className="grid-3">
@@ -59,8 +85,8 @@ export default function OrgDetail({ params }: { params: { id: string } }) {
         <GlassButton variant="primary" href={`/dashboard?org_id=${org.org_id}`} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Open Org Dashboard</GlassButton>
       </div>
       <div className="grid-1" style={{marginTop:20}}>
-        <GlassCard title="Revenue (Monthly)">
-          <GlassTable columns={["Month","Revenue"]} rows={(revenue?.monthly||[]).filter((m:any)=>m.revenue>0).map((m:any)=> [m.month, `$${Math.round(m.revenue||0).toLocaleString()}`])} />
+        <GlassCard title="Revenue (Monthly)" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
+          <GlassTable columns={["Month","Revenue"]} rows={monthlyRevenue.map((m:any)=> [m.month, `$${Math.round(m.revenue||0).toLocaleString()}`])} />
         </GlassCard>
       </div>
     </AppShell>

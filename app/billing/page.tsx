@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 function fmtCurrency(v: number, curr = 'USD') { try { return new Intl.NumberFormat(undefined, { style:'currency', currency: curr }).format(v) } catch { return `${curr} ${v.toFixed(2)}` } }
 
@@ -15,6 +17,7 @@ export default function BillingPage() {
   const [org, setOrg] = useState<any | undefined>()
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store', headers:{ 'x-user-id':'admin' }}); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadOrg = async (id: string) => { const res = await fetch(`/api/org/${id}`, { cache:'no-store' }); const d = await res.json(); setOrg(d.org) }
@@ -31,6 +34,37 @@ export default function BillingPage() {
     const text = `${inv.invoiceNumber||''} ${inv.invoiceDate||''} ${inv.billingPeriodStart||''} ${inv.billingPeriodEnd||''}`.toLowerCase()
     return matchesStatus && text.includes(q)
   })
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = filteredInvoices
+      const exportColumns: ExportColumn[] = [
+        { header: 'Invoice #', accessor: 'invoiceNumber' },
+        { header: 'Date', accessor: 'invoiceDate' },
+        { header: 'Period Start', accessor: 'billingPeriodStart' },
+        { header: 'Period End', accessor: 'billingPeriodEnd' },
+        { header: 'Subtotal', accessor: (inv) => fmtCurrency(inv.subtotal) },
+        { header: 'Tax', accessor: (inv) => fmtCurrency(inv.tax) },
+        { header: 'Total', accessor: (inv) => fmtCurrency(inv.total) },
+        { header: 'Status', accessor: 'status' }
+      ]
+      
+      const filename = `marq_billing_invoices_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Invoices', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const rows = filteredInvoices.map(inv => [ inv.invoiceNumber, inv.invoiceDate, `${inv.billingPeriodStart} → ${inv.billingPeriodEnd}`, fmtCurrency(inv.subtotal), fmtCurrency(inv.tax), fmtCurrency(inv.total), inv.status, <GlassButton href={`/billing/${inv.id}`}>View</GlassButton> ])
 
   return (
@@ -57,7 +91,7 @@ export default function BillingPage() {
         )}
       </GlassCard>
 
-      <GlassCard title="Invoices">
+      <GlassCard title="Invoices" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="row" style={{marginBottom:12, gap:12}}>
           <div style={{flex:1,minWidth:180}}>
             <div className="label">Search</div>

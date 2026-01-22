@@ -4,6 +4,8 @@ import Card from '@components/Card'
 import Modal from '@components/Modal'
 import Toast from '@components/Toast'
 import AppShell from '@components/ui/AppShell'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { usePathname } from 'next/navigation'
 
 export default function OrgDetail() {
@@ -26,6 +28,32 @@ export default function OrgDetail() {
     assignSeat:true
   })
   const [toast, setToast] = useState<{m?:string,t?:'success'|'error'}>({})
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = users
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: (u) => `${u.firstName} ${u.lastName}` },
+        { header: 'Email', accessor: 'email' },
+        { header: 'Role', accessor: (u) => (roles.find(r=>r.id===u.roleId)?.name) || '' },
+        { header: 'Department', accessor: (u) => (departments.find(d=>d.id===u.departmentId)?.name) || '' },
+        { header: 'Status', accessor: 'status' }
+      ]
+      const filename = `marq_org_members_${id}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Organization Members', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      setToast({ m: 'Export failed', t: 'error' })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const load = async () => {
     const res = await fetch(`/api/org/${id}`)
@@ -90,7 +118,7 @@ export default function OrgDetail() {
           <div className="title">{org.usedSeats}/{org.totalLicensedSeats}</div>
         </Card>
       </div>
-      <Card title="Members">
+      <Card title="Members" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="grid">
           <table className="glass-table">
             <thead>

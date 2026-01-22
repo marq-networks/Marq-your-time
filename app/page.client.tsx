@@ -7,6 +7,8 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import usePermission from '@lib/hooks/usePermission'
 import { useTracking } from '@components/TrackingProvider'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 export default function DashboardClient() {
   const tracking = useTracking()
@@ -21,6 +23,7 @@ export default function DashboardClient() {
   const [consentOpen, setConsentOpen] = useState(false)
   const [consentText, setConsentText] = useState('')
   const [tempTrackingId, setTempTrackingId] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     try {
@@ -138,6 +141,59 @@ export default function DashboardClient() {
       await tracking.startTracking(tempTrackingId, s.settings)
     }
   }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId || !memberId) return
+    setIsExporting(true)
+    try {
+      const sessions = (summary.sessions || []).map((s: any) => ({
+        type: 'Session',
+        status: s.status,
+        start: s.startTime,
+        end: s.endTime,
+        duration: s.totalMinutes,
+        label: '-'
+      }))
+      const breaks = (summary.breaks || []).map((b: any) => ({
+        type: 'Break',
+        status: 'break',
+        start: b.startTime,
+        end: b.endTime,
+        duration: b.totalMinutes,
+        label: b.label
+      }))
+      
+      const allItems = [...sessions, ...breaks].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+
+      if (allItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'Type', accessor: 'type' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Start Time', accessor: (item) => new Date(item.start).toLocaleTimeString() },
+        { header: 'End Time', accessor: (item) => item.end ? new Date(item.end).toLocaleTimeString() : '...' },
+        { header: 'Duration (m)', accessor: (item) => String(item.duration || 0) },
+        { header: 'Label', accessor: 'label' }
+      ]
+
+      const filename = `marq_today_log_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(allItems, exportColumns, filename)
+      } else {
+        await exportToPdf(allItems, exportColumns, 'Today Log', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const rejectConsent = async () => {
     if (!tempTrackingId) { setConsentOpen(false); return }
     await fetch('/api/tracking/consent', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tracking_session_id: tempTrackingId, accepted: false, consent_text: consentText }) })
@@ -261,7 +317,7 @@ export default function DashboardClient() {
         </GlassCard>
         )}
         {role !== 'super_admin' && (
-        <GlassCard title="Today Log">
+        <GlassCard title="Today Log" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
           <div className="subtitle">Sessions and Breaks</div>
           <div>
             {(summary.sessions||[]).map((s: any) => (

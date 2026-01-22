@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassTable from '@components/ui/GlassTable'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Dept = { id: string, name: string }
@@ -18,6 +20,7 @@ export default function TeamDashboardPage() {
   const [departmentId, setDepartmentId] = useState('')
   const [rows, setRows] = useState<TimeRow[]>([])
   const [leaveIds, setLeaveIds] = useState<string[]>([])
+  const [isExporting, setIsExporting] = useState(false)
 
   const today = new Date().toISOString().slice(0,10)
 
@@ -53,6 +56,37 @@ export default function TeamDashboardPage() {
   const columns = ['Member','Department','Status','Worked']
   const trows = filtered.map(r => [ r.memberName, r.departmentName||'', r.status, `${r.workedMinutes}m` ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const exportItems = filtered
+      if (exportItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+      
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: 'memberName' },
+        { header: 'Department', accessor: 'departmentName' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Worked (min)', accessor: 'workedMinutes' },
+      ]
+
+      const filename = `marq_attendance_${today}`
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Attendance List', filename, `Date: ${today}`)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Team Dashboard">
       <GlassCard title="Filters">
@@ -73,6 +107,10 @@ export default function TeamDashboardPage() {
           </div>
           <div className="row" style={{alignItems:'end',gap:8}}>
             <span className="badge">{today}</span>
+            <ExportMenu 
+              onExport={handleExport}
+              isExporting={isExporting} 
+            />
           </div>
         </div>
       </GlassCard>

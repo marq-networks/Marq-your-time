@@ -5,14 +5,39 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 export default function MyTimesheetsPage() {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [isExporting, setIsExporting] = useState(false)
   const router = useRouter()
   
   const userId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_user_id='))?.split('=')[1] || '') : ''
   const orgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Period Start', accessor: 'period_start' },
+        { header: 'Period End', accessor: 'period_end' },
+        { header: 'Status', accessor: (i) => i.status.toUpperCase() },
+        { header: 'Worked', accessor: (it) => `${Math.round(it.totals.worked_minutes / 60)}h ${it.totals.worked_minutes % 60}m` },
+      ]
+      const filename = `marq_my_timesheets_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') exportToCsv(exportItems, exportColumns, filename)
+      else exportToPdf(exportItems, exportColumns, 'My Timesheets', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadItems = async () => {
     if (!userId || !orgId) return
@@ -71,7 +96,8 @@ export default function MyTimesheetsPage() {
 
   return (
     <AppShell title="My Timesheets">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, marginBottom: 16 }}>
+        <ExportMenu isExporting={isExporting} onExport={handleExport} />
         <GlassButton variant="primary" onClick={createCurrentWeek}>Generate Current Week</GlassButton>
       </div>
       <GlassCard title="History">

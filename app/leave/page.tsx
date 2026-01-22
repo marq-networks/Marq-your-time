@@ -6,6 +6,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 import { DayPicker, DateRange } from 'react-day-picker'
 import 'react-day-picker/dist/style.css'
 
@@ -33,6 +35,41 @@ export default function LeavePage() {
   const [seeded, setSeeded] = useState(false)
   const [month, setMonth] = useState<Date>(() => new Date())
   const [range, setRange] = useState<DateRange | undefined>(undefined)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (requests.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportItems = requests.map(r => ({
+        ...r,
+        typeName: types.find(t => t.id === r.leave_type_id)?.name || 'Unknown',
+        status: r.status
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Type', accessor: 'typeName' },
+        { header: 'Start', accessor: 'start_date' },
+        { header: 'End', accessor: 'end_date' },
+        { header: 'Days', accessor: (item) => String(item.days || 0) },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Reason', accessor: (item) => item.reason || '' }
+      ]
+      const filename = `leave_requests_${memberId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Leave Requests', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -109,6 +146,9 @@ export default function LeavePage() {
 
   return (
     <AppShell title="Leave">
+      <div className="row" style={{justifyContent:'flex-end',marginBottom:16}}>
+        <ExportMenu isExporting={isExporting} onExport={handleExport} />
+      </div>
       <GlassCard title="Select">
         <div className="grid grid-2">
           <div>

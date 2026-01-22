@@ -6,6 +6,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Shift = { id: string, orgId: string, name: string, startTime: string, endTime: string, isOvernight: boolean, graceMinutes: number, breakMinutes: number }
@@ -20,7 +22,38 @@ export default function ShiftsSettingsPage() {
   const [loadingShifts, setLoadingShifts] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items.map(s => ({
+        name: s.name,
+        start: s.startTime,
+        end: s.endTime,
+        overnight: s.isOvernight ? 'Yes' : 'No',
+        grace: String(s.graceMinutes || 0),
+        break: String(s.breakMinutes || 0)
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Name', accessor: 'name' },
+        { header: 'Start Time', accessor: 'start' },
+        { header: 'End Time', accessor: 'end' },
+        { header: 'Overnight', accessor: 'overnight' },
+        { header: 'Grace (min)', accessor: 'grace' },
+        { header: 'Break (min)', accessor: 'break' },
+      ]
+      const filename = `shifts_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') await exportToCsv(exportItems, exportColumns, filename)
+      else await exportToPdf(exportItems, exportColumns, 'Shifts', filename)
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     setLoadingOrgs(true)
@@ -100,7 +133,12 @@ export default function ShiftsSettingsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Configured shifts" right={loadingShifts ? <span className="subtitle">Loading…</span> : undefined}>
+      <GlassCard title="Configured shifts" right={
+        <div className="row" style={{ gap: 8 }}>
+          {loadingShifts && <span className="subtitle">Loading…</span>}
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+        </div>
+      }>
         {items.length === 0 && !loadingShifts && (
           <div className="subtitle">No shifts configured yet. Click Add Shift to create one.</div>
         )}

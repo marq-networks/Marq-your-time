@@ -23,17 +23,38 @@ export function WeekView({ date, events }: WeekViewProps) {
   }, [date])
 
   const getEventsForDay = (d: Date) => {
-    const dateStr = d.toISOString().slice(0, 10)
+    // Use local date string to avoid timezone shifts
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
+    
     return events.filter(e => e.date === dateStr)
   }
 
   // Calculate position and height based on startTime/endTime
   // Assume startTime/endTime are minutes from midnight
   const getEventStyle = (e: CalendarEvent) => {
-    if (e.startTime === undefined) return {} // All day or unknown time
-    const start = e.startTime
-    const end = e.endTime || (start + 60) // Default 1 hour if no end
-    const duration = end - start
+    let start = e.startTime
+    let end = e.endTime
+
+    // Prefer local time from ISO string
+    if (e.startAt) {
+        const d = new Date(e.startAt)
+        if (!isNaN(d.getTime())) {
+            start = d.getHours() * 60 + d.getMinutes()
+        }
+    }
+    if (e.endAt) {
+        const d = new Date(e.endAt)
+        if (!isNaN(d.getTime())) {
+            end = d.getHours() * 60 + d.getMinutes()
+        }
+    }
+
+    if (start === undefined) return {} // All day or unknown time
+    const finalEnd = end || (start + 60) // Default 1 hour if no end
+    const duration = finalEnd - start
     
     return {
       top: `${(start / 1440) * 100}%`,

@@ -7,6 +7,8 @@ import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type SurveyItem = { id: string, title: string, created_at: number, closes_at?: number|null, is_anonymous: boolean, avg_scale: number, response_rate: number|null }
@@ -22,6 +24,7 @@ export default function SurveysAdminPage() {
   const [results, setResults] = useState<any|null>(null)
   const [viewSurveyId, setViewSurveyId] = useState<string|undefined>(undefined)
   const [search, setSearch] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   useEffect(()=>{ loadOrgs() }, [])
@@ -74,9 +77,43 @@ export default function SurveysAdminPage() {
   })
   const rows = filteredItems.map(it => [ it.title, new Date(it.created_at).toLocaleDateString(), it.closes_at ? new Date(it.closes_at).toLocaleDateString() : '-', it.is_anonymous ? 'Yes' : 'No', (Math.round(it.avg_scale*100)/100).toFixed(2), it.response_rate===null?'-':`${Math.round((it.response_rate||0)*100)}%`, <div className="row" style={{gap:8}}><GlassButton onClick={()=>{ setViewSurveyId(it.id); }}>View Results</GlassButton></div> ])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (filteredItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Created', accessor: (item) => new Date(item.created_at).toLocaleDateString() },
+        { header: 'Closes', accessor: (item) => item.closes_at ? new Date(item.closes_at).toLocaleDateString() : '-' },
+        { header: 'Anonymous', accessor: (item) => item.is_anonymous ? 'Yes' : 'No' },
+        { header: 'Avg Scale', accessor: (item) => (Math.round(item.avg_scale*100)/100).toFixed(2) },
+        { header: 'Response Rate', accessor: (item) => item.response_rate===null ? '-' : `${Math.round((item.response_rate||0)*100)}%` }
+      ]
+      const filename = `marq_surveys_${orgId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(filteredItems, exportColumns, filename)
+      } else {
+        await exportToPdf(filteredItems, exportColumns, 'Surveys', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <AppShell title="Engagement Surveys">
-      <GlassCard title="Surveys" right={<div className="row" style={{gap:8}}><GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Create Survey</GlassButton></div>}>
+      <GlassCard title="Surveys" right={
+        <div className="row" style={{gap:8}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+          <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Create Survey</GlassButton>
+        </div>
+      }>
         <div className="row" style={{gap:12,marginBottom:12}}>
           <div>
             <div className="label">Organization</div>

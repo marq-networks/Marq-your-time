@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -25,6 +27,43 @@ export default function MyEarningsPage() {
   const [fines, setFines] = useState<any[]>([])
   const [adjustments, setAdjustments] = useState<any[]>([])
   const [role, setRole] = useState('')
+
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const allItems = [
+        ...fines.map(f => ({ date: f.date, type: 'Fine', reason: f.reason, amount: -f.amount, currency: f.currency })),
+        ...adjustments.map(a => ({ date: a.date, type: 'Adjustment', reason: a.reason, amount: a.amount, currency: a.currency }))
+      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+      if (allItems.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'date' },
+        { header: 'Type', accessor: 'type' },
+        { header: 'Reason', accessor: 'reason' },
+        { header: 'Amount', accessor: (item) => fmtCurrency(Math.abs(item.amount), item.currency) + (item.amount < 0 ? ' (Deduction)' : '') }
+      ]
+
+      const filename = `my_earnings_extras_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(allItems, exportColumns, filename)
+      } else {
+        await exportToPdf(allItems, exportColumns, 'Fines & Adjustments', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -117,7 +156,7 @@ export default function MyEarningsPage() {
         </div>
       )}
 
-      <GlassCard title="Fines & Adjustments">
+      <GlassCard title="Fines & Adjustments" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={[ 'Date', 'Type', 'Reason', 'Amount' ]} rows={[ ...fines.map(f=> [ f.date, 'Fine', f.reason, `-${fmtCurrency(f.amount, f.currency)}` ]), ...adjustments.map(a=> [ a.date, 'Adjustment', a.reason, `${a.amount >= 0 ? '+' : ''}${fmtCurrency(a.amount, a.currency)}` ]) ]} />
       </GlassCard>
 

@@ -7,6 +7,8 @@ import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -23,6 +25,7 @@ export default function AssetsDashboard() {
   const [newAsset, setNewAsset] = useState<any>({ asset_tag:'', category:'laptop', model:'', serial_number:'', purchase_date:'', warranty_end:'', status:'in_stock' })
   const [assigningId, setAssigningId] = useState<string>('')
   const [assignMemberId, setAssignMemberId] = useState<string>('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
@@ -50,6 +53,36 @@ export default function AssetsDashboard() {
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ loadMembers(orgId); loadAssets(orgId) }, [orgId, status, category])
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Asset Tag', accessor: 'asset_tag' },
+        { header: 'Category', accessor: 'category' },
+        { header: 'Model', accessor: (a) => a.model || '' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Assigned To', accessor: (a) => {
+          const m = members.find(mm => mm.id === a.assigned_to)
+          return m ? `${m.firstName} ${m.lastName}` : ''
+        }}
+      ]
+
+      const filename = `marq_assets_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Assets', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const onCreate = async () => {
     if (!orgId || !newAsset.asset_tag || !newAsset.category || !newAsset.status) return
@@ -99,6 +132,7 @@ export default function AssetsDashboard() {
     <AppShell title="Assets">
       <div className="col" style={{ gap: 16 }}>
         <GlassCard title="Filters" right={<div className="row" style={{gap:8}}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
           <GlassButton variant="primary" onClick={()=> setOpenCreate(true)}>Create Asset</GlassButton>
         </div>}>
           <div className="grid grid-4">

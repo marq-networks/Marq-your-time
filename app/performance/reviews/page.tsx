@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
 import GlassModal from '@components/ui/GlassModal'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -21,6 +23,7 @@ export default function ReviewsPage() {
   const [target, setTarget] = useState<Checkin | null>(null)
   const [mgrScore, setMgrScore] = useState('')
   const [comment, setComment] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]) }
@@ -37,6 +40,31 @@ export default function ReviewsPage() {
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId){ loadMembers(orgId); loadItems() } }, [orgId])
   useEffect(()=>{ loadItems() }, [memberId])
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = items
+      const exportColumns: ExportColumn[] = [
+        { header: 'Period', accessor: (i) => `${i.period_start} - ${i.period_end}` },
+        { header: 'Summary', accessor: 'summary' },
+        { header: 'Self Score', accessor: (i) => i.self_score ?? '-' },
+        { header: 'Manager Score', accessor: (i) => i.manager_score ?? '-' }
+      ]
+      
+      const filename = `marq_team_reviews_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Team Reviews', filename)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   return (
     <AppShell title="Team Reviews">
@@ -59,7 +87,7 @@ export default function ReviewsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Check-ins">
+      <GlassCard title="Check-ins" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="grid grid-1">
           {(items||[]).map(ci => (
             <div key={ci.id} className="row" style={{gap:8, alignItems:'center'}}>

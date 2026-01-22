@@ -5,6 +5,8 @@ import GlassCard from '@components/ui/GlassCard'
 import GlassTable from '@components/ui/GlassTable'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassButton from '@components/ui/GlassButton'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Member = { id: string, firstName: string, lastName: string }
@@ -27,6 +29,7 @@ export default function NotificationSettingsPage() {
   const [memberId, setMemberId] = useState('')
   const [rows, setRows] = useState<PrefRow[]>([])
   const [digest, setDigest] = useState<'none'|'daily'|'weekly'>('none')
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if (!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadMembers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setMembers(d.items||[]) }
@@ -51,6 +54,33 @@ export default function NotificationSettingsPage() {
     await fetch('/api/notifications-settings/preferences/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: memberId, items }) })
   }
   const saveDigest = async () => { if (!memberId) return; await fetch('/api/notifications-settings/digests/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ member_id: memberId, frequency: digest }) }) }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = rows.map(r => ({
+        event: EVENTS.find(e=>e.key===r.eventType)?.label || r.eventType,
+        inApp: r.inApp ? 'Yes' : 'No',
+        email: r.email ? 'Yes' : 'No'
+      }))
+      const exportColumns: ExportColumn[] = [
+        { header: 'Event', accessor: 'event' },
+        { header: 'In-app', accessor: 'inApp' },
+        { header: 'Email', accessor: 'email' }
+      ]
+      const filename = `notifications_prefs_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, 'Notification Preferences', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if (orgId) loadMembers(orgId) }, [orgId])
@@ -84,7 +114,7 @@ export default function NotificationSettingsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Event-based preferences">
+      <GlassCard title="Event-based preferences" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <GlassTable columns={columns} rows={tableRows} />
         <div className="row" style={{ marginTop: 12 }}>
           <GlassButton variant="primary" onClick={savePrefs} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Save Preferences</GlassButton>

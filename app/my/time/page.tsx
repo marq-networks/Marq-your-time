@@ -7,6 +7,8 @@ import GlassSelect from '@components/ui/GlassSelect'
 import GlassModal from '@components/ui/GlassModal'
 import { normalizeRoleForApi } from '@lib/permissions'
 import { useTracking } from '@components/TrackingProvider'
+import ExportMenu from '@/components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, salary?: number, workingHoursPerDay?: number, workingDays?: string[] }
@@ -41,6 +43,7 @@ export default function MyDayPage() {
   const [uiSessionOpen, setUiSessionOpen] = useState(false)
   const [uiStarting, setUiStarting] = useState(false)
   const [uiEnding, setUiEnding] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const loadOrgs = async () => {
     const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
@@ -342,6 +345,32 @@ export default function MyDayPage() {
     else if (totalMinutes >= 480 && !showOvertimeWarning && !showLimitWarning) setShowOvertimeWarning(true)
   }, [totalMinutes, showOvertimeWarning, showLimitWarning])
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      const exportItems = summary.sessions || []
+      const exportColumns: ExportColumn[] = [
+        { header: 'Project', accessor: 'projectName' },
+        { header: 'Task', accessor: 'taskTitle' },
+        { header: 'Start Time', accessor: (s) => new Date(s.startTime).toLocaleTimeString() },
+        { header: 'End Time', accessor: (s) => s.endTime ? new Date(s.endTime).toLocaleTimeString() : '...' },
+        { header: 'Total', accessor: (s) => formatHM(s.totalMinutes || 0) }
+      ]
+
+      const filename = `marq_my_day_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, "Today's Sessions", filename)
+      }
+    } catch (error) {
+      console.error('Export failed:', error)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   if (role && !['employee','member'].includes(role)) {
     return (
       <AppShell title="My Day">
@@ -561,7 +590,7 @@ export default function MyDayPage() {
       </div>
 
       <div className="grid">
-        <GlassCard title="Today's Sessions">
+        <GlassCard title="Today's Sessions" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
           <div className="subtitle">Sessions</div>
           <table className="glass-table">
             <thead>

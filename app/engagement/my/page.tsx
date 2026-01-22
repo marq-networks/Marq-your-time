@@ -6,6 +6,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 
 type Org = { id: string, orgName: string }
 type Member = { id: string, firstName: string, lastName: string }
@@ -21,6 +23,32 @@ export default function MyEngagementPage() {
   const [activeSurveyId, setActiveSurveyId] = useState<string|undefined>(undefined)
   const [detail, setDetail] = useState<any|null>(null)
   const [answers, setAnswers] = useState<Record<string, any>>({})
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (surveys.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Closes', accessor: (item) => item.closes_at ? new Date(item.closes_at).toLocaleDateString() : '-' }
+      ]
+      const filename = `marq_my_surveys_${orgId}_${memberId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(surveys, exportColumns, filename)
+      } else {
+        await exportToPdf(surveys, exportColumns, 'My Open Surveys', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId){ loadMembers(orgId); loadSurveys(orgId) } }, [orgId])
@@ -44,7 +72,7 @@ export default function MyEngagementPage() {
 
   return (
     <AppShell title="My Engagement">
-      <GlassCard title="Open Surveys">
+      <GlassCard title="Open Surveys" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="row" style={{gap:12,marginBottom:12}}>
           <div>
             <div className="label">Organization</div>

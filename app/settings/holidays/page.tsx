@@ -6,6 +6,8 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -23,6 +25,7 @@ export default function HolidaysSettingsPage() {
   const [newHoliday, setNewHoliday] = useState<{ date: string, name: string, isFullDay: boolean }>({ date: '', name: '', isFullDay: true })
   const [newCalendar, setNewCalendar] = useState<{ name: string, countryCode?: string }>({ name: '', countryCode: '' })
   const [createCalOpen, setCreateCalOpen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => {
@@ -65,6 +68,32 @@ export default function HolidaysSettingsPage() {
     loadHolidays(activeCalId, year)
   }
 
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (holidays.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Date', accessor: 'date' },
+        { header: 'Name', accessor: 'name' },
+        { header: 'Type', accessor: (item) => item.isFullDay ? 'Full-day' : 'Partial' }
+      ]
+      const filename = `marq_holidays_${activeCalId}_${year}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(holidays, exportColumns, filename)
+      } else {
+        await exportToPdf(holidays, exportColumns, 'Holidays', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if (orgId) loadCalendars(orgId) }, [orgId])
   useEffect(()=>{ if (activeCalId) loadHolidays(activeCalId, year) }, [activeCalId, year])
@@ -97,7 +126,7 @@ export default function HolidaysSettingsPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="Holidays">
+      <GlassCard title="Holidays" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
         <div className="row" style={{ gap:12, alignItems:'center' }}>
           <div className="label">Year</div>
           <input className="input" type="number" value={year} onChange={e=>setYear(Number(e.target.value))} />

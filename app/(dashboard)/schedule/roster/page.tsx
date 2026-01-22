@@ -4,6 +4,8 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassTable from '@components/ui/GlassTable'
+import ExportMenu from '@components/shared/ExportMenu'
+import { exportToCsv, exportToPdf, ExportColumn } from '@lib/export-utils'
 import { normalizeRoleForApi } from '@lib/permissions'
 
 type Org = { id: string, orgName: string }
@@ -33,6 +35,7 @@ export default function RosterPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [selecting, setSelecting] = useState<{memberId?:string, day?:string}>({})
   const [selShift, setSelShift] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
   const role = typeof document !== 'undefined' ? normalizeRoleForApi(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : ''
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
@@ -54,6 +57,40 @@ export default function RosterPage() {
     if (!selecting.memberId || !selecting.day || !selShift) return
     const res = await fetch('/api/shifts/assign', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin','x-org-id': orgId }, body: JSON.stringify({ member_id: selecting.memberId, shift_id: selShift, effective_from: selecting.day, effective_to: selecting.day }) })
     if (res.ok) { setSelecting({}); setSelShift(''); loadAssignments(orgId) }
+  }
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    if (!orgId) return
+    setIsExporting(true)
+    try {
+      const exportItems = memberRows
+      const exportColumns: ExportColumn[] = [
+        { header: 'Member', accessor: (m: any) => `${m.firstName} ${m.lastName}` }
+      ]
+      days.forEach(d => {
+        exportColumns.push({
+          header: d,
+          accessor: (m: any) => {
+            const sId = asgMap.get(`${m.id}|${d}`)
+            const s = shifts.find(x => x.id === sId)
+            return s ? s.name : '-'
+          }
+        })
+      })
+
+      const filename = `marq_roster_${date}_${new Date().toISOString().split('T')[0]}`
+
+      if (type === 'csv') {
+        await exportToCsv(exportItems, exportColumns, filename)
+      } else {
+        await exportToPdf(exportItems, exportColumns, `Roster Week of ${date}`, filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   return (
@@ -79,6 +116,7 @@ export default function RosterPage() {
             <input className="input" type="date" value={date} onChange={e=> setDate(e.target.value)} />
           </div>
           <div className="row" style={{alignItems:'end',gap:8}}>
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
             <GlassButton variant="secondary" onClick={()=> loadAssignments(orgId)}>Refresh</GlassButton>
           </div>
         </div>

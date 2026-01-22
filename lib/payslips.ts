@@ -253,89 +253,166 @@ export async function generatePayslipsForPeriod(orgId: string, periodParam: stri
   return { ok: true as const, created, failed }
 }
 
-export async function listPayslips(orgId: string, periodParam: string): Promise<PayslipListItem[] | { error: string }> {
+export async function listPayslips(
+  orgId: string,
+  periodParam: string,
+  options?: {
+    userIds?: string[]
+    page?: number
+    pageSize?: number
+    sort?: string
+    q?: string
+    status?: string // 'generated' (has pdf) | 'pending' (no pdf)
+  }
+): Promise<{ items: PayslipListItem[], total: number } | { error: string }> {
+  const { userIds, page = 1, pageSize = 50, sort, q, status } = options || {}
+  
   const sb = isSupabaseConfigured() ? supabaseServer() : null
   if (!sb) return { error: 'SUPABASE_REQUIRED' }
+
   const period = await resolvePayrollPeriod(orgId, periodParam)
   if (!period) return { error: 'PERIOD_NOT_FOUND' }
-  const { data: payslipRows } = await sb
+
+  // 1. Check if ANY payslips exist for this period to decide mode
+  const { count: payslipCount } = await sb
     .from('payslips')
-    .select('*')
+    .select('id', { count: 'exact', head: true })
     .eq('org_id', orgId)
     .eq('payroll_run_id', period.id)
-    .order('created_at', { ascending: false })
-  const rows: PayslipRecord[] = (payslipRows || []) as any
-  if (!rows.length) {
-    const { data: payrollRows } = await sb
+
+  const mode = (payslipCount || 0) > 0 ? 'payslips' : 'preview'
+  const ym = period.period_start.slice(0, 7)
+
+  // 2. Resolve 'q' to user IDs if provided
+  let qUserIds: string[] | null = null
+  if (q) {
+    const { data: found } = await sb
+      .from('users')
+      .select('id')
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`)
+    qUserIds = (found || []).map(u => u.id)
+  }
+
+  // 3. Combine filters
+  let finalUserIds = userIds
+  if (qUserIds !== null) {
+    if (finalUserIds) {
+      finalUserIds = finalUserIds.filter(id => qUserIds!.includes(id))
+    } else {
+      finalUserIds = qUserIds
+    }
+  }
+
+  // 4. Build Query
+  let query = sb.from(mode === 'payslips' ? 'payslips' : 'member_payroll').select('*', { count: 'exact' })
+
+  if (mode === 'payslips') {
+    query = query.eq('org_id', orgId).eq('payroll_run_id', period.id)
+    if (finalUserIds && finalUserIds.length > 0) {
+      query = query.in('user_id', finalUserIds)
+    } else if (finalUserIds && finalUserIds.length === 0) {
+      return { items: [], total: 0 }
+    }
+
+    if (status === 'generated') {
+      query = query.not('pdf_path', 'is', null)
+    } else if (status === 'pending') {
+      query = query.is('pdf_path', null)
+    } else if (status === 'sent') {
+      query = query.not('sent_at', 'is', null)
+    } else if (status === 'paid') {
+      query = query.not('paid_at', 'is', null)
+    }
+  } else {
+    query = query.eq('payroll_period_id', period.id).eq('approved', true)
+    if (finalUserIds && finalUserIds.length > 0) {
+      query = query.in('member_id', finalUserIds)
+    } else if (finalUserIds && finalUserIds.length === 0) {
+      return { items: [], total: 0 }
+    }
+  }
+
+  // 5. Sort
+  if (sort) {
+    const [field, dir] = sort.split(':')
+    const asc = dir === 'asc'
+    if (field === 'created_at') {
+      query = query.order(mode === 'payslips' ? 'created_at' : 'generated_at', { ascending: asc })
+    } else if (field === 'amount') {
+      query = query.order('net_salary', { ascending: asc })
+    } else {
+      query = query.order(mode === 'payslips' ? 'created_at' : 'generated_at', { ascending: false })
+    }
+  } else {
+    query = query.order(mode === 'payslips' ? 'created_at' : 'generated_at', { ascending: false })
+  }
+
+  // 6. Pagination
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+  query = query.range(from, to)
+
+  const { data: rows, count, error } = await query
+  if (error) return { error: error.message }
+  if (!rows || rows.length === 0) return { items: [], total: 0 }
+
+  // 7. Fetch details for mapping
+  const rowUserIds = Array.from(new Set(rows.map((r: any) => String(mode === 'payslips' ? r.user_id : r.member_id))))
+  const { data: usersData } = await sb.from('users').select('id, first_name, last_name, department_id, email').in('id', rowUserIds)
+  const { data: deptsData } = await sb.from('departments').select('id, name').eq('org_id', orgId)
+  
+  const userMap = new Map((usersData || []).map((u: any) => [u.id, u]))
+  const depMap = new Map((deptsData || []).map((d: any) => [d.id, d.name]))
+
+  // 8. Map results
+  // We need to fetch member_payroll for 'payslips' mode to get net_salary if it's not in payslips table?
+  // Checking types:
+  // PayslipRecord has NO net_salary. It has `payroll_run_id` and `user_id`.
+  // MemberPayrollRow HAS `net_salary`.
+  // The original implementation fetched member_payroll rows to get amounts for payslips mode too.
+  
+  let payrollMap = new Map<string, MemberPayrollRow>()
+  if (mode === 'payslips') {
+    const { data: prRows } = await sb
       .from('member_payroll')
       .select('*')
       .eq('payroll_period_id', period.id)
-      .eq('approved', true)
-    const prRows: MemberPayrollRow[] = (payrollRows || []) as any
-    if (!prRows.length) return []
-    const users = await listAllOrgMembers(orgId)
-    const deps = await listDepartments(orgId)
-    const userMap = new Map(users.map(u => [u.id, u]))
-    const depMap = new Map(deps.map(d => [d.id, d.name]))
-    const ym = period.period_start.slice(0, 7)
-    return prRows.map(r => {
-      const user = userMap.get(r.member_id)
-      const name = user ? `${user.firstName} ${user.lastName}`.trim() : String(r.member_id)
-      const dept = user && user.departmentId ? depMap.get(user.departmentId) || '' : ''
-      const net = Number(r.net_salary || 0)
-      const currency = 'USD'
-      return {
-        id: r.id,
-        slipNumber: '-',
-        userId: String(r.member_id),
-        employeeName: name,
-        departmentName: dept,
-        payrollPeriodId: period.id,
-        periodStart: period.period_start,
-        periodEnd: period.period_end,
-        netSalary: net,
-        currency,
-        hasPdf: false,
-        createdAt: r.generated_at || `${ym}-01`
-      }
-    })
+      .in('member_id', rowUserIds)
+    
+    payrollMap = new Map((prRows || []).map((r: any) => [String(r.member_id), r]))
   }
-  const userIds = Array.from(new Set(rows.map(r => String(r.user_id))))
-  const { data: payrollRows } = await sb
-    .from('member_payroll')
-    .select('*')
-    .eq('payroll_period_id', period.id)
-    .in('member_id', userIds)
-  const payrollMap = new Map(
-    (payrollRows || []).map((r: any) => [String(r.member_id), r as MemberPayrollRow])
-  )
-  const users = await listAllOrgMembers(orgId)
-  const deps = await listDepartments(orgId)
-  const userMap = new Map(users.map(u => [u.id, u]))
-  const depMap = new Map(deps.map(d => [d.id, d.name]))
-  const ym = period.period_start.slice(0, 7)
-  return rows.map(r => {
-    const user = userMap.get(String(r.user_id))
-    const pr = payrollMap.get(String(r.user_id))
-    const name = user ? `${user.firstName} ${user.lastName}`.trim() : String(r.user_id)
-    const dept = user && user.departmentId ? depMap.get(user.departmentId) || '' : ''
-    const net = pr ? Number(pr.net_salary || 0) : 0
-    const currency = 'USD'
+
+  const items = rows.map((r: any) => {
+    const userId = String(mode === 'payslips' ? r.user_id : r.member_id)
+    const user = userMap.get(userId)
+    const deptName = user && user.department_id ? depMap.get(user.department_id) || '' : ''
+    const name = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : userId
+    
+    let net = 0
+    if (mode === 'payslips') {
+      const pr = payrollMap.get(userId)
+      net = pr ? Number(pr.net_salary || 0) : 0
+    } else {
+      net = Number(r.net_salary || 0)
+    }
+
     return {
       id: r.id,
-      slipNumber: r.slip_number,
-      userId: String(r.user_id),
+      slipNumber: mode === 'payslips' ? r.slip_number : '-',
+      userId,
       employeeName: name,
-      departmentName: dept,
+      departmentName: deptName,
       payrollPeriodId: period.id,
       periodStart: period.period_start,
       periodEnd: period.period_end,
       netSalary: net,
-      currency,
-      hasPdf: !!r.pdf_path,
-      createdAt: r.created_at || `${ym}-01`
+      currency: 'USD',
+      hasPdf: mode === 'payslips' ? !!r.pdf_path : false,
+      createdAt: (mode === 'payslips' ? r.created_at : r.generated_at) || `${ym}-01`
     }
   })
+
+  return { items, total: count || 0 }
 }
 
 export async function getPayslipDetail(payslipId: string): Promise<PayslipDetail | null> {

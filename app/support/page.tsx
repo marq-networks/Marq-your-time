@@ -7,6 +7,8 @@ import GlassModal from '@components/ui/GlassModal'
 import GlassSelect from '@components/ui/GlassSelect'
 import GlassInput from '@components/ui/GlassInput'
 import GlassTable from '@components/ui/GlassTable'
+import ExportMenu from '@components/shared/ExportMenu'
+import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import TagPill from '@components/ui/TagPill'
 
 type Org = { id: string, orgName: string }
@@ -25,6 +27,35 @@ export default function SupportPage() {
   const [openDetail, setOpenDetail] = useState(false)
   const [detail, setDetail] = useState<{ ticket: Ticket, comments: Comment[] } | null>(null)
   const [newComment, setNewComment] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (type: 'csv' | 'pdf') => {
+    setIsExporting(true)
+    try {
+      if (tickets.length === 0) {
+        alert('No data to export')
+        return
+      }
+      const exportColumns: ExportColumn[] = [
+        { header: 'Title', accessor: 'title' },
+        { header: 'Category', accessor: 'category' },
+        { header: 'Status', accessor: 'status' },
+        { header: 'Priority', accessor: 'priority' },
+        { header: 'Created', accessor: (item) => new Date(item.createdAt).toLocaleString() }
+      ]
+      const filename = `marq_support_tickets_${orgId}_${new Date().toISOString().split('T')[0]}`
+      if (type === 'csv') {
+        await exportToCsv(tickets, exportColumns, filename)
+      } else {
+        await exportToPdf(tickets, exportColumns, 'Support Tickets', filename)
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadOrgs = async () => { const res = await fetch('/api/org/list', { cache:'no-store' }); const d = await res.json(); setOrgs(d.items||[]); if(!orgId && d.items?.length) setOrgId(d.items[0].id) }
   const loadUsers = async (oid: string) => { const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' }); const d = await res.json(); setUsers(d.items||[]); if(!userId && d.items?.length) setUserId(d.items[0].id) }
@@ -75,7 +106,12 @@ export default function SupportPage() {
         </div>
       </GlassCard>
 
-      <GlassCard title="My Tickets" right={<GlassButton onClick={()=>setOpenCreate(true)}>Create ticket</GlassButton>}>
+      <GlassCard title="My Tickets" right={
+        <div className="row" style={{ gap: 8 }}>
+          <ExportMenu onExport={handleExport} isExporting={isExporting} />
+          <GlassButton onClick={()=>setOpenCreate(true)}>Create ticket</GlassButton>
+        </div>
+      }>
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 

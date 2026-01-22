@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --color-bg-main: linear-gradient(to bottom right, #d9c7b2, #e8ddce, #c9b8a4);
   --color-bg-panel: rgba(255,255,255,0.35);
