@@ -17,6 +17,8 @@ export default function TimesheetApprovalsPage() {
   const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
   const [items, setItems] = useState<any[]>([])
+  const [candidates, setCandidates] = useState<any[]>([])
+  const [showCandidates, setShowCandidates] = useState(false)
   const [members, setMembers] = useState<any[]>([])
   const [totalItems, setTotalItems] = useState(0)
   const [isExporting, setIsExporting] = useState(false)
@@ -62,6 +64,15 @@ export default function TimesheetApprovalsPage() {
     } catch (e) { console.error(e) }
   }
 
+  const loadCandidates = async () => {
+    if (!orgId) return
+    try {
+        const r = await fetch(`/api/ai/candidates/list?orgId=${orgId}&status=pending`)
+        const d = await r.json()
+        setCandidates(d.items || [])
+    } catch (e) { console.error(e) }
+  }
+
   const loadItems = async () => {
     if (!orgId) { setItems([]); return }
     
@@ -97,7 +108,10 @@ export default function TimesheetApprovalsPage() {
 
   useEffect(()=>{ loadOrgs() }, [])
   useEffect(()=>{ if(orgId) loadMembers(orgId) }, [orgId])
-  useEffect(()=>{ loadItems() }, [orgId, filters, search, page, pageSize])
+  useEffect(()=>{ 
+    if (showCandidates) loadCandidates()
+    else loadItems() 
+  }, [orgId, filters, search, page, pageSize, showCandidates])
 
   const handleExport = async (type: 'csv' | 'pdf') => {
     if (!orgId) return
@@ -209,6 +223,17 @@ export default function TimesheetApprovalsPage() {
     }
   ], [members])
 
+  const candidateRows = candidates.map(c => [
+    new Date(c.created_at).toLocaleDateString(),
+    c.candidate_type.replace('_', ' ').toUpperCase(),
+    c.reason,
+    `${Math.round(c.confidence * 100)}%`,
+    <div key={c.id} className="flex gap-2">
+        <GlassButton size="sm" onClick={()=>router.push(`/timesheets/approvals/${c.timesheets?.id || ''}`)}>View TS</GlassButton>
+        {/* <GlassButton size="sm" variant="success" onClick={()=>handleCandidateAction(c.id, 'approve')}>Apply</GlassButton> */}
+    </div>
+  ])
+
   const rows = items.map((it: any) => [
     `${it.employees?.first_name || ''} ${it.employees?.last_name || ''}`.trim(),
     `${it.period_start} - ${it.period_end}`,
@@ -219,17 +244,29 @@ export default function TimesheetApprovalsPage() {
 
   return (
     <AppShell title="Timesheet Approvals">
-      <div className="mb-4">
-        {/* Org Selector */}
-        <div className="mb-4 w-64">
-           <div className="label">Organization</div>
-           <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+      <div className="flex justify-between items-center mb-4">
+        <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)} className="w-64">
              <option value="">Select org</option>
              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-           </GlassSelect>
+        </GlassSelect>
+        <div className="flex bg-white/5 p-1 rounded-lg">
+            <button 
+                className={`px-4 py-2 rounded-md text-sm transition-colors ${!showCandidates ? 'bg-[#39FF14] text-black font-medium' : 'text-white/70 hover:text-white'}`}
+                onClick={()=>setShowCandidates(false)}
+            >
+                Timesheets
+            </button>
+            <button 
+                className={`px-4 py-2 rounded-md text-sm transition-colors ${showCandidates ? 'bg-[#39FF14] text-black font-medium' : 'text-white/70 hover:text-white'}`}
+                onClick={()=>setShowCandidates(true)}
+            >
+                AI Corrections ({candidates.length > 0 ? candidates.length : '0'})
+            </button>
         </div>
+      </div>
 
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-start">
+      {!showCandidates ? (
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-start mb-4">
           <div className="flex-1 w-full">
             <FilterBar 
               pageKey="timesheets_approvals" 
@@ -244,10 +281,17 @@ export default function TimesheetApprovalsPage() {
               isExporting={isExporting}
             />
           </div>
-        </div>
       </div>
+      ) : null}
 
-      <GlassCard title="Timesheets">
+      <GlassCard title={showCandidates ? "Pending AI Suggestions" : "Timesheets"}>
+        {showCandidates ? (
+            <GlassTable 
+                columns={['Date Detected', 'Type', 'Reason', 'Confidence', 'Actions']}
+                rows={candidateRows}
+            />
+        ) : (
+        <>
         <GlassTable columns={[ 'Employee', 'Period', 'Status', 'Total Worked', 'Actions' ]} rows={rows} />
         {/* Pagination Controls */}
         <div className="flex items-center justify-between mt-4">
@@ -269,6 +313,8 @@ export default function TimesheetApprovalsPage() {
                </GlassButton>
              </div>
         </div>
+        </>
+        )}
       </GlassCard>
     </AppShell>
   )
