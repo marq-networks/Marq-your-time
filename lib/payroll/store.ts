@@ -3,6 +3,7 @@ import { publishNotification, getOrganization, listUsers, listTeamMemberIds, gen
 import { sendMail } from '@lib/mailer'
 import { queueWebhookEvent } from '@lib/webhooks/queue'
 import { createHRLog } from '@lib/hr-log'
+import { sendSlack } from '@lib/slack'
 
 export type PeriodStatusV12 = 'pending' | 'processing' | 'approved' | 'completed'
 export interface PayrollPeriodV12 {
@@ -258,6 +259,17 @@ export async function generateForPeriod(payroll_period_id: string, org_id: strin
     await publishNotification({ orgId: org_id, type: 'payroll', title: 'Payroll generated', message: `Payroll generated for period ${payroll_period_id}` })
     const org = await getOrganization(org_id)
     if (org?.billingEmail) await sendMail(org.billingEmail, 'Payroll generated', `<div>Payroll generated for ${org.orgName}</div>`)
+    
+    // Slack Notification
+    await sendSlack(org_id, 'payroll_generated', {
+      title: 'Payroll Generated',
+      text: `Payroll generated for period ${payroll_period_id}`,
+      color: '#36a64f',
+      actions: [
+        { type: 'button', text: 'View Payroll', url: `${process.env.NEXT_PUBLIC_APP_URL}/payroll_v12`, style: 'primary' }
+      ]
+    })
+
     return 'OK'
   }
   memRows.splice(0, memRows.length)

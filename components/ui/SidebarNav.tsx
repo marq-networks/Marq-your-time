@@ -31,6 +31,7 @@ const items = [
   { href: '/engagement/surveys', label: 'Engagement Surveys' },
   { href: '/engagement/my', label: 'My Engagement' },
   { href: '/analytics/insights', label: 'Insights' },
+  { href: '/analytics/ai', label: 'AI Analytics' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/payroll', label: 'Payroll' },
   { href: '/payroll_v12', label: 'Payroll v12' },
@@ -113,12 +114,16 @@ export default function SidebarNav() {
           if (i.label === 'Engagement Surveys') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'My Engagement') return ['admin','owner','super_admin'].includes(overrideRole)
           if (i.label === 'Insights') return ['admin','owner','super_admin'].includes(overrideRole)
+          if (i.label === 'AI Analytics') return ['admin','owner','super_admin','employee','member','manager'].includes(overrideRole)
           if (i.label === 'HR Log') return canReports || ['admin','owner','super_admin','manager','hr'].includes(overrideRole)
           if (i.label === 'My Adjustments') return overrideRole !== 'super_admin'
           if (i.label === 'My Timesheets') return ['employee','member'].includes(overrideRole)
           if (i.label === 'Timesheet Approvals') return ['admin','owner','super_admin','manager','hr'].includes(overrideRole)
           const currentRole = overrideRole
-          if (i.href.startsWith('/hq')) return ['super_admin','owner'].includes(currentRole.toLowerCase())
+          if (i.href.startsWith('/hq')) {
+            if (i.href === '/hq/agent-versions') return ['super_admin','owner','admin'].includes(currentRole.toLowerCase())
+            return ['super_admin','owner'].includes(currentRole.toLowerCase())
+          }
           return true
         }).map(i => {
           const active = pathname === i.href || pathname?.startsWith(i.href)

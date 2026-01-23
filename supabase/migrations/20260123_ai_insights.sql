@@ -1,4 +1,4 @@
--- AI Insights Table
+-- Create Tables (if not exist)
 create table if not exists public.ai_insights (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
@@ -19,7 +19,6 @@ create table if not exists public.ai_insights (
 create index if not exists idx_ai_insights_org_user_created on public.ai_insights(org_id, user_id, created_at desc);
 create index if not exists idx_ai_insights_org_type_created on public.ai_insights(org_id, insight_type, created_at desc);
 
--- AI Alert Rules Table
 create table if not exists public.ai_alert_rules (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
@@ -31,10 +30,8 @@ create table if not exists public.ai_alert_rules (
   created_at timestamptz default now(),
   unique (org_id, rule_key)
 );
-
 create index if not exists idx_ai_alert_rules_org on public.ai_alert_rules(org_id);
 
--- AI Timesheet Candidates Table
 create table if not exists public.ai_timesheet_candidates (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
@@ -49,11 +46,9 @@ create table if not exists public.ai_timesheet_candidates (
   reviewed_at timestamptz,
   created_at timestamptz default now()
 );
-
 create index if not exists idx_ai_timesheet_candidates_org_status on public.ai_timesheet_candidates(org_id, status);
 create index if not exists idx_ai_timesheet_candidates_user on public.ai_timesheet_candidates(user_id);
 
--- AI Task Tags Table
 create table if not exists public.ai_task_tags (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
@@ -64,13 +59,13 @@ create table if not exists public.ai_task_tags (
   confidence numeric not null,
   created_at timestamptz default now()
 );
-
 create index if not exists idx_ai_task_tags_org_user on public.ai_task_tags(org_id, user_id);
 
--- RLS Policies
+-- RLS Policies (Corrected with safer join syntax)
 
--- ai_insights
 alter table public.ai_insights enable row level security;
+drop policy if exists "Users can view their own insights" on public.ai_insights;
+drop policy if exists "Admins can view all insights in their org" on public.ai_insights;
 
 create policy "Users can view their own insights"
   on public.ai_insights for select
@@ -79,30 +74,33 @@ create policy "Users can view their own insights"
 create policy "Admins can view all insights in their org"
   on public.ai_insights for select
   using (
-    exists (
-      select 1 from public.users
-      where users.id = auth.uid()
-      and users.org_id = ai_insights.org_id
-      and users.role in ('admin', 'super_admin') -- Assuming 'role' column exists on users or resolved via joining member_roles
+    org_id in (
+      select u.org_id 
+      from public.users u
+      join public.roles r on u.role_id = r.id
+      where u.id = auth.uid()
+      and lower(r.name) in ('admin', 'owner', 'super_admin', 'super admin')
     )
   );
 
--- ai_alert_rules
 alter table public.ai_alert_rules enable row level security;
+drop policy if exists "Admins can view and manage alert rules" on public.ai_alert_rules;
 
 create policy "Admins can view and manage alert rules"
   on public.ai_alert_rules for all
   using (
-    exists (
-      select 1 from public.users
-      where users.id = auth.uid()
-      and users.org_id = ai_alert_rules.org_id
-      and users.role in ('admin', 'super_admin')
+    org_id in (
+      select u.org_id 
+      from public.users u
+      join public.roles r on u.role_id = r.id
+      where u.id = auth.uid()
+      and lower(r.name) in ('admin', 'owner', 'super_admin', 'super admin')
     )
   );
 
--- ai_timesheet_candidates
 alter table public.ai_timesheet_candidates enable row level security;
+drop policy if exists "Users can view their own candidates" on public.ai_timesheet_candidates;
+drop policy if exists "Admins can view and manage candidates" on public.ai_timesheet_candidates;
 
 create policy "Users can view their own candidates"
   on public.ai_timesheet_candidates for select
@@ -111,16 +109,18 @@ create policy "Users can view their own candidates"
 create policy "Admins can view and manage candidates"
   on public.ai_timesheet_candidates for all
   using (
-    exists (
-      select 1 from public.users
-      where users.id = auth.uid()
-      and users.org_id = ai_timesheet_candidates.org_id
-      and users.role in ('admin', 'super_admin')
+    org_id in (
+      select u.org_id 
+      from public.users u
+      join public.roles r on u.role_id = r.id
+      where u.id = auth.uid()
+      and lower(r.name) in ('admin', 'owner', 'super_admin', 'super admin')
     )
   );
 
--- ai_task_tags
 alter table public.ai_task_tags enable row level security;
+drop policy if exists "Users can view their own task tags" on public.ai_task_tags;
+drop policy if exists "Admins can view task tags" on public.ai_task_tags;
 
 create policy "Users can view their own task tags"
   on public.ai_task_tags for select
@@ -129,10 +129,11 @@ create policy "Users can view their own task tags"
 create policy "Admins can view task tags"
   on public.ai_task_tags for select
   using (
-    exists (
-      select 1 from public.users
-      where users.id = auth.uid()
-      and users.org_id = ai_task_tags.org_id
-      and users.role in ('admin', 'super_admin')
+    org_id in (
+      select u.org_id 
+      from public.users u
+      join public.roles r on u.role_id = r.id
+      where u.id = auth.uid()
+      and lower(r.name) in ('admin', 'owner', 'super_admin', 'super admin')
     )
   );

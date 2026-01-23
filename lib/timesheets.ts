@@ -1,6 +1,7 @@
 import { supabaseServer } from '@lib/supabase'
 import { createHRLog } from '@lib/hr-log'
 import { publishNotification } from './db'
+import { sendSlack } from './slack'
 
 export type TimesheetPeriod = 'day' | 'week' | 'pay_period'
 export type TimesheetStatus = 'draft' | 'submitted' | 'changes_required' | 'approved' | 'rejected'
@@ -308,6 +309,21 @@ export async function submitTimesheet(timesheetId: string, userId: string) {
         }
       }
     }
+
+    // Slack Notification
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    await sendSlack(ts.org_id, 'timesheet_submitted', {
+        title: 'Timesheet Submitted',
+        text: `Timesheet #${ts.id.slice(0, 8)} submitted by <@${userId}> (ID: ${userId})`,
+        color: '#36a64f',
+        fields: [
+           { title: 'Period', value: `${ts.period_start} to ${ts.period_end}`, short: true },
+           { title: 'Total Hours', value: `${(ts.totals?.worked_minutes / 60).toFixed(1)}h`, short: true }
+        ],
+        actions: [
+            { type: 'button', text: 'Review Timesheet', url: `${appUrl}/timesheets/approvals/${ts.id}`, style: 'primary' }
+        ]
+    })
   } catch (e) {
     console.error('Failed to notify admins', e)
   }
@@ -362,6 +378,24 @@ export async function reviewTimesheet(
       title,
       message,
       meta: { timesheetId: ts.id, url: `/my-timesheets/${ts.id}` }
+    })
+
+    // Slack Notification
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const eventName = action === 'approve' ? 'timesheet_approved' : (action === 'reject' ? 'timesheet_rejected' : 'timesheet_changes_required')
+    const color = action === 'approve' ? '#36a64f' : (action === 'reject' ? '#ff0000' : '#ffa500')
+    const actionText = action === 'approve' ? 'Approved' : (action === 'reject' ? 'Rejected' : 'Changes Required')
+    
+    await sendSlack(ts.org_id, eventName, {
+        title: `Timesheet ${actionText}`,
+        text: `Timesheet #${ts.id.slice(0, 8)} for ${ts.period_start} was ${actionText.toLowerCase()} by reviewer.`,
+        color: color,
+        fields: [
+            { title: 'Reason', value: reason || 'None', short: false }
+        ],
+        actions: [
+            { type: 'button', text: 'View Timesheet', url: `${appUrl}/my-timesheets/${ts.id}`, style: 'primary' }
+        ]
     })
   } catch (e) {
     console.error('Failed to notify employee', e)

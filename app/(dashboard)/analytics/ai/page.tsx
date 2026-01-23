@@ -11,20 +11,58 @@ import { AiInsight } from '@/lib/ai/types'
 type Org = { id: string, orgName: string }
 
 export default function AiAnalyticsPage() {
-  const [orgs, setOrgs] = useState<Org[]>([])
   const [orgId, setOrgId] = useState('')
+  const [userRole, setUserRole] = useState('')
   const [insights, setInsights] = useState<AiInsight[]>([])
   const [loading, setLoading] = useState(false)
   const [period, setPeriod] = useState('weekly')
+  const [orgName, setOrgName] = useState('Loading...')
+  
+  // Get org from cookie or list
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+        const cookies = document.cookie.split(';').map(c => c.trim())
+        const cOrgId = cookies.find(c => c.startsWith('current_org_id='))?.split('=')[1]
+        const cRole = cookies.find(c => c.startsWith('current_role='))?.split('=')[1]
+        
+        if (cOrgId) {
+            setOrgId(cOrgId)
+            loadOrgName(cOrgId, cRole)
+        }
+        if (cRole) setUserRole(cRole.toLowerCase())
+    }
+  }, [])
 
-  const loadOrgs = async () => {
+  const loadOrgName = async (id: string, role?: string) => {
     try {
-        const res = await fetch('/api/org/list', { cache:'no-store' })
-        const d = await res.json()
-        setOrgs(d.items||[])
-        if (!orgId && d.items?.length) setOrgId(d.items[0].id)
+        // First try to find in org list if super_admin
+        if (role === 'super_admin') {
+             const res = await fetch('/api/org/list', { cache:'no-store' })
+             const d = await res.json()
+             const match = (d.items||[]).find((o:any) => o.id === id)
+             if (match) {
+                 setOrgName(match.orgName)
+                 return
+             }
+        }
+        
+        // Otherwise fetch my orgs or specific details
+        // Trying /api/orgs/my first which is standard for admins
+        const res = await fetch('/api/orgs/my', { cache:'no-store' })
+        if (res.ok) {
+            const d = await res.json()
+            const match = (d.items||[]).find((o:any) => o.id === id)
+            if (match) {
+                setOrgName(match.orgName)
+                return
+            }
+        }
+
+        // Fallback: If still not found, maybe just display "Organization" or try another endpoint if exists
+        setOrgName('Organization') 
     } catch (e) {
         console.error(e)
+        setOrgName('Organization')
     }
   }
 
@@ -32,8 +70,8 @@ export default function AiAnalyticsPage() {
     if (!orgId) return
     setLoading(true)
     try {
-        // Fetch org-wide analytics and high-level insights
-        const res = await fetch(`/api/ai/list?orgId=${orgId}&orgWideOnly=true&limit=50`, { cache: 'no-store' })
+        // Fetch all insights for the org (analytics, anomalies, predictions)
+        const res = await fetch(`/api/ai/list?orgId=${orgId}&limit=100`, { cache: 'no-store' })
         const d = await res.json()
         setInsights(d.items || [])
     } catch (e) {
@@ -59,7 +97,6 @@ export default function AiAnalyticsPage() {
     }
   }
 
-  useEffect(() => { loadOrgs() }, [])
   useEffect(() => { if(orgId) loadInsights() }, [orgId])
 
   // Group insights by type
@@ -81,6 +118,8 @@ export default function AiAnalyticsPage() {
     i.summary
   ])
 
+  const isAdmin = ['admin', 'owner', 'super_admin'].includes(userRole)
+
   return (
     <AppShell title="AI Analytics">
       <div className="flex flex-col gap-6">
@@ -88,31 +127,32 @@ export default function AiAnalyticsPage() {
         <div className="flex justify-between items-center">
             <div className="w-64">
                 <div className="label">Organization</div>
-                <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-                    <option value="">Select org</option>
-                    {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-                </GlassSelect>
+                <div className="text-xl font-bold">{orgName}</div>
             </div>
-            <div className="flex gap-2">
-                <GlassSelect value={period} onChange={(e:any)=>setPeriod(e.target.value)}>
-                    <option value="daily">Run Daily Analysis</option>
-                    <option value="weekly">Run Weekly Analysis</option>
-                </GlassSelect>
-                <GlassButton onClick={runAnalysis} variant="primary">Run Analysis</GlassButton>
-            </div>
+            {isAdmin && (
+                <div className="flex gap-2">
+                    <GlassSelect value={period} onChange={(e:any)=>setPeriod(e.target.value)}>
+                        <option value="daily">Run Daily Analysis</option>
+                        <option value="weekly">Run Weekly Analysis</option>
+                    </GlassSelect>
+                    <GlassButton onClick={runAnalysis} variant="primary">Run Analysis</GlassButton>
+                </div>
+            )}
         </div>
 
         {/* Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <GlassCard title="Productivity Trend">
-                <div className="text-2xl font-bold mb-2">
-                    {analyticsInsights[0]?.details?.avg_per_user ? `${Math.round(Number(analyticsInsights[0].details.avg_per_user)/60)}h / user` : '--'}
-                </div>
-                <div className="text-sm opacity-70">
-                    Based on latest weekly analysis
-                </div>
-            </GlassCard>
-            <GlassCard title="Active Anomalies">
+            {isAdmin && (
+                <GlassCard title="Productivity Trend">
+                    <div className="text-2xl font-bold mb-2">
+                        {analyticsInsights[0]?.details?.avg_per_user ? `${Math.round(Number(analyticsInsights[0].details.avg_per_user)/60)}h / user` : '--'}
+                    </div>
+                    <div className="text-sm opacity-70">
+                        Based on latest weekly analysis
+                    </div>
+                </GlassCard>
+            )}
+            <GlassCard title={isAdmin ? "Active Anomalies" : "My Active Alerts"}>
                 <div className="text-2xl font-bold mb-2" style={{color: anomalies.length > 0 ? '#ffbb33' : '#39FF14'}}>
                     {anomalies.length}
                 </div>
@@ -131,19 +171,21 @@ export default function AiAnalyticsPage() {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <GlassCard title="Org-Wide Insights">
-                {analyticsRows.length > 0 ? (
-                    <GlassTable 
-                        columns={['Date', 'Title', 'Summary', 'Confidence']} 
-                        rows={analyticsRows} 
-                    />
-                ) : (
-                    <div className="p-4 text-center opacity-50">No analytics data generated yet.</div>
-                )}
-            </GlassCard>
+        <div className="flex flex-col gap-6">
+            {isAdmin && (
+                <GlassCard title="Org-Wide Insights">
+                    {analyticsRows.length > 0 ? (
+                        <GlassTable 
+                            columns={['Date', 'Title', 'Summary', 'Confidence']} 
+                            rows={analyticsRows} 
+                        />
+                    ) : (
+                        <div className="p-4 text-center opacity-50">No analytics data generated yet.</div>
+                    )}
+                </GlassCard>
+            )}
 
-            <GlassCard title="Recent Anomalies & Alerts">
+            <GlassCard title={isAdmin ? "Recent Anomalies & Alerts" : "My Insights & Coaching"}>
                  {anomalyRows.length > 0 ? (
                     <GlassTable 
                         columns={['Date', 'Severity', 'Title', 'Summary']} 

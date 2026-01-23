@@ -36,8 +36,19 @@ export async function POST(req: NextRequest) {
   const now = new Date()
   const { data: settings } = await sb.from('platform_settings').select('*').eq('key','agent_minimum_version').limit(1).maybeSingle()
   const min = settings?.value_json?.minimum_version || '1.0.0'
-  const dl = settings?.value_json?.download_url || ''
+  const dlFallback = settings?.value_json?.download_url || ''
+  const dlWin = settings?.value_json?.download_url_windows || ''
+  const dlMac = settings?.value_json?.download_url_mac || ''
   const blockBelow = !!settings?.value_json?.block_below
+  
+  let dl = dlFallback
+  const osLower = (device_os || '').toLowerCase()
+  if (osLower.includes('win')) {
+    if (dlWin) dl = dlWin
+  } else if (osLower.includes('mac') || osLower.includes('darwin')) {
+    if (dlMac) dl = dlMac
+  }
+
   let status: 'ok'|'outdated'|'blocked'|null = null
   let required = false
   if (agent_version) {

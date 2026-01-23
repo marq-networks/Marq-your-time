@@ -1,4 +1,5 @@
 import { supabaseServer } from '@/lib/supabase'
+import { sendSlack } from '@/lib/slack'
 import { getDailySummaries, getActivityStats, getBreaks, getTimeSessions, getPayrollInfo, getRoleAverageStats } from './metrics'
 import { AiInsight, AiTimesheetCandidate, InsightType, InsightSeverity } from './types'
 
@@ -49,11 +50,43 @@ async function generateInsightsForUser(orgId: string, userId: string, role: stri
 
   await generateAnomalyExplanation(orgId, userId, summaries, activity, startDate, endDate)
   await generateSmartAlerts(orgId, userId, summaries, activity, breaks, startDate, endDate)
+  await generateMissingScreenshots(orgId, userId, summaries, activity, startDate, endDate)
   await generateCoaching(orgId, userId, activity, startDate, endDate)
   await generateBreakAbuseDetection(orgId, userId, breaks, startDate, endDate)
   await generateSalaryProjection(orgId, userId, summaries, startDate, endDate)
   await generateTimesheetCandidates(orgId, userId, sessions, breaks, startDate, endDate)
   await generateTaskTags(orgId, userId, activity)
+}
+
+// 108. Missing Screenshots
+async function generateMissingScreenshots(orgId: string, userId: string, summaries: any[], activity: any, startDate: string, endDate: string) {
+  const sb = supabaseServer()
+  const totalWorked = summaries.reduce((acc, s) => acc + (s.worked_minutes || 0), 0)
+  
+  if (activity.screenshotsCount === 0 && totalWorked > 60) {
+       await sb.from('ai_insights').insert({
+           org_id: orgId,
+           user_id: userId,
+           insight_type: 'smart_alert',
+           period_start: startDate,
+           period_end: endDate,
+           severity: 'warning',
+           title: 'Missing Screenshots',
+           summary: `No screenshots captured despite ${Math.round(totalWorked/60)}h worked.`,
+           details: { worked_minutes: totalWorked, screenshots: 0 },
+           confidence: 0.95,
+           status: 'active'
+       })
+       
+       await sendSlack(orgId, 'missing_screenshots', {
+           title: 'AI Alert: Missing Screenshots',
+           text: `User <@${userId}> has no screenshots for the period.`,
+           color: '#ff3300',
+           fields: [
+               { title: 'Worked Time', value: `${Math.round(totalWorked/60)}h`, short: true }
+           ]
+       })
+  }
 }
 
 // 97. Productivity Prediction
@@ -250,10 +283,60 @@ async function generateBreakAbuseDetection(orgId: string, userId: string, breaks
             confidence: 0.85,
             status: 'active'
         })
+
+        // Slack Notification
+        await sendSlack(orgId, 'break_abuse', {
+            title: 'AI Alert: Break Abuse',
+            text: `User <@${userId}> has excessive break time.`,
+            color: '#ff9900',
+            fields: [
+                { title: 'Total Break', value: `${totalBreakMin}m`, short: true }
+            ]
+        })
     }
 }
 
-// 103. Salary Projection
+// 103. Absenteeism Alert
+async function generateAbsenteeismAlert(orgId: string, userId: string, summaries: any[], startDate: string, endDate: string) {
+    const sb = supabaseServer()
+    
+    // Only run for daily period to avoid noise
+    if (startDate !== endDate) return
+
+    const date = new Date(startDate)
+    const day = date.getDay()
+    // Check if weekday (Mon=1 to Fri=5)
+    if (day === 0 || day === 6) return
+
+    const totalWorked = summaries.reduce((acc, s) => acc + (s.worked_minutes || 0), 0)
+    
+    if (totalWorked === 0) {
+        await sb.from('ai_insights').insert({
+            org_id: orgId,
+            user_id: userId,
+            insight_type: 'absent_login',
+            period_start: startDate,
+            period_end: endDate,
+            severity: 'info',
+            title: 'Absent Login',
+            summary: `User did not log in on ${startDate} (Weekday).`,
+            details: { worked_minutes: 0 },
+            confidence: 0.9,
+            status: 'active'
+        })
+
+        await sendSlack(orgId, 'absent_login', {
+            title: 'AI Alert: Absent Login',
+            text: `User <@${userId}> did not log in today.`,
+            color: '#cccccc',
+            fields: [
+                { title: 'Date', value: startDate, short: true }
+            ]
+        })
+    }
+}
+
+// 104. Salary Projection
 async function generateSalaryProjection(orgId: string, userId: string, summaries: any[], startDate: string, endDate: string) {
     const sb = supabaseServer()
     const payroll = await getPayrollInfo(orgId, userId)
