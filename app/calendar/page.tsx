@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Filter, Plus } from 'lucide-react'
 import AppShell from '@components/ui/AppShell'
 import { CalendarEvent } from '@lib/calendar-service'
@@ -11,7 +11,6 @@ import { MonthView } from './_components/MonthView'
 import { WeekView } from './_components/WeekView'
 import { DayView } from './_components/DayView'
 import { ListView } from './_components/ListView'
-import { DayDetailModal } from './_components/DayDetailModal'
 import { useListQuery } from '@/lib/hooks/useListQuery'
 import FilterBar from '@/components/filters/FilterBar'
 import styles from './page.module.css'
@@ -43,12 +42,12 @@ function headerTitle(view: ViewMode, date: Date) {
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const { filters, setFilters, updateFilter, search, setSearch } = useListQuery()
   const [view, setView] = useState<ViewMode>('month')
   const [date, setDate] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(false)
-  const [selectedDayModal, setSelectedDayModal] = useState<Date | null>(null)
   const [isExporting, setIsExporting] = useState(false)
 
   const handleExport = async (type: 'csv' | 'pdf') => {
@@ -277,24 +276,29 @@ export default function CalendarPage() {
 
           <div className={styles.calendarInner}>
             {!loading && view === 'month' && (
-              <MonthView date={date} events={events} onDateClick={(d) => setSelectedDayModal(d)} />
+              <MonthView 
+                date={date} 
+                events={events} 
+                onDateClick={(d) => {
+                  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                  router.push(`/calendar/${dateStr}`)
+                }} 
+              />
             )}
             {!loading && view === 'week' && <WeekView date={date} events={events} />}
             {!loading && view === 'day' && <DayView date={date} events={events} isAdmin={isAdmin} />}
             {!loading && view === 'list' && (
-              <ListView startDate={date} events={events} onDateClick={(d) => setSelectedDayModal(d)} />
+              <ListView 
+                startDate={date} 
+                events={events} 
+                onDateClick={(d) => {
+                  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                  router.push(`/calendar/${dateStr}`)
+                }} 
+              />
             )}
           </div>
         </div>
-
-        {selectedDayModal && (
-          <DayDetailModal
-            open={!!selectedDayModal}
-            date={selectedDayModal}
-            events={events}
-            onClose={() => setSelectedDayModal(null)}
-          />
-        )}
       </div>
     </AppShell>
   )

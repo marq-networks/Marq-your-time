@@ -27,7 +27,7 @@ export default function StatusPills({ label, options, value, onChange }: Props) 
             relative px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border flex items-center gap-1.5
             ${!value 
               ? 'bg-white/60 border-white/40 text-[#1f1f1f] shadow-sm ring-1 ring-white/40' 
-              : 'bg-transparent border-black/10 text-[#1f1f1f]/50 hover:bg-black/5 hover:text-[#1f1f1f]/80'
+              : 'bg-transparent border-gray-200 text-[#1f1f1f]/50 hover:bg-gray-100 hover:text-[#1f1f1f]/80'
             }
           `}
         >
@@ -44,7 +44,7 @@ export default function StatusPills({ label, options, value, onChange }: Props) 
                 relative px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border flex items-center gap-1.5
                 ${isActive 
                   ? 'bg-primary/10 border-primary/50 text-primary shadow-sm ring-1 ring-primary/20' 
-                  : 'bg-transparent border-black/10 text-[#1f1f1f]/50 hover:bg-black/5 hover:text-[#1f1f1f]/80'
+                  : 'bg-transparent border-gray-200 text-[#1f1f1f]/50 hover:bg-gray-100 hover:text-[#1f1f1f]/80'
                 }
               `}
             >

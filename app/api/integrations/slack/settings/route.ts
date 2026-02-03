@@ -51,8 +51,9 @@ export async function POST(request: Request) {
     .eq('org_id', orgId)
     .single()
 
-  const roleName = role?.roles?.name
-  const perms = role?.roles?.permissions
+  const roleAny = role as any
+  const roleName = roleAny?.roles?.name || (Array.isArray(roleAny?.roles) ? roleAny.roles[0]?.name : undefined)
+  const perms = roleAny?.roles?.permissions || (Array.isArray(roleAny?.roles) ? roleAny.roles[0]?.permissions : undefined)
   const isAdmin = ['Admin', 'Owner', 'Super Admin'].includes(roleName) || (perms && perms.manage_org)
 
   if (!isAdmin) {

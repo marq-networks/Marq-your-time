@@ -24,7 +24,7 @@ export default function SearchInput({ value, onChange, className, ...rest }: Pro
       {value && (
         <button
           onClick={() => onChange({ target: { value: '' } } as any)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-black/40 hover:text-black rounded-full hover:bg-black/5 transition-colors"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-black/40 hover:text-black rounded-full hover:bg-gray-100 transition-colors"
         >
           <X className="w-3 h-3" />
         </button>

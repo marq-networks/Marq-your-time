@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import GlassInput from '@components/ui/GlassInput'
+import { Mail, ArrowRight } from 'lucide-react'
 import GlassButton from '@components/ui/GlassButton'
 import Toast from '@components/Toast'
 
@@ -28,26 +28,48 @@ export default function ForgotForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="forgot-form">
+    <form onSubmit={onSubmit} className="login-form">
       <div className="field">
         <label htmlFor="email" className="label">Email</label>
-        <GlassInput
-          id="email"
-          name="email"
-          type="email"
-          autoFocus
-          placeholder="you@company.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          aria-invalid={!!errorEmail}
-          aria-describedby={errorEmail ? 'forgot-email-error' : undefined}
-        />
-        {errorEmail && <div id="forgot-email-error" className="field-error">{errorEmail}</div>}
+        <div className="input-wrapper">
+          <Mail className="input-icon" size={18} />
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoFocus
+            className="login-input login-input-with-icon"
+            placeholder="you@company.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            aria-invalid={!!errorEmail}
+            aria-describedby={errorEmail ? 'forgot-email-error' : undefined}
+          />
+        </div>
+        {errorEmail && <div id="forgot-email-error" className="field-error" style={{color:'#f87171', fontSize:12, marginTop:4}}>{errorEmail}</div>}
       </div>
-      <GlassButton variant="primary" style={{ width: '100%' }}>
-        {loading ? <span className="btn-spinner" aria-hidden="true" /> : null}
-        {loading ? 'Sending…' : 'Send Reset Link'}
-      </GlassButton>
+
+      <div className="row" style={{marginTop:24}}>
+        <GlassButton 
+          variant="primary" 
+          type="submit" 
+          disabled={loading}
+          style={{ 
+            width: '100%', 
+            height: 48,
+            opacity: loading ? 0.7 : 1, 
+            pointerEvents: loading ? 'none' : 'auto',
+            justifyContent: 'center',
+            fontSize: 16
+          }}
+        >
+          {loading ? 'Sending...' : (
+            <>
+              Send Reset Link <ArrowRight size={18} style={{marginLeft:8}} />
+            </>
+          )}
+        </GlassButton>
+      </div>
       <Toast message={toastMsg} type="success" />
     </form>
   )

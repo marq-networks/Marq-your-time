@@ -8,6 +8,21 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import ExportMenu from '@/components/shared/ExportMenu'
 import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
+import { 
+  WifiOff, 
+  Wifi, 
+  Smartphone, 
+  Database, 
+  AlertTriangle, 
+  CheckCircle, 
+  Clock, 
+  Search, 
+  RefreshCw,
+  FileJson,
+  Calendar,
+  Layers,
+  Server
+} from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type Batch = { local_batch_id: string, batch_type: string, status: string, item_count: number, received_at: string, processed_at: string|null, error_message: string|null }
@@ -102,6 +117,15 @@ export default function OfflineSyncPage() {
     return { total, pending, applied, error, conflictCount }
   }, [filteredBatches, conflicts])
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'applied': return <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center gap-1 w-fit"><CheckCircle size={12} /> Applied</span>
+      case 'pending': return <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold flex items-center gap-1 w-fit"><Clock size={12} /> Pending</span>
+      case 'error': return <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1 w-fit"><AlertTriangle size={12} /> Error</span>
+      default: return <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold flex items-center gap-1 w-fit">{status}</span>
+    }
+  }
+
   const batchCols = ['Local Batch ID','Type','Items','Status','Received','Processed','Error','Actions']
 
   const conflictCols = ['Type','Device','Member','Created At','Actions']
@@ -140,95 +164,161 @@ export default function OfflineSyncPage() {
   }
 
   return (
-    <AppShell title="Offline Sync">
-      <div className="min-h-screen bg-gradient-to-br from-[#d9c7b2] via-[#e8ddce] to-[#c9b8a4] p-6">
-        <GlassCard title="Filters">
-          <div className="grid grid-3" style={{ gap: 12 }}>
-            <div>
-              <div className="label">Organization</div>
-              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-                <option value="">Select org</option>
-                {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
-              </GlassSelect>
-            </div>
-            <div>
-              <div className="label">Device</div>
-              <GlassSelect value={deviceId} onChange={(e:any)=>setDeviceId(e.target.value)}>
-                <option value="">All devices</option>
-                {deviceOptions.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
-              </GlassSelect>
-            </div>
-            <div className="row" style={{ alignItems:'end', gap: 8 }}>
-              <div>
-                <div className="label">Start</div>
-                <input type="date" value={rangeStart} onChange={(e)=>setRangeStart(e.target.value)} />
-              </div>
-              <div>
-                <div className="label">End</div>
-                <input type="date" value={rangeEnd} onChange={(e)=>setRangeEnd(e.target.value)} />
-              </div>
-              <GlassButton onClick={loadStatus} style={{ backgroundColor:'#39FF14' }}>Refresh</GlassButton>
-            </div>
-          </div>
-        </GlassCard>
-
-        <div className="grid grid-3" style={{ gap: 16, marginTop: 16 }}>
-          <GlassCard title="Total Batches"><div>{stats.total}</div></GlassCard>
-          <GlassCard title="Pending"><div>{stats.pending}</div></GlassCard>
-          <GlassCard title="Applied"><div>{stats.applied}</div></GlassCard>
-          <GlassCard title="Errors"><div>{stats.error}</div></GlassCard>
-          <GlassCard title="Conflicts"><div>{stats.conflictCount}</div></GlassCard>
+    <AppShell title="Offline Sync Management">
+      <div className="space-y-6 max-w-7xl mx-auto p-6">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <GlassCard className="flex flex-col gap-1 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-3 opacity-10"><Layers size={48} className="text-slate-600"/></div>
+             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Batches</div>
+             <div className="text-2xl font-bold text-slate-700">{stats.total}</div>
+          </GlassCard>
+          <GlassCard className="flex flex-col gap-1 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-3 opacity-10"><Clock size={48} className="text-amber-600"/></div>
+             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending</div>
+             <div className="text-2xl font-bold text-amber-600">{stats.pending}</div>
+          </GlassCard>
+          <GlassCard className="flex flex-col gap-1 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-3 opacity-10"><CheckCircle size={48} className="text-emerald-600"/></div>
+             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Applied</div>
+             <div className="text-2xl font-bold text-emerald-600">{stats.applied}</div>
+          </GlassCard>
+          <GlassCard className="flex flex-col gap-1 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-3 opacity-10"><AlertTriangle size={48} className="text-rose-600"/></div>
+             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Errors</div>
+             <div className="text-2xl font-bold text-rose-600">{stats.error}</div>
+          </GlassCard>
+          <GlassCard className="flex flex-col gap-1 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-3 opacity-10"><WifiOff size={48} className="text-indigo-600"/></div>
+             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Conflicts</div>
+             <div className="text-2xl font-bold text-indigo-600">{stats.conflictCount}</div>
+          </GlassCard>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <GlassCard title="Batches">
-            <div className="row" style={{marginBottom:12, gap:12}}>
-              <div style={{flex:1,minWidth:200}}>
-                <div className="label">Search batches</div>
-                <input className="input" placeholder="Search by ID, device, status" value={batchSearch} onChange={e=>setBatchSearch(e.target.value)} />
+        <GlassCard className="relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+             <WifiOff size={120} className="text-slate-500" />
+          </div>
+          <div className="relative z-10">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <WifiOff className="text-slate-600" size={24} />
+                  Sync Operations
+                </h2>
+                <p className="text-slate-500 text-sm mt-1">Monitor offline data synchronization from devices</p>
               </div>
-              <div style={{width:200}}>
-                <div className="label">Status</div>
-                <GlassSelect value={statusFilter} onChange={(e:any)=>setStatusFilter(e.target.value)}>
-                  <option value="">All</option>
+              <div className="flex flex-wrap items-center gap-3">
+                 <GlassButton 
+                   onClick={loadStatus} 
+                   className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 flex items-center gap-2"
+                 >
+                   <RefreshCw size={16} /> Refresh
+                 </GlassButton>
+                 <ExportMenu onExport={handleExport} isExporting={isExporting} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Organization</label>
+                <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)} className="w-full">
+                  <option value="">Select org</option>
+                  {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                </GlassSelect>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Device</label>
+                <div className="relative">
+                  <Smartphone className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <GlassSelect value={deviceId} onChange={(e:any)=>setDeviceId(e.target.value)} className="w-full pl-10">
+                    <option value="">All devices</option>
+                    {deviceOptions.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+                  </GlassSelect>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Date Range</label>
+                <div className="flex items-center gap-2">
+                  <input type="date" value={rangeStart} onChange={(e)=>setRangeStart(e.target.value)} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-sm" />
+                  <span className="text-slate-400">-</span>
+                  <input type="date" value={rangeEnd} onChange={(e)=>setRangeEnd(e.target.value)} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-sm" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</label>
+                <GlassSelect value={statusFilter} onChange={(e:any)=>setStatusFilter(e.target.value)} className="w-full">
+                  <option value="">All Statuses</option>
                   <option value="pending">Pending</option>
                   <option value="applied">Applied</option>
                   <option value="error">Error</option>
                 </GlassSelect>
               </div>
-              <div>
-                <div className="label">&nbsp;</div>
-                <ExportMenu onExport={handleExport} isExporting={isExporting} />
-              </div>
             </div>
-            <GlassTable columns={batchCols} rows={filteredBatches.map(b => [
-              b.local_batch_id,
-              b.batch_type,
-              String(b.item_count),
-              b.status,
-              b.received_at,
-              b.processed_at || '',
-              b.error_message || '',
-              <GlassButton key={`open-${b.local_batch_id}`} onClick={()=>openItems((b as any).id)} style={{ backgroundColor:'#39FF14' }}>View Items</GlassButton>
-            ])} />
-          </GlassCard>
-        </div>
 
-        <div style={{ marginTop: 16 }}>
-          <GlassCard title="Conflicts">
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+                <input 
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all" 
+                  placeholder="Search batches by ID, device, type..." 
+                  value={batchSearch} 
+                  onChange={e=>setBatchSearch(e.target.value)} 
+                />
+              </div>
+
+              {filteredBatches.length > 0 ? (
+                <GlassTable columns={batchCols} rows={filteredBatches.map(b => [
+                  <span className="font-mono text-xs text-slate-600">{b.local_batch_id}</span>,
+                  <span className="text-sm font-medium">{b.batch_type}</span>,
+                  String(b.item_count),
+                  getStatusBadge(b.status),
+                  <span className="text-xs text-slate-500">{b.received_at}</span>,
+                  <span className="text-xs text-slate-500">{b.processed_at || '-'}</span>,
+                  b.error_message ? <span className="text-xs text-rose-600 font-medium truncate max-w-[150px] inline-block" title={b.error_message}>{b.error_message}</span> : '-',
+                  <GlassButton key={`open-${b.local_batch_id}`} onClick={()=>openItems((b as any).id)} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-indigo-100 text-xs py-1 px-3 h-auto">
+                    View
+                  </GlassButton>
+                ])} />
+              ) : (
+                 <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-slate-200 rounded-xl">
+                   <Server size={48} className="text-slate-300 mb-4" />
+                   <h3 className="text-lg font-medium text-slate-700">No sync batches found</h3>
+                   <p className="text-slate-500 text-sm mt-1">No offline data has been synced matching your criteria.</p>
+                 </div>
+              )}
+            </div>
+          </div>
+          </div>
+        </GlassCard>
+
+        {conflicts.length > 0 && (
+          <GlassCard title="Conflicts" className="relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                <AlertTriangle size={120} className="text-amber-500" />
+             </div>
+             <div className="relative z-10">
             <GlassTable columns={conflictCols} rows={conflicts.map(c => [
               c.conflict_type,
               c.device_id,
               c.member_id,
               c.created_at,
-              <GlassButton key={`resolve-${c.id}`} onClick={async()=>{ await fetch('/api/agent/offline/conflicts/resolve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ conflict_id: c.id, resolution_note: 'Resolved by admin' }) }); loadStatus() }} style={{ backgroundColor:'#39FF14' }}>Mark Resolved</GlassButton>
+              <GlassButton key={`resolve-${c.id}`} onClick={async()=>{ await fetch('/api/agent/offline/conflicts/resolve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ conflict_id: c.id, resolution_note: 'Resolved by admin' }) }); loadStatus() }} className="bg-amber-50 text-amber-600 hover:bg-amber-100 border-amber-100">Mark Resolved</GlassButton>
             ])} />
+            </div>
           </GlassCard>
-        </div>
+        )}
 
-        <GlassModal open={!!openQueueId} title={`Batch ${openQueueId || ''}`} onClose={()=>setOpenQueueId(null)}>
-          <div style={{ maxHeight: 360, overflow:'auto' }}>
-            <pre>{JSON.stringify(items, null, 2)}</pre>
+        <GlassModal open={!!openQueueId} title={`Batch Details`} onClose={()=>setOpenQueueId(null)}>
+          <div className="flex flex-col h-[500px]">
+             <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-100">
+                <FileJson size={16} className="text-slate-500" />
+                <span className="text-sm font-medium text-slate-700">Batch ID: {openQueueId}</span>
+             </div>
+             <div className="flex-1 overflow-auto p-4 bg-slate-900 text-slate-300 font-mono text-xs rounded-b-lg">
+               <pre>{JSON.stringify(items, null, 2)}</pre>
+             </div>
           </div>
         </GlassModal>
       </div>

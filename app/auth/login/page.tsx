@@ -18,10 +18,11 @@ export default function LoginPage() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="login-logo"
+          whileHover={{ scale: 1.05, rotate: 5 }}
+          transition={{ type: "spring", stiffness: 400, damping: 10 }}
+          style={{ background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', boxShadow: '0 0 40px rgba(239, 68, 68, 0.4)' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'white' }}>
-            <Heart fill="white" size={28} />
-          </div>
+          <Heart fill="white" color="white" size={32} />
         </motion.div>
 
         {/* Title */}
@@ -142,11 +143,11 @@ function RoleCard({ icon, title, desc, href, color, onClick }: any) {
       <div className="role-icon-wrapper">
         {icon}
       </div>
-      <div className="role-title">{title}</div>
-      <div className="role-desc">{desc}</div>
-      <div className="role-link">
-        Select Role <ArrowRight size={16} className="role-link-arrow" />
+      <div className="role-info">
+        <div className="role-title">{title}</div>
+        <div className="role-desc">{desc}</div>
       </div>
+      <ArrowRight size={20} className="role-arrow" />
     </>
   )
 

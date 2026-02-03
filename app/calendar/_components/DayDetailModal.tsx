@@ -138,7 +138,7 @@ export function DayDetailModal({ open, onClose, date, events }: DayDetailModalPr
               {/* Check In */}
               {attendance && (
                 <div className="relative pl-8 group">
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-[#39ff14] ring-4 ring-[#1a1a1a] shadow-sm"></div>
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-[#39ff14] ring-4 ring-gray-900 shadow-sm"></div>
                   <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/10 shadow-sm hover:bg-white/10 transition-all">
                     <div className="flex items-center gap-3">
                        <div className="p-2 bg-[#39ff14]/20 text-[#39ff14] rounded-lg">
@@ -149,7 +149,7 @@ export function DayDetailModal({ open, onClose, date, events }: DayDetailModalPr
                          <div className="text-xs text-gray-400">Shift Started</div>
                        </div>
                     </div>
-                    <div className="font-mono text-sm font-semibold text-[#1f1f1f] bg-black/20 px-2 py-1 rounded-md border border-white/5">
+                    <div className="font-mono text-sm font-semibold text-[#1f1f1f] bg-gray-900/10 px-2 py-1 rounded-md border border-white/5">
                       {formatTime(attendance.startTime, attendance.startAt)}
                     </div>
                   </div>
@@ -159,7 +159,7 @@ export function DayDetailModal({ open, onClose, date, events }: DayDetailModalPr
               {/* Breaks */}
               {breaks.map((b, i) => (
                 <div key={i} className="relative pl-8">
-                  <div className="absolute -left-[7px] top-4 w-3 h-3 rounded-full bg-orange-400 ring-4 ring-[#1a1a1a] shadow-sm"></div>
+                  <div className="absolute -left-[7px] top-4 w-3 h-3 rounded-full bg-orange-400 ring-4 ring-gray-900 shadow-sm"></div>
                   <div className="bg-white/5 rounded-xl p-3 border border-white/10 shadow-sm hover:bg-white/10 transition-all">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-3">
@@ -184,7 +184,7 @@ export function DayDetailModal({ open, onClose, date, events }: DayDetailModalPr
               {/* Check Out */}
               {attendance && (attendance.endTime !== undefined || attendance.endAt) && (
                 <div className="relative pl-8">
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-red-500 ring-4 ring-[#1a1a1a] shadow-sm"></div>
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-red-500 ring-4 ring-gray-900 shadow-sm"></div>
                   <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/10 shadow-sm hover:bg-white/10 transition-all">
                     <div className="flex items-center gap-3">
                        <div className="p-2 bg-red-500/20 text-red-400 rounded-lg">
@@ -195,7 +195,7 @@ export function DayDetailModal({ open, onClose, date, events }: DayDetailModalPr
                          <div className="text-xs text-gray-400">Shift Ended</div>
                        </div>
                     </div>
-                    <div className="font-mono text-sm font-semibold text-[#1f1f1f] bg-black/20 px-2 py-1 rounded-md border border-white/5">
+                    <div className="font-mono text-sm font-semibold text-[#1f1f1f] bg-gray-900/10 px-2 py-1 rounded-md border border-white/5">
                       {formatTime(attendance.endTime, attendance.endAt)}
                     </div>
                   </div>

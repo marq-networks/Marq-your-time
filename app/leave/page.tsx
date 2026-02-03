@@ -1,41 +1,44 @@
 'use client'
+
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import AppShell from '@components/ui/AppShell'
-import GlassCard from '@components/ui/GlassCard'
-import GlassButton from '@components/ui/GlassButton'
-import GlassModal from '@components/ui/GlassModal'
-import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
 import ExportMenu from '@components/shared/ExportMenu'
 import { exportToCsv, exportToPdf, type ExportColumn } from '@lib/export-utils'
 import { DayPicker, DateRange } from 'react-day-picker'
+import { Calendar as CalendarIcon, Clock, CheckCircle2, XCircle, AlertCircle, Plus, FileText, ChevronRight, ChevronLeft, Briefcase, Plane, Sun } from 'lucide-react'
 import 'react-day-picker/dist/style.css'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
+type LeaveType = { leave_type_id: string, name: string, balance: number, code: string, paid: boolean }
 
 function monthDays(date: Date) { const start = new Date(date.getFullYear(), date.getMonth(), 1); const end = new Date(date.getFullYear(), date.getMonth()+1, 0); const arr: string[] = []; for (let d = new Date(start); d <= end; d = new Date(d.getTime()+24*60*60*1000)) arr.push(d.toISOString().slice(0,10)); return arr }
 function inRange(d: string, s: string, e: string) { return d >= s && d <= e }
 
 export default function LeavePage() {
+  const router = useRouter()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [members, setMembers] = useState<User[]>([])
   const [orgId, setOrgId] = useState('')
   const [memberId, setMemberId] = useState('')
-  const [types, setTypes] = useState<any[]>([])
+  const [types, setTypes] = useState<LeaveType[]>([])
   const [requests, setRequests] = useState<any[]>([])
-  const [date, setDate] = useState(new Date())
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<any>({ type:'', start:'', end:'', reason:'' })
   const [role, setRole] = useState('')
-  const [selStart, setSelStart] = useState<string>('')
-  const [selEnd, setSelEnd] = useState<string>('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState('')
   const [seeded, setSeeded] = useState(false)
   const [month, setMonth] = useState<Date>(() => new Date())
   const [range, setRange] = useState<DateRange | undefined>(undefined)
   const [isExporting, setIsExporting] = useState(false)
+
+  // Load balances and types
+  const loadBalances = async (oid: string, mid: string) => {
+    if (!oid || !mid) return
+    const res = await fetch(`/api/leave/balances?org_id=${oid}&member_id=${mid}`, { cache:'no-store' })
+    const d = await res.json()
+    const items = d.items || []
+    setTypes(items)
+  }
 
   const handleExport = async (type: 'csv' | 'pdf') => {
     setIsExporting(true)
@@ -46,14 +49,14 @@ export default function LeavePage() {
       }
       const exportItems = requests.map(r => ({
         ...r,
-        typeName: types.find(t => t.id === r.leave_type_id)?.name || 'Unknown',
+        typeName: types.find(t => t.leave_type_id === r.leave_type_id)?.name || 'Unknown',
         status: r.status
       }))
       const exportColumns: ExportColumn[] = [
         { header: 'Type', accessor: 'typeName' },
         { header: 'Start', accessor: 'start_date' },
         { header: 'End', accessor: 'end_date' },
-        { header: 'Days', accessor: (item) => String(item.days || 0) },
+        { header: 'Days', accessor: (item) => String(item.days_count || 0) },
         { header: 'Status', accessor: 'status' },
         { header: 'Reason', accessor: (item) => item.reason || '' }
       ]
@@ -83,6 +86,7 @@ export default function LeavePage() {
       setOrgId(preferred)
     }
   }
+  
   const loadMembers = async (oid: string) => {
     const res = await fetch(`/api/user/list?orgId=${oid}`, { cache:'no-store' })
     const d = await res.json()
@@ -94,184 +98,265 @@ export default function LeavePage() {
       setMemberId(preferredMember)
     }
   }
-  const loadTypes = async (oid: string) => { const res = await fetch(`/api/leave/types?org_id=${oid}`, { cache:'no-store' }); const d = await res.json(); const items = d.items||[]; setTypes(items); if (!form.type && items.length) setForm((f:any)=> ({ ...f, type: items[0].id })) }
-  const loadMy = async (mid: string) => { const res = await fetch(`/api/leave/my-requests?member_id=${mid}`, { cache:'no-store' }); const d = await res.json(); setRequests(d.items||[]) }
-  const submit = async () => {
-    if(!orgId || !memberId) { setSubmitError('Missing organization or member'); return }
-    if(!form.type) { setSubmitError('Please select a leave type'); return }
-    if(!form.start || !form.end) { setSubmitError('Please select start and end dates'); return }
-    if (form.end < form.start) { setSubmitError('End date cannot be before start date'); return }
-    setSubmitting(true);
-    setSubmitError('');
-    const res = await fetch('/api/leave/request', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-user-id': memberId }, body: JSON.stringify({ org_id: orgId, member_id: memberId, leave_type_id: form.type, start_date: form.start, end_date: form.end, reason: form.reason }) });
-    if (res.ok) {
-      setOpen(false);
-      setForm({ type: form.type, start:'', end:'', reason:'' })
-      setSelStart(''); setSelEnd('');
-      await loadMy(memberId)
-    } else {
-      try { const d = await res.json(); setSubmitError(d.error || 'Request failed') } catch { setSubmitError('Request failed') }
-    }
-    setSubmitting(false);
-  }
 
+  const loadMy = async (mid: string) => { const res = await fetch(`/api/leave/my-requests?member_id=${mid}`, { cache:'no-store' }); const d = await res.json(); setRequests(d.items||[]) }
+  
   useEffect(()=>{ try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
   useEffect(()=>{ loadOrgs() }, [role])
-  useEffect(()=>{ if(orgId) { loadMembers(orgId); loadTypes(orgId) } }, [orgId])
-  useEffect(()=>{ if(memberId) loadMy(memberId) }, [memberId])
-  useEffect(()=>{ if (!form.type && types.length) setForm((f:any)=> ({ ...f, type: types[0].id })) }, [types])
+  useEffect(()=>{ if(orgId) { loadMembers(orgId) } }, [orgId])
+  useEffect(()=>{ if(orgId && memberId) { loadBalances(orgId, memberId); loadMy(memberId) } }, [orgId, memberId])
+  
+  // Seeding logic
   useEffect(()=>{ 
     if (orgId && types.length === 0 && !seeded) {
-      (async () => {
-        const defs = [
-          { code:'SICK', name:'Sick Leave', paid:true, default_days_per_year:10 },
-          { code:'CASUAL', name:'Casual Leave', paid:true, default_days_per_year:12 },
-          { code:'ANNUAL', name:'Annual Leave', paid:true, default_days_per_year:20 },
-          { code:'UNPAID', name:'Unpaid Leave', paid:false, default_days_per_year:0 },
-        ]
-        for (const d of defs) {
-          await fetch('/api/leave/types/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': 'super_admin' }, body: JSON.stringify({ org_id: orgId, ...d }) })
-        }
-        setSeeded(true)
-        await loadTypes(orgId)
-      })()
+      // (This logic is kept but might need check if types are empty)
+      // For now, we assume balances endpoint returns types if they exist
     }
   }, [types, orgId, seeded])
 
-  const days = monthDays(date)
-  const marked = new Map<string, string>()
-  for (const r of requests.filter(r=> r.status==='approved' || r.status==='pending')) {
-    for (const d of days) if (inRange(d, r.start_date, r.end_date)) marked.set(d, r.status)
+  // Calendar Modifiers
+  const pendingSet = new Set<string>()
+  const approvedSet = new Set<string>()
+  
+  function getDatesInRange(s: string, e: string) {
+    const out: string[] = []
+    if (!s || !e) return out
+    for (let d = new Date(s+'T00:00:00'); d <= new Date(e+'T00:00:00'); d = new Date(d.getTime()+24*60*60*1000)) {
+      out.push(d.toISOString().slice(0,10))
+    }
+    return out
+  }
+
+  for (const r of requests) {
+    const dates = getDatesInRange(r.start_date, r.end_date)
+    if (r.status === 'approved') dates.forEach(d => approvedSet.add(d))
+    else if (r.status === 'pending') dates.forEach(d => pendingSet.add(d))
+  }
+
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'approved': return 'bg-green-100 text-green-700 border-green-200'
+      case 'pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
+      case 'rejected': return 'bg-red-100 text-red-700 border-red-200'
+      default: return 'bg-gray-100 text-gray-700 border-gray-200'
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch(status) {
+      case 'approved': return <CheckCircle2 size={14} />
+      case 'pending': return <Clock size={14} />
+      case 'rejected': return <XCircle size={14} />
+      default: return <AlertCircle size={14} />
+    }
   }
 
   return (
-    <AppShell title="Leave">
-      <div className="row" style={{justifyContent:'flex-end',marginBottom:16}}>
-        <ExportMenu isExporting={isExporting} onExport={handleExport} />
-      </div>
-      <GlassCard title="Select">
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Organization</div>
-            {(role !== 'super_admin') ? (
-              <span className="tag-pill">{orgs.find(o => o.id === orgId)?.orgName || orgs[0]?.orgName || ''}</span>
-            ) : (
-              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-                <option value="">Select org</option>
-                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-              </GlassSelect>
-            )}
-          </div>
-          <div>
-            <div className="label">Member</div>
-            {(['employee','member'].includes(role)) ? (
-              <span className="tag-pill">
-                {members.find(m => m.id === memberId) ? `${members.find(m => m.id === memberId)!.firstName} ${members.find(m => m.id === memberId)!.lastName}` : 'Me'}
-              </span>
-            ) : (
-              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
-                <option value="">Select member</option>
-                {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-              </GlassSelect>
-            )}
-          </div>
+    <AppShell title="Leave Management">
+      <div className="flex flex-col gap-6 pb-8 text-[var(--color-text-primary)]">
+        
+        {/* Header Controls */}
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white/50 backdrop-blur-sm p-4 rounded-2xl border border-white/20 shadow-sm">
+           <div className="flex flex-wrap gap-4 items-center w-full md:w-auto">
+             {/* Org Selector */}
+             {(role === 'super_admin') && (
+               <div className="flex flex-col gap-1">
+                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</label>
+                 <select 
+                   value={orgId} 
+                   onChange={(e)=>setOrgId(e.target.value)}
+                   className="bg-white/80 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                 >
+                   {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                 </select>
+               </div>
+             )}
+             
+             {/* Member Selector */}
+             {(!['employee','member'].includes(role)) && (
+               <div className="flex flex-col gap-1">
+                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Member</label>
+                 <select 
+                    value={memberId} 
+                    onChange={(e)=>setMemberId(e.target.value)}
+                    className="bg-white/80 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                 >
+                    {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+                 </select>
+               </div>
+             )}
+           </div>
+
+           <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+              <ExportMenu isExporting={isExporting} onExport={handleExport} />
+              <button 
+                onClick={() => router.push('/leave/new')}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-500/20"
+              >
+                <Plus size={16} />
+                <span>New Request</span>
+              </button>
+           </div>
         </div>
-      </GlassCard>
 
-      <GlassCard title="Calendar" right={<div className="row" style={{gap:8}}>
-        <GlassButton variant="secondary" onClick={()=>{ const dt = new Date(new Date(month).setMonth(month.getMonth()-1)); setMonth(dt); setSelStart(''); setSelEnd(''); setRange(undefined) }}>Prev</GlassButton>
-        <GlassButton variant="secondary" onClick={()=>{ const dt = new Date(new Date(month).setMonth(month.getMonth()+1)); setMonth(dt); setSelStart(''); setSelEnd(''); setRange(undefined) }}>Next</GlassButton>
-        <GlassButton onClick={()=>{ 
-          if (selStart && selEnd) setForm((f:any)=> ({ ...f, start: selStart, end: selEnd, type: f.type || (types[0]?.id || '') }));
-          else setForm((f:any)=> ({ ...f, type: f.type || (types[0]?.id || '') }));
-          setOpen(true) 
-        }}>Request leave</GlassButton>
-      </div>}>
-        {(() => {
-          function rangeDates(s: string, e: string) { const out: Date[] = []; if (!s || !e) return out; for (let d = new Date(s+'T00:00:00'); d <= new Date(e+'T00:00:00'); d = new Date(d.getTime()+24*60*60*1000)) out.push(new Date(d)); return out }
-          const pending: Date[] = []; const approved: Date[] = []
-          for (const r of requests) {
-            if (r.status === 'approved') approved.push(...rangeDates(r.start_date, r.end_date))
-            else if (r.status === 'pending') pending.push(...rangeDates(r.start_date, r.end_date))
-          }
-          return (
-            <DayPicker
-              month={month}
-              onMonthChange={setMonth}
-              mode="range"
-              selected={range}
-              onSelect={(r)=>{ setRange(r||undefined); const s = r?.from ? r.from.toISOString().slice(0,10) : ''; const e = r?.to ? r.to.toISOString().slice(0,10) : ''; setSelStart(s); setSelEnd(e) }}
-              modifiers={{ pending, approved }}
-              modifiersStyles={{ pending: { backgroundColor: 'rgba(255,165,0,0.18)' }, approved: { backgroundColor: 'rgba(57,255,20,0.18)' } }}
-              showOutsideDays
-            />
-          )
-        })()}
-      </GlassCard>
-
-      <GlassCard title="My Requests">
-        <div className="grid-1">
-          {(requests||[]).map((r:any)=> (
-            <div key={r.id} className="row" style={{gap:12,alignItems:'center'}}>
-              <span className="badge">{r.type_code}</span>
-              <span className="subtitle">{r.start_date} - {r.end_date}</span>
-              <span className="badge">{r.status}</span>
-              <span className="subtitle">{r.reason}</span>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {types.map((t) => (
+            <div key={t.leave_type_id} className="bg-white/60 backdrop-blur-md p-5 rounded-2xl border border-white/40 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+               <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity ${t.paid ? 'text-green-600' : 'text-orange-600'}`}>
+                 {t.code === 'SICK' ? <AlertCircle size={48} /> : t.code === 'ANNUAL' ? <Sun size={48} /> : <Briefcase size={48} />}
+               </div>
+               <div className="flex flex-col gap-1">
+                 <span className="text-sm font-medium text-gray-500">{t.name}</span>
+                 <div className="flex items-baseline gap-1">
+                   <span className="text-3xl font-bold text-gray-800">{t.balance}</span>
+                   <span className="text-sm text-gray-400">days left</span>
+                 </div>
+               </div>
+               <div className="mt-3 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                 <div 
+                    className={`h-full rounded-full ${t.paid ? 'bg-green-500' : 'bg-orange-400'}`} 
+                    style={{ width: `${Math.min((t.balance / 20) * 100, 100)}%` }} 
+                 />
+               </div>
             </div>
           ))}
+          {types.length === 0 && (
+             <div className="col-span-full p-8 text-center bg-white/40 rounded-2xl border border-dashed border-gray-300 text-gray-500">
+               No leave types configured. {['admin','owner'].includes(role) && 'Please configure leave types in Settings.'}
+             </div>
+          )}
         </div>
-      </GlassCard>
 
-      <GlassModal open={open} title="Request Leave" onClose={()=>setOpen(false)}>
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Type</div>
-            <GlassSelect value={form.type} onChange={(e:any)=>setForm({...form, type:e.target.value})}>
-              <option value="">Select type</option>
-              {types.map(t=> <option key={t.id} value={t.id}>{t.name}</option>)}
-            </GlassSelect>
-            {types.length === 0 && (
-              <div className="row" style={{gap:8,marginTop:8,alignItems:'center'}}>
-                <span className="subtitle">No leave types configured</span>
-                {(['admin','owner','super_admin'].includes(role)) && (
-                  <GlassButton variant="secondary" onClick={async ()=>{
-                    if (!orgId) return
-                    const defs = [
-                      { code:'SICK', name:'Sick Leave', paid:true, default_days_per_year:10 },
-                      { code:'CASUAL', name:'Casual Leave', paid:true, default_days_per_year:12 },
-                      { code:'ANNUAL', name:'Annual Leave', paid:true, default_days_per_year:20 },
-                      { code:'UNPAID', name:'Unpaid Leave', paid:false, default_days_per_year:0 },
-                    ]
-                    for (const d of defs) {
-                      const roleHeader = role === 'super_admin' ? 'super_admin' : 'org_admin'
-                      await fetch('/api/leave/types/create', { method:'POST', headers:{ 'Content-Type':'application/json', 'x-role': roleHeader }, body: JSON.stringify({ org_id: orgId, ...d }) })
-                    }
-                    await loadTypes(orgId)
-                  }}>Add defaults</GlassButton>
-                )}
-              </div>
-            )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Calendar Section */}
+          <div className="lg:col-span-2 flex flex-col gap-4">
+             <div className="bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
+               {/* Custom Header */}
+               <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white/40">
+                 <h2 className="text-xl font-bold text-gray-800 flex items-center gap-3">
+                   <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                     <CalendarIcon size={20} />
+                   </div>
+                   {month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                 </h2>
+                 <div className="flex items-center gap-1 bg-white border border-gray-200 p-1 rounded-xl shadow-sm">
+                   <button onClick={()=>{ const dt = new Date(new Date(month).setMonth(month.getMonth()-1)); setMonth(dt) }} className="p-2 hover:bg-gray-50 rounded-lg transition-colors text-gray-600"><ChevronLeft size={18} /></button>
+                   <button onClick={()=>{ setMonth(new Date()) }} className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">Today</button>
+                   <button onClick={()=>{ const dt = new Date(new Date(month).setMonth(month.getMonth()+1)); setMonth(dt) }} className="p-2 hover:bg-gray-50 rounded-lg transition-colors text-gray-600"><ChevronRight size={18} /></button>
+                 </div>
+               </div>
+               
+               <div className="flex-1 w-full p-6 pt-2">
+                  <DayPicker
+                    month={month}
+                    onMonthChange={setMonth}
+                    mode="range"
+                    selected={range}
+                    onSelect={(r)=>{ 
+                      setRange(r||undefined); 
+                      if (r?.from && r?.to) {
+                        const s = r.from.toISOString().slice(0,10); 
+                        const e = r.to.toISOString().slice(0,10); 
+                        router.push(`/leave/new?start=${s}&end=${e}`);
+                      }
+                    }}
+                    showOutsideDays
+                    className="w-full"
+                    classNames={{
+                      months: "w-full",
+                      month: "w-full",
+                      table: "w-full border-collapse",
+                      head_row: "border-b border-gray-100",
+                      head_cell: "text-gray-400 font-medium text-xs uppercase tracking-wider py-4 text-center",
+                      row: "border-b border-gray-100 last:border-0",
+                      cell: "border-r border-gray-100 last:border-0 h-28 p-0 relative hover:bg-gray-50 transition-colors focus-within:relative focus-within:z-20 align-top",
+                      day: "w-full h-full p-2 flex flex-col items-start justify-start text-sm cursor-pointer hover:bg-transparent outline-none",
+                      day_selected: "bg-blue-50/50",
+                      day_today: "bg-gray-50/50",
+                      day_outside: "text-slate-300 bg-slate-50/20"
+                    }}
+                    components={{
+                      DayContent: (props) => {
+                        const dStr = props.date.toISOString().slice(0,10)
+                        const isApproved = approvedSet.has(dStr)
+                        const isPending = pendingSet.has(dStr)
+                        return (
+                          <div className="w-full h-full flex flex-col justify-between">
+                            <span className={`font-medium ${props.activeModifiers.today ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md shadow-blue-500/20' : 'text-slate-700'}`}>
+                              {props.date.getDate()}
+                            </span>
+                            <div className="flex flex-col gap-1 w-full">
+                              {isApproved && (
+                                <div className="w-full px-2 py-1 rounded-md bg-green-100 text-green-700 text-[10px] font-medium border border-green-200 truncate">
+                                  Approved
+                                </div>
+                              )}
+                              {isPending && (
+                                <div className="w-full px-2 py-1 rounded-md bg-yellow-100 text-yellow-700 text-[10px] font-medium border border-yellow-200 truncate">
+                                  Pending
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      }
+                    }}
+                  />
+               </div>
+               
+               <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-green-500"></div> Approved</div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-yellow-500"></div> Pending</div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-200"></div> Holiday</div>
+                  </div>
+                  <div>Click and drag to select range</div>
+               </div>
+             </div>
           </div>
-          <div>
-            <div className="label">Reason</div>
-            <input className="input" value={form.reason} onChange={e=>setForm({...form, reason:e.target.value})} />
+
+          {/* Recent Requests List */}
+          <div className="flex flex-col gap-4">
+             <div className="bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-sm p-6 flex-1">
+                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                  <FileText size={20} className="text-gray-400" />
+                  Recent Requests
+                </h2>
+                
+                <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                  {requests.length === 0 && (
+                    <div className="text-center py-10 text-gray-400">No requests found</div>
+                  )}
+                  {requests.map((r) => (
+                    <div key={r.id} className="p-4 rounded-2xl bg-white/50 border border-white/60 hover:bg-white/80 transition-all group">
+                       <div className="flex justify-between items-start mb-2">
+                          <span className="text-xs font-bold px-2 py-1 rounded-md bg-gray-100 text-gray-600 uppercase tracking-wider">{r.type_name || r.type_code}</span>
+                          <span className={`text-xs px-2 py-1 rounded-full border flex items-center gap-1 ${getStatusColor(r.status)}`}>
+                            {getStatusIcon(r.status)}
+                            <span className="capitalize">{r.status}</span>
+                          </span>
+                       </div>
+                       <div className="flex flex-col gap-1 mb-2">
+                          <div className="text-sm font-semibold text-gray-800">
+                             {new Date(r.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(r.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {r.days_count} days • {new Date(r.created_at).toLocaleDateString()}
+                          </div>
+                       </div>
+                       {r.reason && (
+                         <div className="text-sm text-gray-600 bg-gray-50/50 p-2 rounded-lg italic border border-gray-100/50">
+                           "{r.reason}"
+                         </div>
+                       )}
+                    </div>
+                  ))}
+                </div>
+             </div>
           </div>
         </div>
-        <div className="grid grid-2" style={{marginTop:12}}>
-          <div>
-            <div className="label">Start</div>
-            <input className="input" type="date" value={form.start} onChange={e=>setForm({...form, start:e.target.value})} />
-          </div>
-          <div>
-            <div className="label">End</div>
-            <input className="input" type="date" value={form.end} onChange={e=>setForm({...form, end:e.target.value})} />
-          </div>
-        </div>
-        {submitError && <div className="subtitle" style={{color:'tomato',marginTop:8}}>{submitError}</div>}
-        <div className="row" style={{justifyContent:'flex-end',gap:8,marginTop:12}}>
-          <GlassButton onClick={submit} disabled={submitting}>Submit</GlassButton>
-        </div>
-      </GlassModal>
+      </div>
     </AppShell>
   )
 }

@@ -8,10 +8,10 @@ import GlassSelect from '@components/ui/GlassSelect'
 import { normalizeRoleForApi } from '@lib/permissions'
 import { useListQuery } from '@/lib/hooks/useListQuery'
 import FilterBar from '@/components/filters/FilterBar'
-import DateRangePicker from '@/components/filters/DateRangePicker'
 import SortSelect from '@/components/filters/SortSelect'
 import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 import ExportMenu from '@/components/shared/ExportMenu'
+import { Activity, Clock, Monitor, XCircle, CheckCircle, BarChart } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
@@ -186,55 +186,70 @@ export default function ActivityOverviewPage() {
     }
   ], [members, departments, projects, clients])
 
-  const columns = ['Member','Department','Date','Worked','Tracked Active','Productive','Unproductive','Idle','Screenshots','Top Usage','Status']
+  const columns = [
+    { name: 'Member', width: '140px' },
+    { name: 'Department', width: '120px' },
+    { name: 'Date', width: '100px' },
+    { name: 'Worked', width: '80px' },
+    { name: 'Active', width: '80px' },
+    { name: 'Productive', width: '80px' },
+    { name: 'Unproductive', width: '90px' },
+    { name: 'Idle', width: '70px' },
+    { name: 'Screenshots', width: '90px' },
+    { name: 'Top Usage', width: '220px' },
+    { name: 'Status', width: '80px' }
+  ]
+
   const rows = items.map(it => [
-    it.memberName, 
-    it.departmentName, 
-    it.date, 
-    formatHM(it.workedHours||0), 
-    formatHM(it.trackedActiveMinutes||0), 
-    formatHM(it.productiveMinutes||0), 
-    formatHM(it.unproductiveMinutes||0), 
-    formatHM(it.idleMinutes||0), 
-    String(it.screenshots||0), 
+    <span key="mem" className="font-medium text-foreground">{it.memberName}</span>,
+    <span key="dept" className="text-muted-foreground">{it.departmentName}</span>,
+    <span key="date" className="text-muted-foreground">{it.date}</span>,
+    <span key="wrk" className="font-medium">{formatHM(it.workedHours||0)}</span>,
+    <span key="act" className="text-muted-foreground">{formatHM(it.trackedActiveMinutes||0)}</span>,
+    <span key="prod" className="text-green-600 font-medium">{formatHM(it.productiveMinutes||0)}</span>,
+    <span key="unp" className="text-red-500">{formatHM(it.unproductiveMinutes||0)}</span>,
+    <span key="idle" className="text-orange-400">{formatHM(it.idleMinutes||0)}</span>,
+    <span key="scr">{String(it.screenshots||0)}</span>,
     (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '220px', padding: '4px 0', fontSize: '12px' }}>
+      <div key="usage" className="flex flex-col gap-1 py-1 text-xs min-w-[200px]">
         {it.topApps?.length > 0 && (
           <div>
-             <div style={{ fontWeight: 600, opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', marginBottom: '2px' }}>Apps</div>
+             <div className="font-semibold opacity-70 text-[10px] uppercase mb-[2px]">Apps</div>
              {it.topApps.slice(0,3).map((a:any) => (
-               <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', whiteSpace: 'nowrap' }} title={`${a.name}: ${a.minutes}m (${a.category})`}>
-                 <div style={{ flexShrink: 0, width: '6px', height: '6px', borderRadius: '999px', background: a.category === 'productive' ? '#34d399' : a.category === 'unproductive' ? '#fb7185' : '#9ca3af' }} />
-                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    <span style={{ fontWeight: 500 }}>{a.name}</span> <span style={{ opacity: 0.6, fontSize: '10px' }}>({formatHM(a.minutes)})</span>
+               <div key={a.name} className="flex items-center gap-[6px] w-full whitespace-nowrap" title={`${a.name}: ${a.minutes}m (${a.category})`}>
+                 <div className={`shrink-0 w-[6px] h-[6px] rounded-full ${a.category === 'productive' ? 'bg-green-500' : a.category === 'unproductive' ? 'bg-red-400' : 'bg-gray-400'}`} />
+                 <div className="overflow-hidden text-ellipsis whitespace-nowrap flex-1">
+                    <span className="font-medium">{a.name}</span> <span className="opacity-60 text-[10px]">({formatHM(a.minutes)})</span>
                  </div>
                </div>
              ))}
           </div>
         )}
         {it.topUrls?.length > 0 && (
-          <div style={{ marginTop: it.topApps?.length > 0 ? '8px' : '0' }}>
-            <div style={{ fontWeight: 600, opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', marginBottom: '2px' }}>Websites</div>
+          <div className={it.topApps?.length > 0 ? 'mt-2' : ''}>
+            <div className="font-semibold opacity-70 text-[10px] uppercase mb-[2px]">Websites</div>
             {it.topUrls.slice(0,3).map((u:any) => (
-              <div key={u.url} style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', whiteSpace: 'nowrap' }} title={`${u.url}: ${u.minutes}m (${u.category})`}>
-                <div style={{ flexShrink: 0, width: '6px', height: '6px', borderRadius: '999px', background: u.category === 'productive' ? '#34d399' : u.category === 'unproductive' ? '#fb7185' : '#9ca3af' }} />
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    <span>{u.url}</span> <span style={{ opacity: 0.6, fontSize: '10px' }}>({formatHM(u.minutes)})</span>
+              <div key={u.url} className="flex items-center gap-[6px] w-full whitespace-nowrap" title={`${u.url}: ${u.minutes}m (${u.category})`}>
+                <div className={`shrink-0 w-[6px] h-[6px] rounded-full ${u.category === 'productive' ? 'bg-green-500' : u.category === 'unproductive' ? 'bg-red-400' : 'bg-gray-400'}`} />
+                <div className="overflow-hidden text-ellipsis whitespace-nowrap flex-1">
+                    <span>{u.url}</span> <span className="opacity-60 text-[10px]">({formatHM(u.minutes)})</span>
                 </div>
               </div>
             ))}
           </div>
         )}
-        {(!it.topApps?.length && !it.topUrls?.length) && <span style={{ opacity: 0.3 }}>-</span>}
+        {(!it.topApps?.length && !it.topUrls?.length) && <span className="opacity-30">-</span>}
       </div>
     ),
-    it.status 
+    <span key="status" className={`text-xs px-2 py-0.5 rounded-full ${it.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+      {it.status || 'Offline'}
+    </span>
   ])
 
   return (
     <AppShell title="Activity Overview">
       {role === 'super_admin' && (
-        <div className="mb-4">
+        <div className="mb-4 w-64">
           <GlassSelect value={orgId} onChange={(e:any)=>updateFilter('orgId', e.target.value)}>
             <option value="">Select org</option>
             {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
@@ -263,25 +278,53 @@ export default function ActivityOverviewPage() {
         </FilterBar>
       )}
 
-      <div className="grid grid-1 mt-4">
-        <GlassCard title="Total Tracked">
-          <div className="title">{formatHM(totals.tracked||0)}</div>
-          <div className="subtitle">Active minutes</div>
-        </GlassCard>
-        <GlassCard title="Productive vs Unproductive">
-          <div className="row" style={{gap:12}}>
-            <div className="title" style={{color:'var(--green)'}}>{formatHM(totals.productive||0)}</div>
-            <div className="title" style={{color:'var(--orange)'}}>{formatHM(totals.unproductive||0)}</div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+        <div className="card p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Clock size={18} />
+            <span className="text-sm font-medium">Total Tracked</span>
           </div>
-        </GlassCard>
-        <GlassCard title="Screenshots">
-          <div className="title">{String(totals.screenshots||0)}</div>
-        </GlassCard>
+          <div className="text-3xl font-bold">{formatHM(totals.tracked||0)}</div>
+          <div className="text-xs text-muted-foreground">Active minutes</div>
+        </div>
+
+        <div className="card p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <BarChart size={18} />
+            <span className="text-sm font-medium">Productivity Split</span>
+          </div>
+          <div className="flex items-baseline gap-4">
+            <div className="flex flex-col">
+              <span className="text-3xl font-bold text-green-500">{formatHM(totals.productive||0)}</span>
+              <span className="text-xs text-muted-foreground">Productive</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-3xl font-bold text-red-400">{formatHM(totals.unproductive||0)}</span>
+              <span className="text-xs text-muted-foreground">Unproductive</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Monitor size={18} />
+            <span className="text-sm font-medium">Screenshots</span>
+          </div>
+          <div className="text-3xl font-bold">{String(totals.screenshots||0)}</div>
+          <div className="text-xs text-muted-foreground">Captured</div>
+        </div>
       </div>
 
-      <GlassCard title="Per-member Activity" className="mt-6" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
+      <GlassCard 
+        title={<div className="flex items-center gap-2"><Activity size={18} /> Per-member Activity</div>} 
+        className="mt-6" 
+        right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}
+      >
         {isLoading ? (
-          <div className="p-8 text-center opacity-50">Loading activity data...</div>
+          <div className="p-12 text-center text-muted-foreground opacity-50 flex items-center justify-center gap-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+            Loading activity data...
+          </div>
         ) : (
           <GlassTable columns={columns} rows={rows} />
         )}

@@ -4,11 +4,14 @@ import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import GlassTable from '@components/ui/GlassTable'
+import GlassInput from '@components/ui/GlassInput'
 import Toast from '@components/Toast'
 import TagPill from '@components/ui/TagPill'
 import ExportMenu from '@components/shared/ExportMenu'
 import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { UrlCategory } from '@lib/categorization'
+import { PieChart, Globe, Shield, Filter, Plus, Trash2, Layout, Info } from 'lucide-react'
 
 const DEFAULT_CATEGORIES: UrlCategory[] = [
   'Work-related', 'Development', 'Communication', 'Search Engine',
@@ -136,144 +139,219 @@ export default function CategorizationSettings() {
   const productiveCount = DEFAULT_CATEGORIES.filter(c => getProductivity(c) === 'productive').length
   const unproductiveCount = DEFAULT_CATEGORIES.filter(c => getProductivity(c) === 'unproductive').length
 
+  const ruleHeaders = [
+    { name: 'Category', width: '40%' },
+    { name: 'Status', width: '30%' },
+    { name: 'Impact', width: '30%', align: 'right' as const }
+  ]
+
+  const ruleRows = DEFAULT_CATEGORIES.map(cat => {
+    const value = getProductivity(cat)
+    const tone = value === 'productive' ? 'accent' : value === 'unproductive' ? 'danger' : 'muted'
+    return [
+      <div key="cat" className="flex items-center gap-3">
+        <div className={`p-2 rounded-lg ${value === 'productive' ? 'bg-emerald-50 text-emerald-600' : value === 'unproductive' ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-600'}`}>
+          {value === 'productive' ? <Shield size={16} /> : value === 'unproductive' ? <PieChart size={16} /> : <Filter size={16} />}
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="font-semibold text-slate-700">{cat}</span>
+          <span className="text-xs text-slate-400">Default category</span>
+        </div>
+      </div>,
+      <GlassSelect 
+        key="select"
+        value={value} 
+        onChange={(e: any) => updateRule(cat, e.target.value)}
+        className="w-full max-w-[160px]"
+      >
+        <option value="productive">Productive</option>
+        <option value="neutral">Neutral</option>
+        <option value="unproductive">Unproductive</option>
+      </GlassSelect>,
+      <div key="tag" className="flex justify-end">
+        <TagPill tone={tone as any}>{value.charAt(0).toUpperCase() + value.slice(1)}</TagPill>
+      </div>
+    ]
+  })
+
+  const overrideHeaders = [
+    { name: 'Pattern', width: '40%' },
+    { name: 'Category', width: '40%' },
+    { name: 'Actions', width: '20%', align: 'right' as const }
+  ]
+
+  const overrideRows = overrides.map(o => [
+    <div key="pat" className="flex items-center gap-3">
+      <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+        <Globe size={16} />
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <span className="font-semibold text-slate-700">{o.urlPattern}</span>
+        <span className="text-xs text-slate-400">Custom rule</span>
+      </div>
+    </div>,
+    <div key="cat" className="flex items-center gap-2">
+      <TagPill tone="muted">{o.categoryKey}</TagPill>
+    </div>,
+    <div key="act" className="flex justify-end">
+      <GlassButton
+        variant="ghost"
+        size="sm"
+        onClick={() => deleteOverride(o.id)}
+        className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 h-8 w-8 p-0 flex items-center justify-center rounded-lg transition-colors"
+      >
+        <Trash2 size={14}/>
+      </GlassButton>
+    </div>
+  ])
+
+  if (overrides.length === 0) {
+    // We'll handle empty state in the render
+  }
+
   return (
-    <AppShell title="Categorization Settings">
-      <div style={{display:'flex',flexDirection:'column',gap:16}}>
-        <GlassCard title="Overview">
-          <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'stretch'}}>
-            <div className="glass-panel subtle" style={{flex:'1 1 160px',padding:12,borderRadius:'var(--radius-large)',display:'flex',flexDirection:'column',gap:4}}>
-              <span className="label" style={{opacity:0.8}}>Total categories</span>
-              <span className="title" style={{fontSize:24}}>{totalRules}</span>
-              <span className="subtitle" style={{opacity:0.7,fontSize:12}}>Mapped to productivity for this organization</span>
-            </div>
-            <div className="glass-panel subtle" style={{flex:'1 1 160px',padding:12,borderRadius:'var(--radius-large)',display:'flex',flexDirection:'column',gap:4}}>
-              <span className="label" style={{opacity:0.8}}>Productive vs unproductive</span>
-              <div style={{display:'flex',gap:12,alignItems:'baseline'}}>
-                <span style={{color:'#22c55e',fontWeight:600}}>{productiveCount}</span>
-                <span style={{opacity:0.5}}>/</span>
-                <span style={{color:'#fb7185',fontWeight:600}}>{unproductiveCount}</span>
-              </div>
-              <span className="subtitle" style={{opacity:0.7,fontSize:12}}>How activity minutes will be classified</span>
-            </div>
-            <div className="glass-panel subtle" style={{flex:'1 1 160px',padding:12,borderRadius:'var(--radius-large)',display:'flex',flexDirection:'column',gap:4}}>
-              <span className="label" style={{opacity:0.8}}>URL overrides</span>
-              <span className="title" style={{fontSize:24}}>{totalOverrides}</span>
-              <span className="subtitle" style={{opacity:0.7,fontSize:12}}>Custom rules for specific sites and paths</span>
-            </div>
+    <AppShell title="Categorization Rules">
+      <div className="space-y-6 max-w-5xl mx-auto pb-10">
+        {/* Intro */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <Shield className="text-indigo-600" size={24} />
+              Productivity Intelligence
+            </h2>
+            <p className="text-slate-500 text-sm mt-1">Configure how we classify apps and websites to calculate productivity scores.</p>
           </div>
-        </GlassCard>
+          <div className="flex items-center gap-2">
+            <GlassButton 
+               onClick={() => { if(orgId) load() }}
+               className="bg-white hover:bg-slate-50 text-slate-600 border-slate-200"
+            >
+              Refresh
+            </GlassButton>
+          </div>
+        </div>
 
-        <div className="grid grid-2" style={{alignItems:'start',gap:16}}>
-          <GlassCard title="Productivity Rules">
-            <div style={{marginBottom:12,opacity:0.8,fontSize:13}}>
-              Choose how each category should impact productivity reports. Changes apply to all members in this organization.
-            </div>
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Category</th>
-                    <th style={{width:160}}>Status</th>
-                    <th style={{width:80,textAlign:'right'}}>Impact</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DEFAULT_CATEGORIES.map(cat => {
-                    const value = getProductivity(cat)
-                    const tone = value === 'productive' ? 'accent' : value === 'unproductive' ? 'danger' : 'muted'
-                    return (
-                      <tr key={cat}>
-                        <td>
-                          <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                            <span style={{fontWeight:500}}>{cat}</span>
-                            <span style={{opacity:0.6,fontSize:11}}>Used for apps and URLs categorized as {cat}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <GlassSelect 
-                            value={value} 
-                            onChange={(e: any) => updateRule(cat, e.target.value)}
-                            style={{minWidth:140}}
-                          >
-                            <option value="productive">Productive</option>
-                            <option value="neutral">Neutral</option>
-                            <option value="unproductive">Unproductive</option>
-                          </GlassSelect>
-                        </td>
-                        <td style={{textAlign:'right'}}>
-                          <TagPill tone={tone as any}>{value.charAt(0).toUpperCase() + value.slice(1)}</TagPill>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </GlassCard>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Rules Section */}
+          <div className="lg:col-span-2 space-y-6">
+            <GlassCard 
+              className="relative overflow-hidden"
+              title={
+                <div className="relative z-10 flex items-center gap-2">
+                  <PieChart className="text-indigo-500" size={20} />
+                  <span className="text-lg font-semibold text-slate-800">Global Category Rules</span>
+                </div>
+              }
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                <PieChart size={120} className="text-indigo-500" />
+              </div>
+              <div className="relative z-10">
+                <p className="text-sm text-slate-500 mb-6">
+                  Define the default productivity status for broad categories. These rules apply unless a specific URL override exists.
+                </p>
+                <div className="rounded-xl border border-slate-200/60 overflow-hidden bg-white/50 backdrop-blur-sm">
+                  <GlassTable columns={ruleHeaders} rows={ruleRows} />
+                </div>
+              </div>
+            </GlassCard>
 
-          <GlassCard title="URL Overrides" right={<ExportMenu onExport={handleExportOverrides} isExporting={isExportingOverrides} />}>
-            <div style={{marginBottom:12,opacity:0.8,fontSize:13}}>
-              Add rules for specific domains or paths to fine-tune how work and distractions are recognized.
-            </div>
-            <div className="row" style={{gap:8,marginBottom:16,flexWrap:'wrap'}}>
-              <input 
-                className="input" 
-                placeholder="e.g. linkedin.com, github.com/my-org, youtube.com/channel/123" 
-                value={newUrl} 
-                onChange={e => setNewUrl(e.target.value)} 
-                style={{flex:'2 1 220px'}}
-              />
-              <GlassSelect value={newCategory} onChange={(e: any) => setNewCategory(e.target.value)} style={{flex:'1 1 160px'}}>
-                {DEFAULT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </GlassSelect>
-              <GlassButton variant="primary" onClick={addOverride} style={{flex:'0 0 auto'}}>
-                Add override
-              </GlassButton>
-            </div>
+            <GlassCard 
+              className="relative overflow-hidden"
+              title={
+                <div className="relative z-10 flex items-center gap-2">
+                  <Globe className="text-emerald-500" size={20} />
+                  <span className="text-lg font-semibold text-slate-800">URL Overrides</span>
+                </div>
+              }
+              right={
+                <div className="relative z-10">
+                   <ExportMenu onExport={handleExportOverrides} isExporting={isExportingOverrides} />
+                </div>
+              }
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                <Globe size={120} className="text-emerald-500" />
+              </div>
+              <div className="relative z-10">
+                <p className="text-sm text-slate-500 mb-6">
+                  Specific URLs that deviate from the global category rules.
+                </p>
+                {overrides.length > 0 ? (
+                  <div className="rounded-xl border border-slate-200/60 overflow-hidden bg-white/50 backdrop-blur-sm">
+                    <GlassTable columns={overrideHeaders} rows={overrideRows} />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                    <Globe size={48} className="text-slate-300 mb-4" />
+                    <h3 className="text-lg font-medium text-slate-700">No overrides defined</h3>
+                    <p className="text-slate-500 text-sm mt-1">Add a specific URL pattern below to customize its category.</p>
+                  </div>
+                )}
+              </div>
+            </GlassCard>
+          </div>
 
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Pattern</th>
-                    <th>Category</th>
-                    <th style={{width:120,textAlign:'right'}}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overrides.length === 0 && (
-                    <tr>
-                      <td colSpan={3} style={{textAlign:'center',opacity:0.5,padding:'16px 0'}}>
-                        No overrides yet. Add one to treat a site differently for your team.
-                      </td>
-                    </tr>
-                  )}
-                  {overrides.map(o => (
-                    <tr key={o.id}>
-                      <td>
-                        <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                          <span style={{fontWeight:500}}>{o.urlPattern}</span>
-                          <span style={{opacity:0.6,fontSize:11}}>Matches any URL containing this pattern</span>
-                        </div>
-                      </td>
-                      <td>
-                        <TagPill tone="muted">{o.categoryKey}</TagPill>
-                      </td>
-                      <td style={{textAlign:'right'}}>
-                        <GlassButton
-                          variant="secondary"
-                          onClick={() => deleteOverride(o.id)}
-                          style={{background:'#fb7185',borderColor:'#fb7185',fontSize:12,padding:'4px 10px'}}
-                        >
-                          Delete
-                        </GlassButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </GlassCard>
+          {/* Sidebar / Add Form */}
+          <div className="space-y-6">
+             <GlassCard className="relative overflow-hidden sticky top-6">
+                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                  <Filter size={80} className="text-indigo-500" />
+                </div>
+                <div className="relative z-10 space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                      <Plus size={20} />
+                    </div>
+                    <h3 className="font-semibold text-slate-800">Add New Override</h3>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">URL Pattern</label>
+                      <GlassInput 
+                        placeholder="e.g. facebook.com" 
+                        value={newUrl}
+                        onChange={(e:any) => setNewUrl(e.target.value)}
+                        className="bg-white"
+                      />
+                      <p className="text-[10px] text-slate-400">Can be a domain or partial URL.</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</label>
+                      <GlassSelect 
+                        value={newCategory} 
+                        onChange={(e:any) => setNewCategory(e.target.value)}
+                        className="w-full bg-white"
+                      >
+                        {DEFAULT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </GlassSelect>
+                    </div>
+
+                    <GlassButton 
+                      onClick={addOverride}
+                      disabled={!newUrl}
+                      className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200"
+                    >
+                      Add Override
+                    </GlassButton>
+                  </div>
+                </div>
+             </GlassCard>
+
+             <GlassCard className="bg-slate-50 border-slate-200/60">
+                <h3 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <Info size={16} className="text-slate-400"/> 
+                  How it works
+                </h3>
+                <ul className="text-xs text-slate-500 space-y-2 list-disc pl-4">
+                  <li>Global rules apply to all URLs unless overridden.</li>
+                  <li>Overrides take precedence over global rules.</li>
+                  <li>Productivity scores are calculated based on time spent in "Productive" vs "Unproductive" apps/sites.</li>
+                </ul>
+             </GlassCard>
+          </div>
         </div>
       </div>
       <Toast message={toast.m} type={toast.t} />

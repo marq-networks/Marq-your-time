@@ -1,11 +1,6 @@
-"use client"
-import { useState } from 'react'
+'use client'
+import { useRouter } from 'next/navigation'
 import GlassTable from '../ui/GlassTable'
-import GlassButton from '../ui/GlassButton'
-import GlassModal from '../ui/GlassModal'
-import ExportMenu from '@components/shared/ExportMenu'
-import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
-import { format } from 'date-fns' // Assuming date-fns is available, or use native
 
 type LogItem = {
   id: string
@@ -21,7 +16,7 @@ type LogItem = {
 }
 
 export default function AdjustmentLogTable({ logs, loading }: { logs: LogItem[], loading: boolean }) {
-  const [selectedLog, setSelectedLog] = useState<LogItem | null>(null)
+  const router = useRouter()
 
   const formatValue = (val: any) => {
     if (typeof val === 'object' && val !== null) return JSON.stringify(val)
@@ -29,117 +24,74 @@ export default function AdjustmentLogTable({ logs, loading }: { logs: LogItem[],
   }
 
   const rows = logs.map(log => [
-    <span key="date" style={{fontSize:'0.9em', color:'rgba(255,255,255,0.7)'}}>
-      {new Date(log.created_at).toLocaleString()}
-    </span>,
-    <span key="emp" style={{fontWeight:500}}>
-      {log.employee.firstName} {log.employee.lastName}
-    </span>,
-    <span key="mod" className="tag-pill" style={{textTransform:'uppercase', fontSize:'0.7em'}}>
+    <div key="date" className="flex flex-col">
+        <span className="text-sm font-medium text-slate-700">{new Date(log.created_at).toLocaleDateString()}</span>
+        <span className="text-xs text-slate-400">{new Date(log.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+    </div>,
+    <div key="emp" className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-700 flex items-center justify-center text-xs font-bold border border-indigo-200/50 shadow-sm">
+            {log.employee.firstName[0]}
+        </div>
+        <span className="text-sm text-slate-700 font-medium">{log.employee.firstName} {log.employee.lastName}</span>
+    </div>,
+    <span key="mod" className="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-600 uppercase tracking-wider border border-indigo-100">
       {log.module}
     </span>,
-    log.field_name,
-    <div key="change" style={{display:'flex', alignItems:'center', gap:8, fontSize:'0.9em'}}>
-      <span style={{color:'rgba(255,100,100,0.8)'}}>{formatValue(log.old_value)}</span>
-      <span>→</span>
-      <span style={{color:'rgba(100,255,100,0.8)'}}>{formatValue(log.new_value)}</span>
+    <span key="field" className="font-mono text-xs text-slate-500">{log.field_name}</span>,
+    <div key="change" className="flex items-center gap-3 text-sm">
+      <div className="flex flex-col items-end min-w-[60px]">
+        <span className="text-red-600 bg-red-100/50 px-2 py-0.5 rounded text-xs font-mono border border-red-200/50 max-w-[120px] truncate" title={formatValue(log.old_value)}>
+            {formatValue(log.old_value)}
+        </span>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400"><path d="M4 12h16"/><path d="m14 6 6 6-6 6"/></svg>
+      <div className="flex flex-col items-start min-w-[60px]">
+        <span className="text-emerald-600 bg-emerald-100/50 px-2 py-0.5 rounded text-xs font-mono border border-emerald-200/50 max-w-[120px] truncate" title={formatValue(log.new_value)}>
+            {formatValue(log.new_value)}
+        </span>
+      </div>
     </div>,
-    <div key="reason" style={{maxWidth: 200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+    <div key="reason" className="max-w-[200px] text-sm text-slate-600 truncate" title={log.reason}>
       {log.reason}
     </div>,
-    <span key="actor" style={{fontSize:'0.9em', color:'rgba(255,255,255,0.7)'}}>
-      {log.actor.firstName} {log.actor.lastName}
-    </span>,
-    <GlassButton key="view" onClick={() => setSelectedLog(log)} style={{padding:'4px 8px', fontSize:12}}>
-      View
-    </GlassButton>
+    <div key="actor" className="flex flex-col">
+        <span className="text-xs font-medium text-slate-700">{log.actor.firstName} {log.actor.lastName}</span>
+        <span className="text-[10px] text-slate-400">{log.actor.email}</span>
+    </div>,
+    <button 
+        key="view" 
+        onClick={() => router.push(`/my-adjustments/${log.id}`)} 
+        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-all border border-transparent hover:border-blue-200"
+        title="View Details"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
   ])
 
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-20">
+        <div className="relative w-12 h-12 mb-4">
+            <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+        <div className="text-sm font-medium text-slate-500 animate-pulse">Loading adjustment history...</div>
+    </div>
+  )
+
+  if (logs.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 ring-4 ring-slate-50/50">
+            <svg className="w-8 h-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+        </div>
+        <h3 className="text-lg font-semibold text-slate-800 mb-1">No Adjustments Found</h3>
+        <p className="text-sm text-slate-500 max-w-xs mx-auto">There are no adjustment records matching your current filters.</p>
+    </div>
+  )
+
   return (
-    <>
-      {loading ? (
-        <div style={{padding:20, textAlign:'center', color:'rgba(255,255,255,0.5)'}}>Loading logs...</div>
-      ) : logs.length === 0 ? (
-        <div style={{padding:20, textAlign:'center', color:'rgba(255,255,255,0.5)'}}>No adjustments found.</div>
-      ) : (
-        <GlassTable 
-          columns={['Date', 'Employee', 'Module', 'Field', 'Change', 'Reason', 'By', '']}
-          rows={rows}
-        />
-      )}
-
-      {selectedLog && (
-        <GlassModal open={true} title="Adjustment Details" onClose={() => setSelectedLog(null)}>
-          <div style={{display:'grid', gap:16}}>
-            <div className="grid grid-2" style={{gap:16}}>
-              <div>
-                <label className="label">Date</label>
-                <div className="value">{new Date(selectedLog.created_at).toLocaleString()}</div>
-              </div>
-              <div>
-                <label className="label">Module</label>
-                <div className="value">{selectedLog.module}</div>
-              </div>
-              <div>
-                <label className="label">Employee</label>
-                <div className="value">{selectedLog.employee.firstName} {selectedLog.employee.lastName}</div>
-              </div>
-              <div>
-                <label className="label">Changed By</label>
-                <div className="value">{selectedLog.actor.firstName} {selectedLog.actor.lastName}</div>
-              </div>
-            </div>
-
-            <div style={{background:'rgba(255,255,255,0.05)', padding:12, borderRadius:8}}>
-              <label className="label" style={{marginBottom:8, display:'block'}}>Field: {selectedLog.field_name}</label>
-              <div style={{display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:12, alignItems:'center'}}>
-                <div>
-                  <div className="label">Old Value</div>
-                  <pre style={{margin:0, whiteSpace:'pre-wrap', color:'rgba(255,100,100,0.9)'}}>
-                    {JSON.stringify(selectedLog.old_value, null, 2)}
-                  </pre>
-                </div>
-                <div style={{fontSize:24, color:'rgba(255,255,255,0.3)'}}>→</div>
-                <div>
-                  <div className="label">New Value</div>
-                  <pre style={{margin:0, whiteSpace:'pre-wrap', color:'rgba(100,255,100,0.9)'}}>
-                    {JSON.stringify(selectedLog.new_value, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="label">Reason</label>
-              <div className="value" style={{background:'rgba(255,255,255,0.05)', padding:12, borderRadius:8}}>
-                {selectedLog.reason}
-              </div>
-            </div>
-
-            {selectedLog.attachment_path && (
-              <div>
-                <label className="label">Attachment</label>
-                {/* 
-                   We don't have a direct download URL logic yet because of RLS.
-                   Usually we'd generate a signed URL.
-                   For now, we just show the path or a placeholder link.
-                   If Supabase storage is public (it isn't), we could link directly.
-                   We'll assume there is a way to view it or just show the path.
-                   Ideally, we would create an API to sign the URL.
-                */}
-                <div className="value">
-                   <a href="#" style={{color:'var(--primary)'}} onClick={(e) => {
-                     e.preventDefault()
-                     alert('Attachment download not implemented yet (requires signed URL generation). Path: ' + selectedLog.attachment_path)
-                   }}>
-                     View Attachment
-                   </a>
-                </div>
-              </div>
-            )}
-          </div>
-        </GlassModal>
-      )}
-    </>
+    <GlassTable 
+      columns={['Date', 'Employee', 'Module', 'Field', 'Change', 'Reason', 'By', '']}
+      rows={rows}
+    />
   )
 }

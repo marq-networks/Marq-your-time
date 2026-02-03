@@ -9,6 +9,7 @@ import GlassInput from '@components/ui/GlassInput'
 import { normalizeRoleForApi } from '@lib/permissions'
 import { exportToCsv, exportToPdf, type ExportColumn } from '@/lib/export-utils'
 import ExportMenu from '@/components/shared/ExportMenu'
+import { Bell, Send, Filter, User, Building, ExternalLink, CheckCircle, RefreshCw, Trash2, Mail, Info, AlertCircle, Megaphone } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type Member = { id: string, firstName: string, lastName: string }
@@ -178,91 +179,159 @@ export default function NotificationsPage() {
   return (
     <AppShell title="Notifications">
       {['admin','owner','super_admin'].includes(role) && (
-        <GlassCard title="Send Notification">
-          <div className="grid grid-3">
+        <GlassCard 
+          title={
+            <div className="flex items-center gap-2">
+              <Megaphone className="text-indigo-600" size={20} />
+              <span>Send Notification</span>
+            </div>
+          }
+          className="mb-6"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className="label">Organization</div>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                <Building size={12} /> Organization
+              </div>
               {role === 'super_admin' ? (
-                <GlassSelect value={sendOrgId} onChange={(e:any)=>{ setSendOrgId(e.target.value); if (e.target.value) loadMembers(e.target.value) }}>
+                <GlassSelect value={sendOrgId} onChange={(e:any)=>{ setSendOrgId(e.target.value); if (e.target.value) loadMembers(e.target.value) }} className="w-full bg-white">
                   <option value="">Select org</option>
                   {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
                 </GlassSelect>
               ) : (
-                <span className="tag-pill">{orgs.find(o=>o.id===sendOrgId)?.orgName || orgs.find(o=>o.id===orgId)?.orgName || ''}</span>
+                <div className="px-3 py-2 bg-slate-100 rounded-lg text-sm text-slate-600 border border-slate-200">
+                  {orgs.find(o=>o.id===sendOrgId)?.orgName || orgs.find(o=>o.id===orgId)?.orgName || 'Current Org'}
+                </div>
               )}
             </div>
             <div>
-              <div className="label">Recipient (optional)</div>
-              <GlassSelect value={sendMemberId} onChange={(e:any)=>setSendMemberId(e.target.value)}>
-                <option value="">All members (broadcast)</option>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                <User size={12} /> Recipient (Optional)
+              </div>
+              <GlassSelect value={sendMemberId} onChange={(e:any)=>setSendMemberId(e.target.value)} className="w-full bg-white">
+                <option value="">All members (Broadcast)</option>
                 {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
               </GlassSelect>
             </div>
             <div>
-              <div className="label">Type</div>
-              <GlassSelect value={sendType} onChange={(e:any)=>setSendType(e.target.value)}>
-                <option value="system">system</option>
-                <option value="attendance">attendance</option>
-                <option value="payroll">payroll</option>
-                <option value="device">device</option>
-                <option value="agent">agent</option>
-                <option value="billing">billing</option>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                <Info size={12} /> Type
+              </div>
+              <GlassSelect value={sendType} onChange={(e:any)=>setSendType(e.target.value)} className="w-full bg-white">
+                <option value="system">System</option>
+                <option value="attendance">Attendance</option>
+                <option value="payroll">Payroll</option>
+                <option value="device">Device</option>
+                <option value="agent">Agent</option>
+                <option value="billing">Billing</option>
               </GlassSelect>
             </div>
           </div>
-          <div className="grid grid-2" style={{marginTop:16}}>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div>
-              <div className="label">Title</div>
-              <GlassInput value={sendTitle} onChange={(e:any)=>setSendTitle(e.target.value)} placeholder="Title" />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Title</div>
+              <GlassInput value={sendTitle} onChange={(e:any)=>setSendTitle(e.target.value)} placeholder="Notification Title" className="w-full bg-white" />
             </div>
             <div>
-              <div className="label">Link (optional)</div>
-              <GlassInput value={sendUrl} onChange={(e:any)=>setSendUrl(e.target.value)} placeholder="https://..." />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Link (Optional)</div>
+              <GlassInput value={sendUrl} onChange={(e:any)=>setSendUrl(e.target.value)} placeholder="https://..." className="w-full bg-white" />
             </div>
           </div>
-          <div style={{marginTop:16}}>
-            <div className="label">Message</div>
-            <textarea value={sendMessage} onChange={(e:any)=>setSendMessage(e.target.value)} className="input" rows={4} placeholder="Write your message" />
+
+          <div className="mt-4">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Message</div>
+            <textarea 
+              value={sendMessage} 
+              onChange={(e:any)=>setSendMessage(e.target.value)} 
+              className="input w-full bg-white min-h-[100px] p-3 text-sm" 
+              placeholder="Write your message here..." 
+            />
           </div>
-          <div className="row" style={{marginTop:16}}>
-            <GlassButton variant="primary" onClick={sendNotification} disabled={sending} style={{ background:'#39FF14', borderColor:'#39FF14' }}>
-              {sending ? 'Sending…' : 'Send'}
+
+          <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
+            {sendStatus && (
+              <span className={`text-sm font-medium ${sendStatus==='Sent'?'text-emerald-600':'text-rose-600'}`}>
+                {sendStatus}
+              </span>
+            )}
+            <GlassButton 
+              variant="primary" 
+              onClick={sendNotification} 
+              disabled={sending} 
+              className="bg-indigo-600 hover:bg-indigo-700 text-white border-none shadow-lg shadow-indigo-200 flex items-center gap-2 px-6"
+            >
+              {sending ? <RefreshCw className="animate-spin" size={16} /> : <Send size={16} />}
+              {sending ? 'Sending...' : 'Send Notification'}
             </GlassButton>
-            {sendStatus && <span className="badge">{sendStatus}</span>}
           </div>
         </GlassCard>
       )}
-      <GlassCard title="Filters">
-        <div className="grid grid-3">
-          <div>
-            <div className="label">Organization</div>
+
+      <GlassCard 
+        title={
+          <div className="flex items-center gap-2">
+            <Bell className="text-indigo-600" size={20} />
+            <span>Notification List</span>
+          </div>
+        }
+        right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}
+      >
+        <div className="flex flex-col md:flex-row gap-4 mb-6 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+          <div className="flex-1 min-w-[200px]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Building size={12} /> Organization
+            </div>
             {['admin','owner','super_admin'].includes(role) ? (
-              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)} className="w-full bg-white">
                 <option value="">All orgs</option>
                 {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
               </GlassSelect>
             ) : (
-              <span className="tag-pill">{selfOrgName || ''}</span>
+              <div className="px-3 py-2 bg-white rounded-lg text-sm text-slate-600 border border-slate-200">
+                {selfOrgName || 'Current Org'}
+              </div>
             )}
           </div>
-          <div>
-            <div className="label">Member</div>
+          
+          <div className="flex-1 min-w-[200px]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <User size={12} /> Member
+            </div>
             {['admin','owner','super_admin'].includes(role) ? (
-              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
+              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)} className="w-full bg-white">
                 <option value="">All members</option>
                 {members.map(m=> <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
               </GlassSelect>
             ) : (
-              <span className="tag-pill">{selfMemberName || 'You'}</span>
+              <div className="px-3 py-2 bg-white rounded-lg text-sm text-slate-600 border border-slate-200">
+                {selfMemberName || 'You'}
+              </div>
             )}
           </div>
-          <div style={{display:'flex',alignItems:'flex-end'}}>
-            <GlassButton variant="primary" onClick={()=>load(false)} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Load more</GlassButton>
+
+          <div className="flex items-end">
+            <GlassButton 
+              variant="secondary" 
+              onClick={()=>load(false)} 
+              className="w-full md:w-auto flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={16} /> Load more
+            </GlassButton>
           </div>
         </div>
-      </GlassCard>
-      <GlassCard title="Notification list" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
-        <GlassTable columns={columns} rows={rows} />
+
+        {items.length > 0 ? (
+          <GlassTable columns={columns} rows={rows} />
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-slate-400 bg-slate-50/30 rounded-xl border border-dashed border-slate-200">
+            <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-4">
+              <Bell size={32} className="text-slate-300" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-600 mb-1">No notifications</h3>
+            <p className="text-sm text-slate-500">You're all caught up!</p>
+          </div>
+        )}
       </GlassCard>
     </AppShell>
   )

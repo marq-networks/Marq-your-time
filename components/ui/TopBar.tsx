@@ -18,115 +18,73 @@ export default function TopBar({ title, profileImage }: { title: string, profile
   const [current, setCurrent] = useState<string>('')
   const [userName, setUserName] = useState<string>('')
   const [userImage, setUserImage] = useState<string>('')
-  const [orgName, setOrgName] = useState<string>('')
-  const [orgLogo, setOrgLogo] = useState<string>('')
-  const [orgSession, setOrgSession] = useState<boolean>(false)
-  const [role, setRole] = useState<string>('')
-  const [userTheme, setUserTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
-  const [orgTheme, setOrgTheme] = useState<{ bg?: string, accent?: string, layout?: 'cozy'|'compact' } | null>(null)
-  const canOrg = usePermission('manage_org').allowed
-
-  const loadOrgs = async () => {
-    try {
-      const res = await fetch('/api/orgs/my', { cache: 'no-store' })
-      const j = await res.json()
-      const items = (j.items || []) as any[]
-      setOrgs(items.map(i => ({ id: i.id, orgName: i.orgName })))
-      setOrgSession(getCookie('org_login') === '1')
-      setCurrent(getCookie('current_org_id') || items[0]?.id || '')
-    } catch {}
-  }
-
-  useEffect(() => { loadOrgs() }, [])
-  useEffect(() => { (async()=>{ try { const res = await fetch('/api/security/mfa/status', { cache:'no-store' }); const d = await res.json(); const n = d.name || d.email || ''; setUserName(n) } catch {} })() }, [])
-  useEffect(() => { try { const r = normalizeRoleForApi(getCookie('current_role') || ''); setRole(r) } catch {} }, [])
-  useEffect(() => {
-    (async()=>{
-      try {
-        if (!current || !orgSession) return
-        const res = await fetch(`/api/org/${current}`, { cache:'no-store' })
-        const d = await res.json()
-        const o = d.org || {}
-        setOrgName(o.orgName || '')
-        setOrgLogo(o.orgLogo || '')
-        setOrgTheme({ bg: o.themeBgMain || undefined, accent: o.themeAccent || undefined, layout: o.layoutType || undefined })
-      } catch {}
-    })()
-  }, [current, orgSession])
-  useEffect(() => {
-    (async()=>{
-      try {
-        const userId = getCookie('current_user_id') || ''
-        if (!userId) return
-        const res = await fetch(`/api/user/${userId}?_t=${Date.now()}`, { cache:'no-store' })
-        const d = await res.json()
-        const u = d.user || {}
-        setUserImage(u.profileImage || '')
-        setUserTheme({ bg: u.themeBgMain || undefined, accent: u.themeAccent || undefined, layout: u.layoutType || undefined })
-      } catch (e) {
-        console.error('TopBar: fetch error', e)
+  
+  useEffect(() => { 
+      (async()=>{ try { const res = await fetch('/api/security/mfa/status', { cache:'no-store' }); const d = await res.json(); const n = d.name || d.email || ''; setUserName(n) } catch {} })() 
+      const userId = getCookie('current_user_id')
+      if (userId) {
+          fetch(`/api/user/${userId}`).then(r=>r.json()).then(d=>setUserImage(d.user?.profileImage || '')).catch(()=>{})
       }
-    })()
   }, [])
-  useEffect(() => {
-    try {
-      const root = document.documentElement
-      const bg = (userTheme?.bg || orgTheme?.bg)
-      const accent = (userTheme?.accent || orgTheme?.accent)
-      const layout = (userTheme?.layout || orgTheme?.layout)
-      if (bg) root.style.setProperty('--color-bg-main', bg)
-      if (accent) {
-        root.style.setProperty('--color-accent', accent)
-        const accentTagBg = `${accent}30`
-        root.style.setProperty('--tag-accent-bg', accentTagBg)
-      }
-      if (layout) {
-        const compact = layout === 'compact'
-        root.style.setProperty('--spacing-md', compact ? '16px' : '20px')
-        root.style.setProperty('--spacing-lg', compact ? '20px' : '24px')
-        root.style.setProperty('--spacing-xl', compact ? '28px' : '32px')
-      }
-    } catch {}
-  }, [userTheme, orgTheme])
-
-  const onSwitch = async (id: string) => {
-    setCurrent(id)
-    try {
-      await fetch('/api/orgs/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ org_id: id }) })
-      location.reload()
-    } catch {}
-  }
 
   const finalUserImage = profileImage !== undefined ? profileImage : userImage
 
   return (
-    <div className="topbar glass-panel" style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderRadius:'var(--radius-large)',overflow:'visible',position:'relative'}}>
-      <div className="page-title" style={{display:'flex',alignItems:'center',gap:12}}>
-        <div style={{width:32,height:32,borderRadius:10,background:'#111',border:'1px solid var(--border)',overflow:'hidden'}}>
-          {orgSession && orgLogo && <img src={orgLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
-          {!orgSession && finalUserImage && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
-        </div>
-        <div>{title}</div>
-        {(['member','employee'].includes(role)) && <span className="tag-pill">{orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || ''}</span>}
-      </div>
-      <div className="row" style={{gap:12, alignItems:'center'}}>
-        {orgs.length > 1 && !['member','employee', 'super_admin'].includes(role) && canOrg && (
-          <div className="row" style={{alignItems:'center',gap:8}}>
-            <span className="tag-pill accent">Org</span>
-            <GlassSelect value={current} onChange={(e:any)=> onSwitch(e.target.value)} style={{ minWidth: 180 }}>
-              {orgs.map(o => (<option key={o.id} value={o.id}>{o.orgName}</option>))}
-            </GlassSelect>
-          </div>
-        )}
-        <NotificationsBell />
-        {role !== 'super_admin' && (
-          <Link href="/profile" className="user-pill">
-            <div className="avatar" style={{ overflow: 'hidden' }}>
-              {finalUserImage && !orgSession && <img src={finalUserImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />}
+    <div className="flex items-center justify-between px-8 py-5 mb-6 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl border-b border-white/20 dark:border-slate-800/60 sticky top-0 z-40 shadow-sm transition-all duration-300">
+      {/* Page Title & Breadcrumbs */}
+      <div className="flex items-center gap-4">
+         <div className="flex items-center gap-3 group">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20 border border-white/20 ring-4 ring-blue-500/5 group-hover:scale-105 transition-transform duration-300">
+               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             </div>
-            <div className="user-name">{orgSession ? (orgName || orgs.find(o=>o.id===current)?.orgName || orgs[0]?.orgName || 'Organization') : (userName || 'User')}</div>
-          </Link>
-        )}
+            <div>
+               <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight leading-none mb-1">{title}</h1>
+               <div className="flex items-center gap-2">
+                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Session</span>
+               </div>
+            </div>
+         </div>
+      </div>
+
+      {/* Right Actions: Search, Bell, Profile */}
+      <div className="flex items-center gap-6">
+        {/* Search Bar */}
+        <div className="relative group w-80 transition-all duration-300 focus-within:w-96">
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </div>
+          <input 
+            type="text" 
+            placeholder="Search tasks, tags, feed..." 
+            className="w-full pl-12 pr-4 py-3 rounded-full bg-white/50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 text-sm font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500/50 shadow-sm hover:shadow-md focus:shadow-lg transition-all"
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-[10px] font-bold text-slate-400">
+            ⌘ K
+          </div>
+        </div>
+
+        <div className="h-8 w-px bg-slate-200/60 dark:bg-slate-700/60 mx-2"></div>
+
+        {/* Notification Bell */}
+        <div className="relative cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 p-2.5 rounded-full transition-all duration-200 group hover:scale-105 active:scale-95">
+           <NotificationsBell />
+        </div>
+
+        {/* User Profile */}
+        <div className="flex items-center gap-3 pl-2">
+           <div className="relative group cursor-pointer">
+             <div className="w-11 h-11 rounded-full bg-white dark:bg-slate-800 p-0.5 shadow-md ring-2 ring-slate-100 dark:ring-slate-700 group-hover:ring-blue-500/30 transition-all duration-300 group-hover:scale-105">
+               <div 
+                 className="w-full h-full rounded-full bg-slate-100 dark:bg-slate-700 bg-cover bg-center flex items-center justify-center overflow-hidden"
+                 style={{ backgroundImage: finalUserImage ? `url(${finalUserImage})` : 'none' }}
+               >
+                 {!finalUserImage && <span className="text-sm font-bold text-slate-500 dark:text-slate-400">{userName.slice(0,2).toUpperCase()}</span>}
+               </div>
+             </div>
+             <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full shadow-sm"></div>
+           </div>
+        </div>
       </div>
     </div>
   )

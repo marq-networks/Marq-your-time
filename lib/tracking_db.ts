@@ -186,6 +186,15 @@ export async function listTasks(projectId: string): Promise<Task[]> {
     return tasks.filter(t => t.projectId === projectId)
 }
 
+export async function listOrgTasks(orgId: string): Promise<Task[]> {
+    if (isSupabaseConfigured()) {
+        const sb = supabaseServer()
+        const { data } = await sb.from('tasks').select('*').eq('org_id', orgId).order('created_at', { ascending: false })
+        return (data || []).map(mapTaskFromRow)
+    }
+    return tasks.filter(t => t.orgId === orgId)
+}
+
 export async function listMyTasks(memberId: string, orgId: string): Promise<Task[]> {
     if (isSupabaseConfigured()) {
         const sb = supabaseServer()

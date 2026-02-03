@@ -3,8 +3,11 @@ import { useEffect, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
+import GlassInput from '@components/ui/GlassInput'
+import GlassSelect from '@components/ui/GlassSelect'
 import usePermission from '@lib/hooks/usePermission'
 import Toast from '@components/Toast'
+import { Settings, Palette, Layout, Save, CreditCard, Users, CheckSquare } from 'lucide-react'
 
 export default function SettingsPage() {
   const [form, setForm] = useState({ defaultSeatPrice: 5, defaultSeatLimit: 50, landingPageInviteEnabled: true })
@@ -109,71 +112,106 @@ export default function SettingsPage() {
   const canOrg = usePermission('manage_org').allowed
   return (
     <AppShell title="Settings">
-      <GlassCard title="SaaS Settings">
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Default seat price</div>
-            <input className="input" type="number" value={form.defaultSeatPrice} onChange={e=>setForm({...form, defaultSeatPrice: Number(e.target.value)})} />
+      <div className="grid grid-2 gap-6">
+        <GlassCard title={<div className="flex items-center gap-2"><CreditCard size={18} /> SaaS Settings</div>}>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Default seat price</label>
+              <GlassInput 
+                type="number" 
+                value={form.defaultSeatPrice} 
+                onChange={e=>setForm({...form, defaultSeatPrice: Number(e.target.value)})} 
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Default seat limit</label>
+              <GlassInput 
+                type="number" 
+                value={form.defaultSeatLimit} 
+                onChange={e=>setForm({...form, defaultSeatLimit: Number(e.target.value)})} 
+              />
+            </div>
+            <div className="flex items-center gap-3 p-2 border border-border rounded-md">
+              <input 
+                type="checkbox" 
+                className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary"
+                checked={form.landingPageInviteEnabled} 
+                onChange={e=>setForm({...form, landingPageInviteEnabled: e.target.checked})} 
+              />
+              <div className="text-sm font-medium">Landing page invite enabled</div>
+            </div>
+            <div className="mt-2">
+              {canSettings && <GlassButton variant="primary" onClick={save}><Save size={16}/> Save Settings</GlassButton>}
+            </div>
           </div>
-          <div>
-            <div className="label">Default seat limit</div>
-            <input className="input" type="number" value={form.defaultSeatLimit} onChange={e=>setForm({...form, defaultSeatLimit: Number(e.target.value)})} />
-          </div>
-          <div className="row" style={{gap:8}}>
-            <input type="checkbox" checked={form.landingPageInviteEnabled} onChange={e=>setForm({...form, landingPageInviteEnabled: e.target.checked})} />
-            <div className="label">Landing page invite enabled</div>
-          </div>
+        </GlassCard>
+
+        <div className="flex flex-col gap-6">
+          <GlassCard title={<div className="flex items-center gap-2"><Palette size={18} /> Organization Theme</div>}>
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Background Color</label>
+                <GlassInput 
+                  placeholder="CSS color or gradient" 
+                  value={orgTheme.bg} 
+                  onChange={e=>setOrgTheme({...orgTheme, bg: e.target.value})} 
+                />
+                <div className="text-xs text-muted-foreground mt-1">Example: linear-gradient(to bottom right, #d9c7b2, #e8ddce)</div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Accent Color</label>
+                <GlassInput 
+                  placeholder="#39FF14" 
+                  value={orgTheme.accent} 
+                  onChange={e=>setOrgTheme({...orgTheme, accent: e.target.value})} 
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground uppercase">Layout Density</label>
+                <GlassSelect value={orgTheme.layout} onChange={(e: any)=>setOrgTheme({...orgTheme, layout: e.target.value})}>
+                  <option value="cozy">Cozy (Standard)</option>
+                  <option value="compact">Compact (High Density)</option>
+                </GlassSelect>
+              </div>
+              <div className="mt-2">
+                {canOrg && orgId && <GlassButton variant="primary" onClick={saveOrgTheme}><Save size={16}/> Save Org Theme</GlassButton>}
+                {!canOrg && <span className="text-sm text-muted-foreground">You need org permissions to edit</span>}
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard title={<div className="flex items-center gap-2"><Users size={18} /> My Theme</div>}>
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Background Color</label>
+                <GlassInput 
+                  placeholder="CSS color or gradient" 
+                  value={userTheme.bg} 
+                  onChange={e=>setUserTheme({...userTheme, bg: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase mb-1 block">Accent Color</label>
+                <GlassInput 
+                  placeholder="#39FF14" 
+                  value={userTheme.accent} 
+                  onChange={e=>setUserTheme({...userTheme, accent: e.target.value})} 
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground uppercase">Layout Density</label>
+                <GlassSelect value={userTheme.layout} onChange={(e: any)=>setUserTheme({...userTheme, layout: e.target.value})}>
+                  <option value="cozy">Cozy (Standard)</option>
+                  <option value="compact">Compact (High Density)</option>
+                </GlassSelect>
+              </div>
+              <div className="mt-2">
+                <GlassButton variant="primary" onClick={saveUserTheme}><Save size={16}/> Save My Theme</GlassButton>
+              </div>
+            </div>
+          </GlassCard>
         </div>
-        <div className="row" style={{marginTop:12}}>
-          {canSettings && <GlassButton variant="primary" onClick={save}>Save</GlassButton>}
-        </div>
-      </GlassCard>
-      <GlassCard title="Organization Theme">
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Background</div>
-            <input className="input" placeholder="CSS color or gradient" value={orgTheme.bg} onChange={e=>setOrgTheme({...orgTheme, bg: e.target.value})} />
-            <div className="subtitle">Example: linear-gradient(to bottom right, #d9c7b2, #e8ddce)</div>
-          </div>
-          <div>
-            <div className="label">Accent color</div>
-            <input className="input" placeholder="#39FF14" value={orgTheme.accent} onChange={e=>setOrgTheme({...orgTheme, accent: e.target.value})} />
-          </div>
-          <div>
-            <div className="label">Layout</div>
-            <select className="input" value={orgTheme.layout} onChange={e=>setOrgTheme({...orgTheme, layout: e.target.value as any})}>
-              <option value="cozy">cozy</option>
-              <option value="compact">compact</option>
-            </select>
-          </div>
-        </div>
-        <div className="row" style={{marginTop:12}}>
-          {canOrg && orgId && <GlassButton variant="primary" onClick={saveOrgTheme}>Save</GlassButton>}
-          {!canOrg && <span className="subtitle">You need org permissions to edit</span>}
-        </div>
-      </GlassCard>
-      <GlassCard title="My Theme">
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Background</div>
-            <input className="input" placeholder="CSS color or gradient" value={userTheme.bg} onChange={e=>setUserTheme({...userTheme, bg: e.target.value})} />
-          </div>
-          <div>
-            <div className="label">Accent color</div>
-            <input className="input" placeholder="#39FF14" value={userTheme.accent} onChange={e=>setUserTheme({...userTheme, accent: e.target.value})} />
-          </div>
-          <div>
-            <div className="label">Layout</div>
-            <select className="input" value={userTheme.layout} onChange={e=>setUserTheme({...userTheme, layout: e.target.value as any})}>
-              <option value="cozy">cozy</option>
-              <option value="compact">compact</option>
-            </select>
-          </div>
-        </div>
-        <div className="row" style={{marginTop:12}}>
-          <GlassButton variant="primary" onClick={saveUserTheme}>Save</GlassButton>
-        </div>
-      </GlassCard>
+      </div>
       <Toast message={toast.m} type={toast.t} />
     </AppShell>
   )

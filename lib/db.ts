@@ -2846,6 +2846,7 @@ function mapOrgFromRow(row: any): Organization {
     pricePerLogin: Number(row.price_per_login),
     totalLicensedSeats: Number(row.total_licensed_seats),
     usedSeats: Number(row.used_seats),
+    orgPasswordHash: row.org_password_hash ?? undefined,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime()
   }

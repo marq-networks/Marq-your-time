@@ -6,9 +6,11 @@ import GlassTable from '@components/ui/GlassTable'
 import GlassModal from '@components/ui/GlassModal'
 import GlassButton from '@components/ui/GlassButton'
 import GlassSelect from '@components/ui/GlassSelect'
+import GlassInput from '@components/ui/GlassInput'
 import { normalizeRoleForApi } from '@lib/permissions'
 import ExportMenu from '@/components/shared/ExportMenu'
 import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
+import { Plus, Search, Filter, BarChart2, MessageSquare, Calendar, Users, PieChart, Trash2, X } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type SurveyItem = { id: string, title: string, created_at: number, closes_at?: number|null, is_anonymous: boolean, avg_scale: number, response_rate: number|null }
@@ -75,7 +77,32 @@ export default function SurveysAdminPage() {
     const text = `${it.title||''}`.toLowerCase()
     return text.includes(q)
   })
-  const rows = filteredItems.map(it => [ it.title, new Date(it.created_at).toLocaleDateString(), it.closes_at ? new Date(it.closes_at).toLocaleDateString() : '-', it.is_anonymous ? 'Yes' : 'No', (Math.round(it.avg_scale*100)/100).toFixed(2), it.response_rate===null?'-':`${Math.round((it.response_rate||0)*100)}%`, <div className="row" style={{gap:8}}><GlassButton onClick={()=>{ setViewSurveyId(it.id); }}>View Results</GlassButton></div> ])
+  const rows = filteredItems.map(it => [
+    it.title,
+    new Date(it.created_at).toLocaleDateString(),
+    it.closes_at ? new Date(it.closes_at).toLocaleDateString() : '-',
+    it.is_anonymous ? (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+        Yes
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+        No
+      </span>
+    ),
+    (Math.round(it.avg_scale*100)/100).toFixed(2),
+    it.response_rate===null ? '-' : (
+      <span className="font-medium text-slate-700">
+        {Math.round((it.response_rate||0)*100)}%
+      </span>
+    ),
+    <div className="flex items-center gap-2">
+      <GlassButton onClick={()=>{ setViewSurveyId(it.id); }} size="sm" variant="secondary" className="flex items-center gap-1.5">
+        <BarChart2 size={14} />
+        <span>Results</span>
+      </GlassButton>
+    </div>
+  ])
 
   const handleExport = async (type: 'csv' | 'pdf') => {
     setIsExporting(true)
@@ -108,139 +135,253 @@ export default function SurveysAdminPage() {
 
   return (
     <AppShell title="Engagement Surveys">
-      <GlassCard title="Surveys" right={
-        <div className="row" style={{gap:8}}>
-          <ExportMenu onExport={handleExport} isExporting={isExporting} />
-          <GlassButton variant="primary" onClick={()=>setCreateOpen(true)}>Create Survey</GlassButton>
-        </div>
-      }>
-        <div className="row" style={{gap:12,marginBottom:12}}>
-          <div>
-            <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+      <GlassCard 
+        title={
+          <div className="flex items-center gap-2">
+            <MessageSquare className="text-indigo-600" size={20} />
+            <span>Surveys</span>
+          </div>
+        }
+        right={
+          <div className="flex items-center gap-2">
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
+            <GlassButton variant="primary" onClick={()=>setCreateOpen(true)} className="flex items-center gap-2 px-4">
+              <Plus size={16} />
+              <span>Create Survey</span>
+            </GlassButton>
+          </div>
+        }
+      >
+        <div className="flex flex-col md:flex-row gap-4 mb-6 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+          <div className="flex-1 min-w-[200px]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Users size={12} />
+              Organization
+            </div>
+            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)} className="w-full bg-white">
               <option value="">Select org</option>
               {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
             </GlassSelect>
           </div>
-          <div style={{flex:1,minWidth:200}}>
-            <div className="label">Search surveys</div>
-            <input className="input" placeholder="Search by title" value={search} onChange={e=>setSearch(e.target.value)} />
+
+          <div className="flex-1 min-w-[200px]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Search size={12} />
+              Search
+            </div>
+            <div className="relative">
+              <input 
+                className="input w-full bg-white pl-9" 
+                placeholder="Search by title..." 
+                value={search} 
+                onChange={e=>setSearch(e.target.value)} 
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+            </div>
           </div>
+
           {viewSurveyId && (
-            <div>
-              <div className="label">Group by</div>
-              <GlassSelect value={groupBy} onChange={(e:any)=>setGroupBy(e.target.value)}>
-                <option value="none">None</option>
-                <option value="department">Department</option>
-                <option value="role">Role</option>
+            <div className="flex-1 min-w-[200px]">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                <Filter size={12} />
+                Group Results
+              </div>
+              <GlassSelect value={groupBy} onChange={(e:any)=>setGroupBy(e.target.value)} className="w-full bg-white">
+                <option value="none">No Grouping</option>
+                <option value="department">By Department</option>
+                <option value="role">By Role</option>
               </GlassSelect>
             </div>
           )}
         </div>
+
         <GlassTable columns={columns} rows={rows} />
       </GlassCard>
 
       <GlassModal open={createOpen} title="Create Survey" onClose={()=>setCreateOpen(false)}>
-        <div className="grid grid-2">
-          <div>
-            <div className="label">Title</div>
-            <input className="input" value={newSurvey.title} onChange={e=>setNewSurvey({ ...newSurvey, title: e.target.value })} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="col-span-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Title</div>
+            <input className="input w-full" value={newSurvey.title} onChange={e=>setNewSurvey({ ...newSurvey, title: e.target.value })} placeholder="Survey Title" />
           </div>
-          <div>
-            <div className="label">Anonymous</div>
-            <GlassSelect value={newSurvey.is_anonymous? 'true':'false'} onChange={(e:any)=>setNewSurvey({ ...newSurvey, is_anonymous: e.target.value==='true' })}>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
+          <div className="col-span-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Anonymous</div>
+            <GlassSelect value={newSurvey.is_anonymous? 'true':'false'} onChange={(e:any)=>setNewSurvey({ ...newSurvey, is_anonymous: e.target.value==='true' })} className="w-full">
+              <option value="true">Yes (Anonymous)</option>
+              <option value="false">No (Public)</option>
             </GlassSelect>
           </div>
-          <div className="grid-col-span-2">
-            <div className="label">Description</div>
-            <textarea className="input" value={newSurvey.description} onChange={e=>setNewSurvey({ ...newSurvey, description: e.target.value })} />
+          <div className="col-span-1 md:col-span-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">Description</div>
+            <textarea className="input w-full min-h-[80px]" value={newSurvey.description} onChange={e=>setNewSurvey({ ...newSurvey, description: e.target.value })} placeholder="Describe the purpose of this survey..." />
           </div>
-          <div>
-            <div className="label">Closes at</div>
-            <input className="input" type="datetime-local" value={newSurvey.closes_at||''} onChange={e=>setNewSurvey({ ...newSurvey, closes_at: e.target.value })} />
-          </div>
-        </div>
-        <div className="row" style={{marginTop:12,marginBottom:12,justifyContent:'space-between'}}>
-          <div className="title">Questions</div>
-          <GlassButton onClick={addQuestion}>Add Question</GlassButton>
-        </div>
-        {newSurvey.questions.map((q, i)=> (
-          <div key={i} className="glass-panel" style={{padding:12,borderRadius:16,marginBottom:8}}>
-            <div className="row" style={{gap:12}}>
-              <div style={{flex:1}}>
-                <div className="label">Type</div>
-                <GlassSelect value={q.question_type} onChange={(e:any)=>updateQuestion(i, { question_type: e.target.value })}>
-                  <option value="scale">Scale (1-5)</option>
-                  <option value="text">Text</option>
-                  <option value="mcq">Multiple Choice</option>
-                </GlassSelect>
-              </div>
-              <div style={{flex:3}}>
-                <div className="label">Question</div>
-                <input className="input" value={q.question_text} onChange={e=>updateQuestion(i, { question_text: e.target.value })} />
-              </div>
-              <div style={{flex:2}}>
-                <div className="label">Options (comma)</div>
-                <input className="input" value={(q.options||[]).join(',')} onChange={e=>updateQuestion(i, { options: e.target.value.split(',').map(s=>s.trim()).filter(Boolean) })} />
-              </div>
-              <GlassButton variant="secondary" onClick={()=>removeQuestion(i)}>Remove</GlassButton>
+          <div className="col-span-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Calendar size={12} />
+              Closes At (Optional)
             </div>
+            <input className="input w-full" type="datetime-local" value={newSurvey.closes_at||''} onChange={e=>setNewSurvey({ ...newSurvey, closes_at: e.target.value })} />
           </div>
-        ))}
-        <div className="row" style={{marginTop:12,justifyContent:'flex-end',gap:8}}>
+        </div>
+
+        <div className="flex items-center justify-between mb-4 pt-4 border-t border-slate-100">
+          <div className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <MessageSquare size={16} className="text-indigo-500" />
+            Questions ({newSurvey.questions.length})
+          </div>
+          <GlassButton onClick={addQuestion} size="sm" variant="secondary" className="flex items-center gap-1.5">
+            <Plus size={14} />
+            Add Question
+          </GlassButton>
+        </div>
+
+        <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+          {newSurvey.questions.map((q, i)=> (
+            <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 relative group transition-all hover:border-indigo-100 hover:shadow-sm">
+              <button 
+                onClick={()=>removeQuestion(i)}
+                className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                title="Remove Question"
+              >
+                <Trash2 size={14} />
+              </button>
+              
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pr-8">
+                <div className="md:col-span-3">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Type</div>
+                  <GlassSelect value={q.question_type} onChange={(e:any)=>updateQuestion(i, { question_type: e.target.value })} className="w-full text-sm">
+                    <option value="scale">Scale (1-5)</option>
+                    <option value="text">Text Response</option>
+                    <option value="mcq">Multiple Choice</option>
+                  </GlassSelect>
+                </div>
+                <div className="md:col-span-9">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Question Text</div>
+                  <input className="input w-full text-sm" value={q.question_text} onChange={e=>updateQuestion(i, { question_text: e.target.value })} placeholder="Enter your question here..." />
+                </div>
+                {(q.question_type === 'mcq') && (
+                  <div className="md:col-span-12">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Options (comma separated)</div>
+                    <input className="input w-full text-sm" value={(q.options||[]).join(', ')} onChange={e=>updateQuestion(i, { options: e.target.value.split(',').map(s=>s.trim()).filter(Boolean) })} placeholder="Option 1, Option 2, Option 3..." />
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {newSurvey.questions.length === 0 && (
+            <div className="text-center py-8 text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+              <p className="text-sm">No questions added yet.</p>
+              <p className="text-xs mt-1">Click "Add Question" to start building your survey.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <GlassButton variant="secondary" onClick={()=>setCreateOpen(false)}>Cancel</GlassButton>
-          <GlassButton variant="primary" onClick={createSurvey}>Create</GlassButton>
+          <GlassButton variant="primary" onClick={createSurvey} disabled={!newSurvey.title || newSurvey.questions.length === 0}>
+            Create Survey
+          </GlassButton>
         </div>
       </GlassModal>
 
       <GlassModal open={!!viewSurveyId} title="Survey Results" onClose={()=>{ setViewSurveyId(undefined); setResults(null) }}>
         {results ? (
-          <div>
-            {(results.questions||[]).map((q:any, idx:number)=> (
-              <div key={idx} className="glass-panel" style={{padding:12,borderRadius:16,marginBottom:8}}>
-                <div className="title">Question {idx+1}</div>
-                <div className="subtitle">Type {q.questionType}</div>
-                {q.questionType==='scale' && <div className="subtitle">Avg {(Math.round((q.avg||0)*100)/100).toFixed(2)} • Count {q.count||0}</div>}
-                {q.questionType==='mcq' && (
-                  <div>
-                    {Object.entries(q.distribution||{}).map(([opt,val])=> (
-                      <div key={opt} className="row" style={{justifyContent:'space-between'}}>
-                        <div className="subtitle">{opt}</div>
-                        <div className="subtitle">{val as number}</div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* Summary stats could go here if available in the future */}
+            </div>
+
+            <div className="space-y-4">
+              {(results.questions||[]).map((q:any, idx:number)=> (
+                <div key={idx} className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="font-medium text-slate-800 text-sm">Q{idx+1}. {q.questionText || `Question ${idx+1}`}</h4>
+                      <span className="text-xs text-slate-500 capitalize bg-slate-100 px-2 py-0.5 rounded-full mt-1 inline-block">
+                        {q.questionType === 'scale' ? 'Scale (1-5)' : q.questionType}
+                      </span>
+                    </div>
+                    {q.questionType==='scale' && (
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-indigo-600">{(Math.round((q.avg||0)*100)/100).toFixed(1)}</div>
+                        <div className="text-xs text-slate-500">Average</div>
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-                {q.questionType==='text' && (
-                  <div>
-                    {(q.texts||[]).map((t:string, i:number)=> <div key={i} className="subtitle">{t}</div>)}
+
+                  <div className="mt-3 pl-1 border-l-2 border-slate-100">
+                    {q.questionType==='mcq' && (
+                      <div className="space-y-2">
+                        {Object.entries(q.distribution||{}).map(([opt,val])=> (
+                          <div key={opt} className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">{opt}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 bg-slate-100 rounded-full w-24 overflow-hidden">
+                                <div className="h-full bg-indigo-500" style={{width: `${Math.min(100, ((val as number)/(q.count||1))*100)}%`}}></div>
+                              </div>
+                              <span className="font-medium text-slate-700 w-8 text-right">{val as number}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {q.questionType==='text' && (
+                      <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                        {(q.texts||[]).length > 0 ? (
+                          (q.texts||[]).map((t:string, i:number)=> (
+                            <div key={i} className="text-xs p-2 bg-slate-50 rounded text-slate-600 italic">"{t}"</div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-slate-400 italic">No responses yet</div>
+                        )}
+                      </div>
+                    )}
+                    {q.questionType==='scale' && (
+                       <div className="text-xs text-slate-500 mt-2">
+                         Total Responses: <span className="font-medium text-slate-700">{q.count||0}</span>
+                       </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
+
             {(results.groups||[]).length>0 && (
-              <div>
-                <div className="title" style={{marginTop:12}}>Groups</div>
-                {(results.groups||[]).map((g:any, gi:number)=> (
-                  <div key={gi} className="glass-panel" style={{padding:12,borderRadius:16,marginBottom:8}}>
-                    <div className="subtitle">{g.group_id}</div>
-                    {(g.question_stats||[]).map((q:any, idx:number)=> (
-                      <div key={idx} className="row" style={{justifyContent:'space-between'}}>
-                        <div className="subtitle">Q{idx+1}</div>
-                        {q.questionType==='scale' && <div className="subtitle">Avg {(Math.round((q.avg||0)*100)/100).toFixed(2)} • {q.count||0}</div>}
-                        {q.questionType==='mcq' && <div className="subtitle">{Object.entries(q.distribution||{}).map(([k,v])=> `${k}:${v}`).join(' • ')}</div>}
-                        {q.questionType==='text' && <div className="subtitle">{(q.texts||[]).length} responses</div>}
+              <div className="pt-6 border-t border-slate-100">
+                <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <PieChart size={16} className="text-indigo-500" />
+                  Group Breakdown
+                </h3>
+                <div className="grid grid-cols-1 gap-4">
+                  {(results.groups||[]).map((g:any, gi:number)=> (
+                    <div key={gi} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="font-medium text-slate-700 mb-3 pb-2 border-b border-slate-200/50 flex items-center gap-2">
+                        <Users size={14} className="text-slate-400" />
+                        {g.group_id}
                       </div>
-                    ))}
-                  </div>
-                ))}
+                      <div className="space-y-2">
+                        {(g.question_stats||[]).map((q:any, idx:number)=> (
+                          <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1">
+                            <span className="text-slate-600 font-medium">Q{idx+1}</span>
+                            <div className="text-slate-500">
+                              {q.questionType==='scale' && <span>Avg <strong className="text-indigo-600">{(Math.round((q.avg||0)*100)/100).toFixed(1)}</strong> • {q.count||0} resp</span>}
+                              {q.questionType==='mcq' && <span>{Object.entries(q.distribution||{}).map(([k,v])=> `${k}:${v}`).join(' • ')}</span>}
+                              {q.questionType==='text' && <span>{(q.texts||[]).length} responses</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="subtitle">Select a survey to view results</div>
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+            <BarChart2 size={48} className="mb-4 text-slate-200" />
+            <p>Select a survey to view results</p>
+          </div>
         )}
       </GlassModal>
     </AppShell>

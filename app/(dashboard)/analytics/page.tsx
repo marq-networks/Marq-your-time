@@ -6,9 +6,9 @@ import GlassTable from '@components/ui/GlassTable'
 import ExportMenu from '@components/shared/ExportMenu'
 import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import GlassSelect from '@components/ui/GlassSelect'
-import GlassButton from '@components/ui/GlassButton'
 import usePermission from '@lib/hooks/usePermission'
 import { normalizeRoleForApi } from '@lib/permissions'
+import { BarChart3, Clock, TrendingUp, DollarSign, Users, Filter, Calendar } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type Department = { id: string, name: string }
@@ -33,8 +33,8 @@ function LineChart({ points, color }: { points: { date: string, value: number }[
   const d = points.length ? `M ${xs[0]},${ys[0]} ` + xs.slice(1).map((x,i) => `L ${x},${ys[i+1]}`).join(' ') : ''
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ display:'block', width:'100%' }}>
-      <rect x={0} y={0} width={width} height={height} fill="rgba(255,255,255,0.12)" rx={18} />
-      <path d={d} stroke={color} strokeWidth={2.5} fill="none" />
+      <rect x={0} y={0} width={width} height={height} fill="var(--color-bg-secondary, #f9fafb)" rx={12} />
+      <path d={d} stroke={color} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -48,9 +48,9 @@ function DualLineChart({ points, colorA, colorB }: { points: { date: string, a: 
   const dB = points.length ? `M ${xs[0]},${yv(points[0].b)} ` + xs.slice(1).map((x,i) => `L ${x},${yv(points[i+1].b)}`).join(' ') : ''
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ display:'block', width:'100%' }}>
-      <rect x={0} y={0} width={width} height={height} fill="rgba(255,255,255,0.12)" rx={18} />
-      <path d={dA} stroke={colorA} strokeWidth={2.5} fill="none" />
-      <path d={dB} stroke={colorB} strokeWidth={2.5} fill="none" />
+      <rect x={0} y={0} width={width} height={height} fill="var(--color-bg-secondary, #f9fafb)" rx={12} />
+      <path d={dA} stroke={colorA} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={dB} stroke={colorB} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -137,10 +137,22 @@ export default function AnalyticsPage() {
   }
 
   const loadOrgs = async () => {
-    const res = await fetch('/api/org/list', { cache:'no-store' })
+    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const res = await fetch(endpoint, { cache:'no-store' })
     const d = await res.json()
-    setOrgs(d.items || [])
-    if (!orgId && d.items?.length) setOrgId(d.items[0].id)
+    const items = d.items || []
+    setOrgs(items)
+    if (!orgId && items.length) {
+       // Prefer cookie org if available and in the list
+       const cookieOrgId = typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_org_id='))?.split('=')[1] || '') : ''
+       let preferred = items.find((o: Org) => o.id === cookieOrgId)?.id
+       if (!preferred) {
+         // Heuristic: Avoid 'marqnetworks' (often empty seed org) if others exist
+         const better = items.find((o: Org) => o.orgName !== 'marqnetworks')
+         preferred = better ? better.id : items[0].id
+       }
+       setOrgId(preferred)
+    }
   }
   const loadDeps = async (oid: string) => {
     const res = await fetch(`/api/department/list?orgId=${oid}`, { cache:'no-store' })
@@ -149,22 +161,26 @@ export default function AnalyticsPage() {
   }
   const refresh = async () => {
     if (!orgId) return
-    const dep = departmentId ? `&department=${departmentId}` : ''
-    const ovRes = await fetch(`/api/analytics/org-overview?org_id=${orgId}&start=${start}&end=${end}${dep}`, { cache:'no-store' })
-    const ov = await ovRes.json()
-    setOverview(ov)
-    const tsRes = await fetch(`/api/analytics/time-series?org_id=${orgId}&metric=worked&start=${start}&end=${end}`, { cache:'no-store' })
-    const ts = await tsRes.json()
-    setTimeSeries(ts.points || [])
-    const dpRes = await fetch(`/api/analytics/departments?org_id=${orgId}&start=${start}&end=${end}`, { cache:'no-store' })
-    const dp = await dpRes.json()
-    setDeptPerf(dp.items || [])
-    const memRes = await fetch(`/api/analytics/members-leaderboard?org_id=${orgId}&start=${start}&end=${end}&sort=${sortKey}${dep}`, { cache:'no-store' })
-    const mem = await memRes.json()
-    setMembers(mem.items || [])
-    const chRes = await fetch(`/api/analytics/cost-vs-hours?org_id=${orgId}&start=${start}&end=${end}`, { cache:'no-store' })
-    const ch = await chRes.json()
-    setCostHours(ch.points || [])
+    try {
+      const dep = departmentId ? `&department=${departmentId}` : ''
+      const ovRes = await fetch(`/api/analytics/org-overview?org_id=${orgId}&start=${start}&end=${end}${dep}`, { cache:'no-store' })
+      const ov = await ovRes.json()
+      setOverview(ov)
+      const tsRes = await fetch(`/api/analytics/time-series?org_id=${orgId}&metric=worked&start=${start}&end=${end}`, { cache:'no-store' })
+      const ts = await tsRes.json()
+      setTimeSeries(ts.points || [])
+      const dpRes = await fetch(`/api/analytics/departments?org_id=${orgId}&start=${start}&end=${end}`, { cache:'no-store' })
+      const dp = await dpRes.json()
+      setDeptPerf(dp.items || [])
+      const memRes = await fetch(`/api/analytics/members-leaderboard?org_id=${orgId}&start=${start}&end=${end}&sort=${sortKey}${dep}`, { cache:'no-store' })
+      const mem = await memRes.json()
+      setMembers(mem.items || [])
+      const chRes = await fetch(`/api/analytics/cost-vs-hours?org_id=${orgId}&start=${start}&end=${end}`, { cache:'no-store' })
+      const ch = await chRes.json()
+      setCostHours(ch.points || [])
+    } catch (e) {
+      console.error("Failed to load analytics data", e)
+    }
   }
 
   useEffect(() => { try { const r = normalizeRoleForApi((typeof document !== 'undefined' ? (document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('current_role='))?.split('=')[1] || '') : '')); setRole(r) } catch {} }, [])
@@ -174,7 +190,7 @@ export default function AnalyticsPage() {
       if (!orgId && cookieOrgId) setOrgId(cookieOrgId)
     } catch {}
   }, [])
-  useEffect(() => { loadOrgs() }, [])
+  useEffect(() => { loadOrgs() }, [role])
   useEffect(() => { if (orgId) loadDeps(orgId) }, [orgId])
   useEffect(() => { refresh() }, [orgId, start, end, departmentId, sortKey])
 
@@ -185,168 +201,236 @@ export default function AnalyticsPage() {
     return `${h}:${mm}`
   }, [overview])
 
+  const isDataEmpty = useMemo(() => {
+    if (!overview) return false
+    const t = overview.time || {}
+    const p = overview.productivity || {}
+    const c = overview.cost || {}
+    return (t.totalWorkedMinutes === 0 && p.activeMinutes === 0 && c.totalPayrollNet === 0)
+  }, [overview])
+
   if (!canView) {
     return (
       <AppShell title="Analytics">
-        <div style={{display:'grid',placeItems:'center',height:'60vh'}}>
-          <div className="glass-panel" style={{padding:24,borderRadius:'var(--radius-large)'}}>
-            <div className="title">No Access</div>
-            <div className="subtitle">You do not have permission to view analytics.</div>
+        <div className="flex justify-center items-center h-[60vh]">
+          <div className="card p-8 rounded-xl text-center">
+            <div className="text-xl font-bold mb-2">No Access</div>
+            <div className="text-muted-foreground">You do not have permission to view analytics.</div>
           </div>
         </div>
       </AppShell>
     )
   }
 
+  const dateBtnClass = (range: string) => `
+    px-3 py-1.5 rounded-md text-xs font-semibold transition-all
+    ${start === rangeFromQuick(range).start ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:bg-gray-200/50'}
+  `
+
   return (
     <AppShell title="Analytics">
-      <GlassCard title="Filters" right={(
-        <div className="row">
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeFromQuick('7'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 7 days</GlassButton>
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeFromQuick('30'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 30 days</GlassButton>
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeFromQuick('90'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>Last 90 days</GlassButton>
-          <GlassButton variant="primary" onClick={()=>{ const r = rangeFromQuick('month'); setStart(r.start); setEnd(r.end) }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>This month</GlassButton>
-        </div>
-      )}>
-        <div className="grid-1">
-          <div>
-            <div className="label">Organization</div>
-            {(['employee','member'].includes(role)) ? (
-              <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
-            ) : (
-              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-                <option value="">Select org</option>
-                {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
-              </GlassSelect>
-            )}
-          </div>
-          <div>
-            <div className="label">Department</div>
-            <GlassSelect value={departmentId} onChange={(e:any)=>setDepartmentId(e.target.value)}>
-              <option value="">All</option>
-              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </GlassSelect>
-          </div>
-          <div>
-            <div className="label">Date Range</div>
-            <div className="row" style={{gap:10}}>
-              <input className="input" type="date" value={start} onChange={e=>setStart(e.target.value)} />
-              <input className="input" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
+      <div className="mb-6">
+        <GlassCard>
+          <div className="flex justify-between items-center flex-wrap gap-5">
+            <div className="flex items-center gap-3">
+              <Filter size={20} className="text-muted-foreground" />
+              <div className="font-semibold">Filters</div>
+            </div>
+            <div className="flex gap-4 flex-wrap items-center">
+              {(['employee','member'].includes(role)) ? (
+                <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
+              ) : (
+                <div className="w-48">
+                  <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                    <option value="">Select org</option>
+                    {orgs.map(o => <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                  </GlassSelect>
+                </div>
+              )}
+              <div className="w-48">
+                <GlassSelect value={departmentId} onChange={(e:any)=>setDepartmentId(e.target.value)}>
+                  <option value="">All Departments</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </GlassSelect>
+              </div>
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                <button onClick={()=>{ const r = rangeFromQuick('7'); setStart(r.start); setEnd(r.end) }} className={dateBtnClass('7')}>7D</button>
+                <button onClick={()=>{ const r = rangeFromQuick('30'); setStart(r.start); setEnd(r.end) }} className={dateBtnClass('30')}>30D</button>
+                <button onClick={()=>{ const r = rangeFromQuick('month'); setStart(r.start); setEnd(r.end) }} className={dateBtnClass('month')}>Month</button>
+              </div>
             </div>
           </div>
-        </div>
-      </GlassCard>
-
-      <div className="grid-1 mt-5">
-        <GlassCard title="Time & Attendance">
-          <div className="row" style={{gap:18}}>
-            <div>
-              <div className="title">Worked</div>
-              <div className="subtitle">{workedHM}</div>
-            </div>
-            <div>
-              <div className="title">Scheduled</div>
-              <div className="subtitle">{Math.round((overview?.time?.totalScheduledMinutes||0)/60)}h</div>
-            </div>
-            <div>
-              <div className="title">Attendance</div>
-              <div className="subtitle">{overview?.time?.attendanceRatePercent || 0}%</div>
-            </div>
-          </div>
-          <LineChart points={timeSeries} color="#0f6a50" />
         </GlassCard>
-        <GlassCard title="Productivity">
-          <div className="row" style={{gap:24}}>
+      </div>
+
+      {isDataEmpty && (
+        <div className="mb-6 p-4 rounded-xl border border-yellow-200 bg-yellow-50 text-yellow-800 text-sm flex items-center justify-between">
+          <span>
+            <strong>No data found.</strong> This organization appears to have no activity for the selected date range.
+            {orgs.length > 1 && " Try switching organizations."}
+          </span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock size={18} className="text-primary" />
+            <span className="font-semibold text-lg">Time & Attendance</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
-              <div className="title">Active</div>
-              <div className="subtitle">{overview?.productivity?.activeMinutes || 0}</div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Worked</div>
+              <div className="text-2xl font-bold">{workedHM}</div>
             </div>
             <div>
-              <div className="title">Productive</div>
-              <div className="subtitle">{overview?.productivity?.productiveMinutes || 0}</div>
-            </div>
-            <div>
-              <div className="title">Unproductive</div>
-              <div className="subtitle">{overview?.productivity?.unproductiveMinutes || 0}</div>
-            </div>
-            <div>
-              <div className="title">Idle</div>
-              <div className="subtitle">{overview?.productivity?.idleMinutes || 0}</div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Scheduled</div>
+              <div className="text-2xl font-bold">{Math.round((overview?.time?.totalScheduledMinutes||0)/60)}h</div>
             </div>
           </div>
-          <div className="row" style={{gap:12}}>
-            {(overview?.productivity?.topApps||[]).slice(0,6).map((a: any) => (
-              <span key={a.app} className="tag-pill accent">{a.app} • {a.count}</span>
+          <div className="h-[100px]">
+            <LineChart points={timeSeries} color="#3dd6a3" />
+          </div>
+        </GlassCard>
+
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={18} className="text-primary" />
+            <span className="font-semibold text-lg">Productivity</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Productive</div>
+              <div className="text-2xl font-bold text-green-500">{overview?.productivity?.productiveMinutes || 0}m</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Unproductive</div>
+              <div className="text-2xl font-bold text-red-400">{overview?.productivity?.unproductiveMinutes || 0}m</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(overview?.productivity?.topApps||[]).slice(0,4).map((a: any) => (
+              <span key={a.app} className="px-2 py-1 rounded bg-gray-100 text-xs font-medium text-gray-700">{a.app}</span>
             ))}
           </div>
         </GlassCard>
-        <GlassCard title="Payroll">
-          <div className="row" style={{gap:20}}>
+
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4">
+            <DollarSign size={18} className="text-primary" />
+            <span className="font-semibold text-lg">Payroll Estimates</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="title">Net</div>
-              <div className="subtitle">${Math.round(overview?.cost?.totalPayrollNet || 0).toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Net Pay</div>
+              <div className="text-2xl font-bold">${Math.round(overview?.cost?.totalPayrollNet || 0).toLocaleString()}</div>
             </div>
             <div>
-              <div className="title">Base</div>
-              <div className="subtitle">${Math.round(overview?.cost?.totalBase || 0).toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground font-medium uppercase mb-1">Overtime</div>
+              <div className="text-2xl font-bold">${Math.round(overview?.cost?.totalOvertime || 0).toLocaleString()}</div>
             </div>
-            <div>
-              <div className="title">Overtime</div>
-              <div className="subtitle">${Math.round(overview?.cost?.totalOvertime || 0).toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="title">Deductions</div>
-              <div className="subtitle">${Math.round(overview?.cost?.totalDeductions || 0).toLocaleString()}</div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Base Pay</span>
+              <span className="font-semibold">${Math.round(overview?.cost?.totalBase || 0).toLocaleString()}</span>
             </div>
           </div>
         </GlassCard>
       </div>
 
-      <div className="grid-1 mt-5">
-        <GlassCard title="Department Performance" right={<ExportMenu onExport={handleExportDepartments} isExporting={isExporting} />}>
-          <div style={{ overflowX:'auto' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <GlassCard>
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2">
+              <Users size={18} className="text-primary" />
+              <span className="font-semibold text-lg">Department Performance</span>
+            </div>
+            <ExportMenu onExport={handleExportDepartments} isExporting={isExporting} />
+          </div>
+          <div className="overflow-x-auto">
+            <GlassTable
+              columns={[
+                { name: "Department", width: "150px" },
+                { name: "Members", width: "100px" },
+                { name: "Worked", width: "100px" },
+                { name: "Extra", width: "100px" },
+                { name: "Score", width: "80px" }
+              ]}
+              rows={deptPerf.map(d => [
+                <span key="name" className="font-medium">{d.department_name}</span>,
+                <span key="mem" className="text-muted-foreground">{String(d.members_count||0)}</span>,
+                <span key="wrk">{Math.round((d.worked_minutes||0)/60)}h</span>,
+                <span key="extra">{Math.round((d.extra_minutes||0)/60)}h</span>,
+                <span key="score" className={d.productivity_score > 80 ? 'text-green-600 font-bold' : d.productivity_score > 50 ? 'text-yellow-600 font-bold' : 'text-red-500 font-bold'}>
+                  {Math.round(d.productivity_score||0)}%
+                </span>
+              ])}
+            />
+          </div>
+        </GlassCard>
+
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={18} className="text-primary" />
+            <span className="font-semibold text-lg">Cost vs Hours</span>
+          </div>
+          <div className="h-[240px]">
+            <DualLineChart points={costHours.map(p => ({ date: p.date, a: Math.round(p.totalWorkedMinutes||0), b: Math.round(p.payrollCost||0) }))} colorA="#3dd6a3" colorB="#6b7280" />
+          </div>
+          <div className="flex justify-center gap-6 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#3dd6a3]"></div> 
+              <span>Worked Hours</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#6b7280]"></div> 
+              <span>Payroll Cost</span>
+            </div>
+          </div>
+        </GlassCard>
+      </div>
+
+      <GlassCard>
+        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <Users size={18} className="text-primary" />
+            <span className="font-semibold text-lg">Member Leaderboard</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-[200px]">
+              <GlassSelect value={sortKey} onChange={(e:any)=>setSortKey(e.target.value)}>
+                <option value="worked">Sort by Worked</option>
+                <option value="extra">Sort by Extra</option>
+                <option value="short">Sort by Short</option>
+                <option value="productivity">Sort by Productivity</option>
+                <option value="net_pay">Sort by Net Pay</option>
+              </GlassSelect>
+            </div>
+            <ExportMenu onExport={handleExportMembers} isExporting={isExporting} />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
           <GlassTable
-            columns={["Department","Members","Worked Hours","Extra Hours","Productivity Score"]}
-            rows={deptPerf.map(d => [
-              d.department_name,
-              String(d.members_count||0),
-              String(Math.round((d.worked_minutes||0)/60)),
-              String(Math.round((d.extra_minutes||0)/60)),
-              `${Math.round(d.productivity_score||0)}%`
+            columns={[
+              { name: "Name", width: "200px" },
+              { name: "Dept", width: "150px" },
+              { name: "Worked", width: "100px" },
+              { name: "Extra", width: "100px" },
+              { name: "Short", width: "100px" },
+              { name: "Productivity", width: "100px" },
+              { name: "Net Pay", width: "120px" }
+            ]}
+            rows={members.map(m => [
+              <div key="name" className="font-semibold">{m.name}</div>,
+              <span key="dept" className="px-2 py-1 rounded bg-gray-100 text-xs font-medium text-gray-700">{m.dept}</span>,
+              <span key="wrk">{Math.round((m.worked_minutes||0)/60)}h</span>,
+              <span key="extra" className={m.extra_minutes > 0 ? 'text-yellow-600 font-medium' : 'text-muted-foreground'}>{Math.round((m.extra_minutes||0)/60)}h</span>,
+              <span key="short" className={m.short_minutes > 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}>{Math.round((m.short_minutes||0)/60)}h</span>,
+              <span key="prod" className="font-bold">{Math.round(m.productivity||0)}%</span>,
+              <span key="pay" className="font-medium">${Math.round(m.net_pay||0).toLocaleString()}</span>
             ])}
           />
-          </div>
-        </GlassCard>
-        <GlassCard title="Cost vs Hours">
-          <DualLineChart points={costHours.map(p => ({ date: p.date, a: Math.round(p.totalWorkedMinutes||0), b: Math.round(p.payrollCost||0) }))} colorA="#0f6a50" colorB="#e67e22" />
-        </GlassCard>
-      </div>
-
-      <GlassCard title="Member Leaderboard" right={(
-        <div className="row mt-5" style={{ gap: 8 }}>
-          <ExportMenu onExport={handleExportMembers} isExporting={isExporting} />
-          <GlassSelect value={sortKey} onChange={(e:any)=>setSortKey(e.target.value)}>
-            <option value="worked">Worked</option>
-            <option value="extra">Extra</option>
-            <option value="short">Short</option>
-            <option value="productivity">Productivity</option>
-            <option value="net_pay">Net pay</option>
-          </GlassSelect>
-        </div>
-      )}>
-        <div style={{ overflowX:'auto' }}>
-        <GlassTable
-          columns={["Name","Dept","Worked","Extra","Short","Productivity","Net pay"]}
-          rows={members.map(m => [
-            m.name,
-            m.dept,
-            String(Math.round((m.worked_minutes||0)/60)),
-            String(Math.round((m.extra_minutes||0)/60)),
-            String(Math.round((m.short_minutes||0)/60)),
-            `${Math.round(m.productivity||0)}%`,
-            `$${Math.round(m.net_pay||0).toLocaleString()}`
-          ])}
-        />
         </div>
       </GlassCard>
     </AppShell>

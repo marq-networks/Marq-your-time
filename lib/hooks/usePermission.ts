@@ -9,7 +9,7 @@ function getCookie(name: string): string | undefined {
   return undefined
 }
 
-const ROLE_PERMISSIONS: Record<string, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   employee: ['manage_time','manage_reports'],
   member: ['manage_time','manage_reports'],
   manager: ['manage_time','manage_reports','manage_users'],
@@ -19,7 +19,11 @@ const ROLE_PERMISSIONS: Record<string, Permission[]> = {
 }
 
 export default function usePermission(permissionKey: Permission) {
-  const role = (getCookie('current_role') || '').toLowerCase()
+  let role = (getCookie('current_role') || '').toLowerCase()
+  // Fallback for org login (admin) if role is missing
+  if (!role && getCookie('org_login')) {
+    role = 'admin'
+  }
   const allowedPerms = ROLE_PERMISSIONS[role] || []
   const allowed = allowedPerms.includes(permissionKey)
   return { allowed }

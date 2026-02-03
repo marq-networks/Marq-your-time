@@ -1,9 +1,10 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import GlassInput from '@components/ui/GlassInput'
+import { Mail, Lock, ArrowRight } from 'lucide-react'
 import GlassButton from '@components/ui/GlassButton'
 import Toast from '@components/Toast'
+import '../../login/styles.css'
 
 type LoginResponse = {
   mfaRequired?: boolean
@@ -57,7 +58,7 @@ export default function LoginForm() {
       if (isEmployeeOnly) {
         const role = memberships[0].role
         try { document.cookie = `current_role=${role}; path=/; SameSite=Lax` } catch {}
-        router.push('/my/time')
+        router.push('/my/day')
         return
       }
 
@@ -67,6 +68,12 @@ export default function LoginForm() {
       }
       const role = memberships[0]?.role || data.role || 'member'
       try { document.cookie = `current_role=${role}; path=/; SameSite=Lax` } catch {}
+
+      if (['owner', 'admin', 'super_admin', 'manager'].includes(role)) {
+        router.push('/team/dashboard')
+        return
+      }
+      
       router.push('/')
     } catch (err) {
       setToastMsg('Incorrect email or password')
@@ -79,54 +86,67 @@ export default function LoginForm() {
     <form onSubmit={onSubmit} className="login-form" aria-labelledby="login-title">
       <div className="field">
         <label htmlFor="email" className="label">Email</label>
-        <GlassInput
-          id="email"
-          name="email"
-          type="email"
-          autoFocus
-          placeholder="you@company.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          aria-invalid={!!errorEmail}
-          aria-describedby={errorEmail ? 'email-error' : undefined}
-        />
-        {errorEmail && <div id="email-error" className="field-error">{errorEmail}</div>}
+        <div className="input-wrapper">
+          <Mail className="input-icon" size={18} />
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoFocus
+            className="login-input login-input-with-icon"
+            placeholder="you@company.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            aria-invalid={!!errorEmail}
+            aria-describedby={errorEmail ? 'email-error' : undefined}
+          />
+        </div>
+        {errorEmail && <div id="email-error" className="field-error" style={{color:'#f87171', fontSize:12, marginTop:4}}>{errorEmail}</div>}
       </div>
 
       <div className="field">
-        <label htmlFor="password" className="label">Password</label>
-        <div className="password-row">
-          <GlassInput
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+          <label htmlFor="password" className="label" style={{marginBottom:0}}>Password</label>
+          <a href="/auth/forgot" className="forgot-link">Forgot?</a>
+        </div>
+        <div className="input-wrapper" style={{marginTop:8}}>
+          <Lock className="input-icon" size={18} />
+          <input
             id="password"
             name="password"
-            type={showPassword ? 'text' : 'password'}
+            type={showPassword ? "text" : "password"}
+            className="login-input login-input-with-icon"
             placeholder="••••••••"
             value={password}
             onChange={e => setPassword(e.target.value)}
             aria-invalid={!!errorPassword}
             aria-describedby={errorPassword ? 'password-error' : undefined}
           />
-          <button type="button" className="eye" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(v => !v)}>
-            {showPassword ? '🙈' : '👁️'}
-          </button>
         </div>
-        {errorPassword && <div id="password-error" className="field-error">{errorPassword}</div>}
+        {errorPassword && <div id="password-error" className="field-error" style={{color:'#f87171', fontSize:12, marginTop:4}}>{errorPassword}</div>}
       </div>
 
-      {/* Organization login is a separate step now */}
-
-      <div className="row between">
-        <label className="remember">
-          <input type="checkbox" className="toggle" checked={remember} onChange={e => setRemember(e.target.checked)} aria-label="Remember me" />
-          <span>Remember me</span>
-        </label>
-        <a href="/auth/forgot" className="login-link">Forgot Password?</a>
+      <div className="row" style={{marginTop:24}}>
+        <GlassButton 
+          variant="primary" 
+          type="submit" 
+          disabled={loading}
+          style={{ 
+            width: '100%', 
+            height: 48,
+            opacity: loading ? 0.7 : 1, 
+            pointerEvents: loading ? 'none' : 'auto',
+            justifyContent: 'center',
+            fontSize: 16
+          }}
+        >
+          {loading ? 'Signing in...' : (
+            <>
+              Sign In <ArrowRight size={18} style={{marginLeft:8}} />
+            </>
+          )}
+        </GlassButton>
       </div>
-
-      <GlassButton variant="primary" style={{ width: '100%' }}>
-        {loading ? <span className="btn-spinner" aria-hidden="true" /> : null}
-        {loading ? 'Signing In…' : 'SIGN IN'}
-      </GlassButton>
 
       <Toast message={toastMsg} type="error" />
     </form>

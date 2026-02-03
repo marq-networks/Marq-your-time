@@ -1,4 +1,4 @@
-"use client"
+'use client'
 import { useEffect, useMemo, useState } from 'react'
 import AppShell from '@components/ui/AppShell'
 import GlassCard from '@components/ui/GlassCard'
@@ -10,7 +10,7 @@ import { ExportColumn, exportToCsv, exportToPdf } from '@lib/export-utils'
 import { useListQuery } from '@/lib/hooks/useListQuery'
 import { normalizeRoleForApi } from '@/lib/permissions'
 import FilterBar from '@/components/filters/FilterBar'
-import DateRangePicker from '@/components/filters/DateRangePicker'
+import { FileText, Download, Play, History, RefreshCw, Calendar, Users, Building, FileType, FileSpreadsheet, Clock, CreditCard, UserCheck, Coffee, Activity } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string, departmentId?: string }
@@ -18,7 +18,20 @@ type Department = { id: string, name: string }
 type MemberRole = { id: string, name: string, level: number }
 
 function dateISO(d: Date) { return d.toISOString().slice(0,10) }
-function rangeQuick(key: '7'|'30') { const end = new Date(); const start = new Date(end.getTime() - (key==='7'? 6:29)*24*60*60*1000); return { start: dateISO(start), end: dateISO(end) } }
+function rangeQuick(key: '7'|'30') { 
+  const end = new Date(); 
+  const start = new Date(end.getTime() - (key==='7'? 6:29)*24*60*60*1000); 
+  return { start: dateISO(start), end: dateISO(end) } 
+}
+
+const REPORT_ICONS: Record<string, any> = {
+  attendance: UserCheck,
+  timesheet: Clock,
+  activity: Activity,
+  payroll: CreditCard,
+  billing: FileText,
+  leave: Coffee
+}
 
 export default function ReportsPage() {
   const { filters, setFilters } = useListQuery()
@@ -95,7 +108,9 @@ export default function ReportsPage() {
     if (filters.status && (reportType==='leave' || reportType==='billing' || reportType==='payroll')) payload.params.status = filters.status
     if (filters.managerId) payload.params.manager_id = filters.managerId
     if (filters.memberRoleId) payload.params.member_role_ids = [filters.memberRoleId]
+    
     const res = await fetch('/api/reports/generate', { method:'POST', headers:{ 'Content-Type':'application/json','x-role': role || 'admin' }, body: JSON.stringify(payload) })
+    
     if (res.ok && !runAsync) {
       const ct = res.headers.get('content-type') || ''
       if (ct.includes('text/csv')) {
@@ -151,63 +166,170 @@ export default function ReportsPage() {
 
   return (
     <AppShell title="Reports">
-      <div style={{ backgroundImage:'linear-gradient(135deg, #d9c7b2, #e8ddce, #c9b8a4)', borderRadius:'var(--radius-large)', padding:12 }}>
-        <GlassCard title="Report Type">
-          <div className="grid-3">
-            <div>
-              <div className="label">Organization</div>
-              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-                <option value="">Select org</option>
-                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-              </GlassSelect>
-            </div>
-            <div>
-              <div className="label">Report Type</div>
-              <GlassSelect value={reportType} onChange={(e:any)=>setReportType(e.target.value)}>
-                <option value="attendance">Attendance</option>
-                <option value="timesheet">Timesheets</option>
-                <option value="activity">Activity</option>
-                <option value="payroll">Payroll</option>
-                <option value="billing">Billing</option>
-                <option value="leave">Leave</option>
-              </GlassSelect>
-              <div className="subtitle" style={{ marginTop: 6 }}>{desc}</div>
-            </div>
-            <div>
-              <div className="label">Format</div>
-              <GlassSelect value={format} onChange={(e:any)=>setFormat(e.target.value)}>
-                <option value="csv">CSV</option>
-                <option value="xlsx">XLSX</option>
-                <option value="pdf">PDF</option>
-              </GlassSelect>
-            </div>
+      <div className="space-y-6">
+        
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 border border-indigo-100">
+            <FileSpreadsheet size={24} />
           </div>
-          
-          <div style={{ marginTop: 20 }}>
-            <FilterBar pageKey="reports" orgId={orgId} config={filterConfig} showSavedViews />
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Reports</h1>
+            <p className="text-slate-500 text-sm">Generate and export detailed insights</p>
           </div>
+        </div>
 
-          <div className="row" style={{ marginTop:12 }}>
-            <GlassButton variant="primary" onClick={()=>{ if (!orgId || downloading) return; generate() }} style={{ background:'#39FF14', borderColor:'#39FF14' }}>{downloading? 'Generating...' : 'Generate & Download'}</GlassButton>
-            <label className="row" style={{ gap:8, marginLeft:12 }}>
-              <input type="checkbox" className="toggle" checked={runAsync} onChange={(e)=>setRunAsync(e.target.checked)} />
-              <span className="label">Run async</span>
-            </label>
+        <GlassCard 
+          title={
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-500" />
+              <span>Report Configuration</span>
+            </div>
+          }
+          className="relative overflow-hidden"
+        >
+          <FileText size={120} className="text-indigo-900/5 absolute -bottom-4 -right-4 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  <Building className="w-4 h-4 text-slate-400" /> Organization
+                </label>
+                <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                  <option value="">Select Organization</option>
+                  {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+                </GlassSelect>
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  <FileType className="w-4 h-4 text-slate-400" /> Report Type
+                </label>
+                <GlassSelect value={reportType} onChange={(e:any)=>setReportType(e.target.value)}>
+                  <option value="attendance">Attendance</option>
+                  <option value="timesheet">Timesheets</option>
+                  <option value="activity">Activity</option>
+                  <option value="payroll">Payroll</option>
+                  <option value="billing">Billing</option>
+                  <option value="leave">Leave</option>
+                </GlassSelect>
+                {desc && (
+                  <div className="text-xs text-indigo-600 mt-1 bg-indigo-50 p-2 rounded-lg border border-indigo-100 flex items-start gap-2">
+                    <div className="mt-0.5 min-w-[12px]"><FileText size={12} /></div>
+                    <span>Includes: {desc}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-slate-400" /> Format
+                </label>
+                <GlassSelect value={format} onChange={(e:any)=>setFormat(e.target.value)}>
+                  <option value="csv">CSV (Excel)</option>
+                  <option value="xlsx">Excel (XLSX)</option>
+                  <option value="pdf">PDF Document</option>
+                </GlassSelect>
+              </div>
+            </div>
+            
+            <div className="mt-6 pt-6 border-t border-slate-100">
+               <FilterBar pageKey="reports" orgId={orgId} config={filterConfig} showSavedViews />
+            </div>
+
+            <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 justify-end">
+              <label className="flex items-center gap-2 cursor-pointer select-none bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all">
+                <div className="relative flex items-center">
+                  <input type="checkbox" className="peer sr-only" checked={runAsync} onChange={(e)=>setRunAsync(e.target.checked)} />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                </div>
+                <span className="text-sm font-medium text-slate-600">Run in Background</span>
+              </label>
+              
+              <GlassButton 
+                variant="primary" 
+                onClick={()=>{ if (!orgId || downloading) return; generate() }} 
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                disabled={!orgId || downloading}
+              >
+                {downloading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+                {downloading ? 'Generating...' : 'Generate Report'}
+              </GlassButton>
+            </div>
           </div>
         </GlassCard>
 
-        <GlassCard title="Preview">
-          <GlassTable columns={columns} rows={rows} />
-        </GlassCard>
+        {rows.length > 0 && (
+          <GlassCard title="Preview" className="relative overflow-hidden">
+             <div className="max-h-[400px] overflow-auto rounded-xl border border-slate-200">
+               <GlassTable columns={columns} rows={rows} />
+             </div>
+          </GlassCard>
+        )}
 
-        <GlassCard title="Job History" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
-          <GlassTable columns={[ 'Created', 'Type', 'Status', 'Params', 'Download' ]} rows={(jobs||[]).map(j=>[
-            new Date(j.created_at).toLocaleString(),
-            j.report_type,
-            j.status,
-            JSON.stringify(j.params),
-            j.file_url ? <a href={j.file_url} download>Download</a> : ''
-          ])} />
+        <GlassCard 
+          title={
+            <div className="flex items-center gap-2">
+              <History className="w-5 h-5 text-indigo-500" />
+              <span>History</span>
+            </div>
+          } 
+          right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}
+          className="relative overflow-hidden"
+        >
+          <History size={120} className="text-slate-900/5 absolute -bottom-4 -right-4 pointer-events-none" />
+          <div className="relative z-10">
+            {jobs.length === 0 ? (
+               <div className="text-center py-8 text-slate-500">
+                 No recent report jobs found.
+               </div>
+            ) : (
+               <div className="overflow-x-auto">
+                 <table className="w-full text-sm text-left">
+                   <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
+                     <tr>
+                       <th className="px-4 py-3">Created</th>
+                       <th className="px-4 py-3">Type</th>
+                       <th className="px-4 py-3">Status</th>
+                       <th className="px-4 py-3">Download</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {jobs.map(j => (
+                       <tr key={j.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                         <td className="px-4 py-3">{new Date(j.created_at).toLocaleString()}</td>
+                         <td className="px-4 py-3 capitalize flex items-center gap-2">
+                           {REPORT_ICONS[j.report_type] && (() => {
+                             const Icon = REPORT_ICONS[j.report_type]
+                             return <Icon size={14} className="text-indigo-500" />
+                           })()}
+                           {j.report_type}
+                         </td>
+                         <td className="px-4 py-3">
+                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                             j.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                             j.status === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
+                             'bg-amber-50 text-amber-700 border border-amber-100'
+                           }`}>
+                             {j.status}
+                           </span>
+                         </td>
+                         <td className="px-4 py-3">
+                           {j.file_url ? (
+                             <a href={j.file_url} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline">
+                               <Download size={14} /> Download
+                             </a>
+                           ) : (
+                             <span className="text-slate-400">-</span>
+                           )}
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+            )}
+          </div>
         </GlassCard>
       </div>
     </AppShell>

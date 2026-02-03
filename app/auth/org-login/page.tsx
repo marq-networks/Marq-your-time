@@ -1,5 +1,7 @@
 'use client'
 import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { Building2, Lock, ArrowRight } from 'lucide-react'
 import GlassCard from '@components/ui/GlassCard'
 import GlassButton from '@components/ui/GlassButton'
 import AuthTabs from '../components/AuthTabs'
@@ -25,30 +27,83 @@ export default function OrgLoginPage() {
   return (
     <div className="login-root">
       <div className="login-center">
-        <div className="login-card" aria-label="Organization Login">
+        <motion.div 
+          className="login-card" 
+          aria-label="Organization Login"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
           <GlassCard>
             <div className="login-header">
-              <div className="login-logo" aria-hidden="true" />
-              <div className="login-brand">MARQ</div>
-              <div className="login-tagline">Organization Sign In</div>
+              <motion.div 
+                className="login-logo" 
+                aria-hidden="true"
+                whileHover={{ scale: 1.05, rotate: 5 }}
+                transition={{ type: "spring", stiffness: 400, damping: 10 }}
+              >
+                <Building2 color="white" size={32} />
+              </motion.div>
+              <div className="text-center">
+                <div className="login-brand">MARQ</div>
+                <div className="login-tagline">Organization Sign In</div>
+              </div>
             </div>
+            
             <AuthTabs />
+            
             <div className="field">
               <label className="label">Organization Name</label>
-              <input className="input" value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="Your org name" />
+              <div className="input-wrapper">
+                <Building2 className="input-icon" size={18} />
+                <input 
+                  className="login-input login-input-with-icon" 
+                  value={orgName} 
+                  onChange={e=>setOrgName(e.target.value)} 
+                  placeholder="Your org name" 
+                />
+              </div>
             </div>
+            
             <div className="field">
               <label className="label">Org Password</label>
-              <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" />
+              <div className="input-wrapper">
+                <Lock className="input-icon" size={18} />
+                <input 
+                  className="login-input login-input-with-icon" 
+                  type="password" 
+                  value={password} 
+                  onChange={e=>setPassword(e.target.value)} 
+                  placeholder="••••••••" 
+                />
+              </div>
             </div>
-            <div className="row" style={{marginTop:12}}>
-              <GlassButton variant="primary" onClick={submit} style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>{loading? 'Verifying…' : 'Continue'}</GlassButton>
+            
+            <div className="row" style={{marginTop:24}}>
+              <GlassButton 
+                variant="primary" 
+                onClick={submit} 
+                style={{ 
+                  width: '100%', 
+                  height: 48,
+                  opacity: loading ? 0.7 : 1, 
+                  pointerEvents: loading ? 'none' : 'auto',
+                  justifyContent: 'center',
+                  fontSize: 16
+                }}
+              >
+                {loading ? 'Verifying…' : (
+                  <>
+                    Continue <ArrowRight size={18} style={{marginLeft:8}} />
+                  </>
+                )}
+              </GlassButton>
             </div>
           </GlassCard>
           <div className="login-footer">
             <a href="/auth/login" className="login-link">Back to User Sign In</a>
           </div>
-        </div>
+        </motion.div>
       </div>
       <Toast message={toast.m} type={toast.t} />
     </div>

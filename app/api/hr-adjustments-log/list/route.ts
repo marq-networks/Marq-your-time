@@ -18,8 +18,10 @@ export async function GET(req: NextRequest) {
 
   const actorId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
   const actorRole = (req.headers.get('x-role') || req.cookies.get('current_role')?.value || '').toLowerCase()
+  const isOrgLogin = req.cookies.get('org_login')?.value === 'true'
+  const currentOrgId = req.cookies.get('current_org_id')?.value
 
-  if (!actorId) {
+  if (!actorId && !isOrgLogin) {
     console.log('[HR_LOG_LIST] UNAUTHORIZED: Missing actorId')
     console.log('Headers:', Object.fromEntries(req.headers))
     console.log('Cookies:', req.cookies.getAll())
@@ -31,11 +33,21 @@ export async function GET(req: NextRequest) {
   }
 
   // 1. Permission Check
-  // Check if actor is in the org and get their role
-  const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
-  const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
-
-  const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+  let effectiveRole = ''
+  
+  if (isOrgLogin) {
+    // Org Login: Validate org_id matches cookie
+    if (orgId !== currentOrgId) {
+       return NextResponse.json({ error: 'FORBIDDEN_ORG_MISMATCH' }, { status: 403 })
+    }
+    effectiveRole = 'admin'
+  } else {
+    // Standard User Login
+    // Check if actor is in the org and get their role
+    const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
+    const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
+    effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+  }
   
   if (!effectiveRole) {
     return NextResponse.json({ error: 'FORBIDDEN_ORG_ACCESS' }, { status: 403 })

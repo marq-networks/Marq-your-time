@@ -109,9 +109,9 @@ export function WeekView({ date, events }: WeekViewProps) {
                 {HOURS.map(h => (
                    <div key={h} className="h-24 border-b border-white/10 group relative">
                      {/* Quarter-hour markers on hover/always subtle */}
-                     <div className="absolute top-1/4 left-0 right-0 h-px bg-black/[0.02] w-full" />
-                     <div className="absolute top-2/4 left-0 right-0 h-px bg-black/[0.04] w-full border-t border-dashed border-black/10" />
-                     <div className="absolute top-3/4 left-0 right-0 h-px bg-black/[0.02] w-full" />
+                     <div className="absolute top-1/4 left-0 right-0 h-px bg-gray-500/[0.1] w-full" />
+                     <div className="absolute top-2/4 left-0 right-0 h-px bg-gray-500/[0.15] w-full border-t border-dashed border-gray-500/20" />
+                     <div className="absolute top-3/4 left-0 right-0 h-px bg-gray-500/[0.1] w-full" />
                    </div>
                 ))}
                 
@@ -142,7 +142,7 @@ export function WeekView({ date, events }: WeekViewProps) {
                        style={{
                          ...style,
                          backgroundColor: e.type === 'attendance' ? 'rgba(34, 197, 94, 0.15)' : e.type === 'break' ? 'rgba(249, 115, 22, 0.15)' : 'rgba(255, 255, 255, 0.6)',
-                         borderColor: e.type === 'attendance' ? 'rgba(34, 197, 94, 0.3)' : e.type === 'break' ? 'rgba(249, 115, 22, 0.3)' : 'rgba(0, 0, 0, 0.1)',
+                         borderColor: e.type === 'attendance' ? 'rgba(34, 197, 94, 0.3)' : e.type === 'break' ? 'rgba(249, 115, 22, 0.3)' : 'rgba(100, 116, 139, 0.2)',
                          borderLeftWidth: '3px',
                          borderLeftColor: (e.type === 'attendance' && e.status === 'late') ? '#eab308' : e.type === 'attendance' ? '#22c55e' : e.type === 'break' ? '#f97316' : '#3b82f6',
                          color: 'var(--color-text-primary)'

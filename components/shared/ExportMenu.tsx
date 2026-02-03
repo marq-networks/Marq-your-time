@@ -42,7 +42,7 @@ export default function ExportMenu({ onExportCsv, onExportPdf, onExport, isExpor
 
       {isOpen && (
         <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} mt-2 w-48 z-50`}>
-          <GlassCard className="!p-1 overflow-hidden shadow-xl border-white/20 bg-black/80 backdrop-blur-xl">
+          <GlassCard className="!p-1 overflow-hidden shadow-xl border-white/20 bg-gray-900/95 backdrop-blur-xl">
             <button
               onClick={() => {
                 if (onExport) onExport('csv')

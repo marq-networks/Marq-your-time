@@ -10,6 +10,7 @@ import AdjustmentLogTable from '@components/hr/AdjustmentLogTable'
 import { normalizeRoleForApi } from '@lib/permissions'
 import ExportMenu from '@/components/shared/ExportMenu'
 import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
+import { Plus, Search, Calendar, Filter, FileText } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -50,20 +51,41 @@ export default function HRAdjustmentsPage() {
   useEffect(() => { 
     // Auth Check
     const uid = getCookie('current_user_id')
-    if (!uid) {
+    const orgLogin = getCookie('org_login')
+    
+    if (!uid && !orgLogin) {
       // If no cookie, try to see if we are logged out
       window.location.href = '/auth/login'
       return
     }
 
     try { 
-      const r = normalizeRoleForApi(getCookie('current_role'))
+      let r = normalizeRoleForApi(getCookie('current_role'))
+      if (!r && orgLogin) r = 'admin'
       setRole(r) 
     } catch {} 
   }, [])
 
   const loadOrgs = async () => {
-    const endpoint = role === 'super_admin' ? '/api/org/list' : '/api/orgs/my'
+    const orgLogin = getCookie('org_login')
+    const endpoint = (role === 'super_admin' && !orgLogin) ? '/api/org/list' : '/api/orgs/my'
+    
+    // If Org Login, we can't use /api/orgs/my (requires user). Use /api/org/[id] instead.
+    if (orgLogin) {
+       const oid = getCookie('current_org_id')
+       if (oid) {
+         try {
+           const res = await fetch(`/api/org/${oid}`, { cache: 'no-store' })
+           const data = await res.json()
+           if (data.org) {
+             setOrgs([data.org])
+             setOrgId(data.org.id)
+           }
+         } catch(e) { console.error(e) }
+       }
+       return
+    }
+
     try {
       const res = await fetch(endpoint, { cache: 'no-store' })
       if (res.status === 401) {
@@ -219,21 +241,49 @@ export default function HRAdjustmentsPage() {
 
   return (
     <AppShell title="HR Adjustments Log">
-      <GlassCard>
-        <div className="grid grid-4" style={{gap:16, marginBottom:20}}>
-          <div>
-            <div className="label">Organization</div>
+      <GlassCard 
+        title={
+          <div className="flex items-center gap-2">
+            <FileText className="text-indigo-600" size={20} />
+            <span>Audit Log</span>
+          </div>
+        }
+        right={
+          <div className="flex items-center gap-2">
+            {['super_admin','admin','manager'].includes(role) && (       
+               <GlassButton onClick={()=>setModalOpen(true)} variant="primary" className="flex items-center gap-2 px-4">
+                 <Plus size={16} />
+                 <span>New Entry</span>
+               </GlassButton>
+            )}
+            <ExportMenu 
+              onExport={handleExport} 
+              isExporting={isExporting}
+            />
+          </div>
+        }
+      >
+        <div className="flex flex-col md:flex-row gap-4 mb-6 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+          <div className="flex-1 min-w-[200px]">
+            <div className="label flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Filter size={12} />
+              Organization
+            </div>
              {(['employee','member'].includes(role)) ? (
                 <span className="tag-pill">{orgs.find(o=>o.id===orgId)?.orgName || orgs[0]?.orgName || ''}</span>
               ) : (
-                <GlassSelect value={orgId} onChange={(e: any)=>setOrgId(e.target.value)}>
+                <GlassSelect value={orgId} onChange={(e: any)=>setOrgId(e.target.value)} className="bg-white">
                   {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
                 </GlassSelect>
               )}
           </div>
-          <div>
-            <div className="label">Module</div>
-            <GlassSelect value={moduleId} onChange={(e: any)=>setModuleId(e.target.value)}>
+          
+          <div className="flex-1 min-w-[160px]">
+            <div className="label flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Filter size={12} />
+              Module
+            </div>
+            <GlassSelect value={moduleId} onChange={(e: any)=>setModuleId(e.target.value)} className="bg-white">
               <option value="">All Modules</option>
               <option value="time_logs">Time Logs</option>
               <option value="breaks">Breaks</option>
@@ -242,33 +292,34 @@ export default function HRAdjustmentsPage() {
               <option value="payroll">Payroll</option>
             </GlassSelect>
           </div>
-          <div>
-            <div className="label">Employee</div>
-            <GlassSelect value={employeeId} onChange={(e: any)=>setEmployeeId(e.target.value)}>
+
+          <div className="flex-1 min-w-[200px]">
+            <div className="label flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+              <Search size={12} />
+              Employee
+            </div>
+            <GlassSelect value={employeeId} onChange={(e: any)=>setEmployeeId(e.target.value)} className="bg-white">
               <option value="">All Employees</option>
               {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
             </GlassSelect>
           </div>
-          <div className="grid grid-2" style={{gap:8}}>
+
+          <div className="flex items-end gap-2">
              <div>
-               <div className="label">From</div>
-               <GlassInput type="date" value={dateFrom} onChange={(e: any)=>setDateFrom(e.target.value)} />
+               <div className="label flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                 <Calendar size={12} />
+                 From
+               </div>
+               <GlassInput type="date" value={dateFrom} onChange={(e: any)=>setDateFrom(e.target.value)} className="bg-white" />
              </div>
              <div>
-               <div className="label">To</div>
-               <GlassInput type="date" value={dateTo} onChange={(e: any)=>setDateTo(e.target.value)} />
+               <div className="label flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1.5">
+                 <Calendar size={12} />
+                 To
+               </div>
+               <GlassInput type="date" value={dateTo} onChange={(e: any)=>setDateTo(e.target.value)} className="bg-white" />
              </div>
           </div>
-        </div>
-
-        <div style={{display:'flex', justifyContent:'flex-end', gap: 12, marginBottom:16}}>
-          {['super_admin','admin','manager'].includes(role) && (       
-             <GlassButton onClick={()=>setModalOpen(true)} style={{padding:'6px 12px', fontSize:13}}>+ Add Manual Entry</GlassButton>
-          )}
-          <ExportMenu 
-            onExport={handleExport} 
-            isExporting={isExporting}
-          />
         </div>
 
         <AdjustmentLogTable logs={logs} loading={loading} />

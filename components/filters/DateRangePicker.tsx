@@ -65,7 +65,7 @@ export default function DateRangePicker({ from, to, onSelect, label }: Props) {
           {(from || to) && (
             <button
               onClick={clear}
-              className="p-1 hover:bg-black/5 rounded-full transition-colors text-black/40 hover:text-black"
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors text-black/40 hover:text-black"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -81,7 +81,7 @@ export default function DateRangePicker({ from, to, onSelect, label }: Props) {
                 color: white;
               }
               .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
-                background-color: rgba(0,0,0,0.05);
+                background-color: rgba(100, 116, 139, 0.1);
               }
               .rdp-caption_label { color: inherit; }
             `}</style>

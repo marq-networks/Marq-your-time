@@ -18,6 +18,7 @@ interface FilterConfig {
   label: string
   type: 'select' | 'multi-select' | 'status' | 'date-range' | 'sort'
   options?: { label: string; value: string }[]
+  icon?: React.ElementType
 }
 
 interface Props {
@@ -66,16 +67,16 @@ export default function FilterBar({ pageKey, orgId, config, children, filters: p
         
         <GlassButton 
           onClick={() => setIsDrawerOpen(true)}
-          className={`flex items-center gap-2 transition-all duration-200 ${
+          className={`flex items-center gap-2 transition-all duration-300 rounded-xl px-4 py-2.5 ${
             activeCount > 0 
-              ? 'border-primary/50 text-white bg-primary shadow-[0_0_15px_-3px_rgba(61,214,163,0.3)]' 
-              : 'hover:bg-white/40 text-[#1f1f1f]'
+              ? 'border-emerald-500/50 text-white bg-gradient-to-r from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/20' 
+              : 'bg-white/50 border border-white/40 text-gray-700 hover:bg-white/80 hover:shadow-md hover:border-white/60 backdrop-blur-md'
           }`}
         >
-          <Filter className={`w-4 h-4 ${activeCount > 0 ? 'text-white' : 'text-[#1f1f1f]/70'}`} />
-          <span>Filters</span>
+          <Filter className={`w-4 h-4 ${activeCount > 0 ? 'text-white' : 'text-gray-500'}`} />
+          <span className="font-medium">Filters</span>
           {activeCount > 0 && (
-            <span className="bg-white text-primary text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-0.5 shadow-sm">
+            <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full ml-1 backdrop-blur-sm border border-white/20">
               {activeCount}
             </span>
           )}
@@ -126,6 +127,7 @@ export default function FilterBar({ pageKey, orgId, config, children, filters: p
                   <GlassSelect
                     value={filters[field.key] || ''}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleSingleChange(field.key, e.target.value || null)}
+                    icon={field.icon}
                   >
                     <option value="">All</option>
                     {field.options?.map(opt => (
@@ -133,6 +135,15 @@ export default function FilterBar({ pageKey, orgId, config, children, filters: p
                     ))}
                   </GlassSelect>
                 </div>
+              )}
+
+              {field.type === 'sort' && (
+                <SortSelect
+                  label={field.label}
+                  options={field.options || []}
+                  value={filters[field.key] || ''}
+                  onChange={(val) => handleSingleChange(field.key, val)}
+                />
               )}
 
               {field.type === 'date-range' && (

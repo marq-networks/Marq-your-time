@@ -64,7 +64,7 @@ export default function MultiSelect({ label, options, value, onChange, placehold
                 <span key={v} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-white/60 border border-white/40 rounded-md text-xs font-medium text-[#1f1f1f]">
                   {option?.label || v}
                   <button 
-                    className="p-0.5 hover:bg-black/5 rounded-sm transition-colors text-black/40 hover:text-black"
+                    className="p-0.5 hover:bg-gray-100 rounded-sm transition-colors text-black/40 hover:text-black"
                     onMouseDown={(e) => removeValue(e, v)}
                   >
                     <X className="w-3 h-3" />
@@ -90,7 +90,7 @@ export default function MultiSelect({ label, options, value, onChange, placehold
                       className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm cursor-pointer transition-all ${
                         isSelected 
                           ? 'bg-primary/10 text-primary font-medium' 
-                          : 'text-[#1f1f1f]/80 hover:bg-black/5 hover:text-[#1f1f1f]'
+                          : 'text-[#1f1f1f]/80 hover:bg-gray-100 hover:text-[#1f1f1f]'
                       }`}
                       onClick={() => toggleOption(option.value)}
                     >

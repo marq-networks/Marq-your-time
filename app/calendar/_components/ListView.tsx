@@ -52,8 +52,8 @@ export function ListView({ startDate, events, onDateClick }: ListViewProps) {
       case 'absent': return 'bg-red-100 text-red-700 border-red-200'
       case 'holiday': return 'bg-purple-100 text-purple-700 border-purple-200'
       case 'overtime': return 'bg-pink-100 text-pink-700 border-pink-200'
-      case 'break': return 'bg-gray-100 text-gray-700 border-gray-200'
-      default: return 'bg-white/50 text-gray-600 border-gray-200'
+      case 'break': return 'bg-indigo-50 text-indigo-700 border-indigo-100'
+      default: return 'bg-white/50 text-slate-600 border-slate-200'
     }
   }
 

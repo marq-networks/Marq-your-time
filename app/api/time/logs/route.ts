@@ -7,6 +7,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const orgId = searchParams.get('org_id') || searchParams.get('orgId') || ''
   const date = searchParams.get('date') || ''
+  const from = searchParams.get('from') || ''
+  const to = searchParams.get('to') || ''
   
   // New filters
   const memberId = searchParams.get('member_id') || searchParams.get('memberId') || undefined
@@ -21,9 +23,10 @@ export async function GET(req: NextRequest) {
   const clientId = searchParams.get('clientId') || searchParams.get('client_id')
   const idleGt = parseInt(searchParams.get('idle_gt') || '0')
   const missingScreenshots = searchParams.get('missing_screenshots') === 'true'
+  const skipStats = searchParams.get('skip_stats') === 'true'
   const sort = searchParams.get('sort')
   
-  if (!orgId || !date) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
+  if (!orgId || (!date && (!from || !to))) return NextResponse.json({ error: 'MISSING_FIELDS' }, { status: 400 })
   
   let allowedMemberId = memberId || undefined
   const role = (req.headers.get('x-role') || '').toLowerCase()
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Pass basic filters to listDailyLogs
-  const data = await listDailyLogs({ orgId, date, memberId: allowedMemberId || undefined })
+  const data = await listDailyLogs({ orgId, date, from, to, memberId: allowedMemberId || undefined })
   
   const users = await listAllOrgMembers(orgId)
   const departments = await listDepartments(orgId)
@@ -93,7 +96,10 @@ export async function GET(req: NextRequest) {
   const rules = await listOrgCategoryRules(orgId)
 
   // Attach stats to sessions
-  const sessionsWithStats = await Promise.all(filteredSessions.map(async (s: any) => {
+  let sessionsWithStats: any[] = []
+  
+  if (!skipStats) {
+    sessionsWithStats = await Promise.all(filteredSessions.map(async (s: any) => {
     let idleMinutes = 0
     let screenshotCount = 0
     let hasMatch = true // For q filter
@@ -142,6 +148,9 @@ export async function GET(req: NextRequest) {
     
     return { ...s, idleMinutes, screenshotCount, hasMatch }
   }))
+  } else {
+     sessionsWithStats = filteredSessions.map((s: any) => ({ ...s, idleMinutes: 0, screenshotCount: 0, hasMatch: true }))
+  }
 
   // Apply "Heavy" filters
   let finalSessions = sessionsWithStats

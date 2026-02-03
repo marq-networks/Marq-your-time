@@ -1,13 +1,15 @@
 'use client'
 import { useEffect, useState } from 'react'
-import AppShell from '@components/ui/AppShell'
-import GlassCard from '@components/ui/GlassCard'
-import GlassTable from '@components/ui/GlassTable'
-import GlassButton from '@components/ui/GlassButton'
-import GlassSelect from '@components/ui/GlassSelect'
-import GlassModal from '@components/ui/GlassModal'
+import AppShell from '@/components/ui/AppShell'
+import GlassCard from '@/components/ui/GlassCard'
+import GlassTable from '@/components/ui/GlassTable'
+import GlassButton from '@/components/ui/GlassButton'
+import GlassSelect from '@/components/ui/GlassSelect'
+import GlassInput from '@/components/ui/GlassInput'
+import GlassModal from '@/components/ui/GlassModal'
 import ExportMenu from '@/components/shared/ExportMenu'
 import { exportToCsv, exportToPdf, ExportColumn } from '@/lib/export-utils'
+import { Calendar, Users, Building, FileText, Plus, Filter, Search } from 'lucide-react'
 
 type Org = { id: string, orgName: string }
 type User = { id: string, firstName: string, lastName: string }
@@ -75,7 +77,16 @@ export default function TimesheetsPage() {
       const extra = s ? s.extraMinutes : 0
       const short = s ? s.shortMinutes : 0
       const isLeave = leave.some((lr:any)=> day >= lr.start_date && day <= lr.end_date)
-      out.push([ day, isLeave? <span className="badge">Leave</span> : `${Math.floor(worked/60)}:${String(worked%60).padStart(2,'0')}`, `+${Math.floor(extra/60)}:${String(extra%60).padStart(2,'0')}`, `-${Math.floor(short/60)}:${String(short%60).padStart(2,'0')}`, <GlassButton onClick={()=>{ setForm({ date:day, reason:'', new_start:'', new_end:'', new_minutes:'' }); setOpen(true) }}>Request change</GlassButton> ])
+      
+      out.push([ 
+        <div key="d" className="font-medium text-gray-700">{day}</div>, 
+        isLeave ? <span key="s" className="px-2 py-1 rounded-full bg-blue-100 text-blue-800 text-xs">Leave</span> 
+                : <span key="s" className="text-gray-600">{Math.floor(worked/60)}:{String(worked%60).padStart(2,'0')}</span>, 
+        <span key="e" className="text-green-600">+{Math.floor(extra/60)}:{String(extra%60).padStart(2,'0')}</span>, 
+        <span key="sh" className="text-red-500">-{Math.floor(short/60)}:{String(short%60).padStart(2,'0')}</span>, 
+        <GlassButton key="a" variant="secondary" onClick={()=>{ setForm({ date:day, reason:'', new_start:'', new_end:'', new_minutes:'' }); setOpen(true) }}>Request change</GlassButton> 
+      ])
+      
       raw.push({
         date: day,
         workedMinutes: worked,
@@ -133,65 +144,83 @@ export default function TimesheetsPage() {
 
   return (
     <AppShell title="Timesheets">
-      <GlassCard title="Filters">
-        <div className="grid-3">
-          <div>
-            <div className="label">Organization</div>
-            <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
-              <option value="">Select org</option>
-              {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
-            </GlassSelect>
+      <div className="flex flex-col gap-6">
+        {/* Controls */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="w-64">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
+              <GlassSelect value={orgId} onChange={(e:any)=>setOrgId(e.target.value)}>
+                <option value="">Select org</option>
+                {orgs.map(o=> <option key={o.id} value={o.id}>{o.orgName}</option>)}
+              </GlassSelect>
+            </div>
+            <div className="w-64">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Member</label>
+              <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
+                <option value="">Select member</option>
+                {users.map(u=> <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </GlassSelect>
+            </div>
+            <div className="w-48">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Range</label>
+              <GlassSelect value={range} onChange={(e:any)=>setRange(e.target.value)}>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </GlassSelect>
+            </div>
           </div>
-          <div>
-            <div className="label">Member</div>
-            <GlassSelect value={memberId} onChange={(e:any)=>setMemberId(e.target.value)}>
-              <option value="">Select member</option>
-              {users.map(u=> <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-            </GlassSelect>
-          </div>
-          <div>
-            <div className="label">Range</div>
-            <GlassSelect value={range} onChange={(e:any)=>setRange(e.target.value)}>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-            </GlassSelect>
+          <div className="flex justify-end pt-4 border-t border-gray-100">
+            <ExportMenu onExport={handleExport} isExporting={isExporting} />
           </div>
         </div>
-      </GlassCard>
 
-      <GlassCard title="Timesheet" right={<ExportMenu onExport={handleExport} isExporting={isExporting} />}>
-        <GlassTable columns={columns} rows={rows} />
-      </GlassCard>
+        {/* Content */}
+        {rows.length > 0 ? (
+          <GlassTable columns={columns} rows={rows} />
+        ) : (
+          <div className="text-center py-12 bg-white rounded-2xl border border-gray-100">
+            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FileText className="text-gray-400" size={32} />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900">No timesheet data</h3>
+            <p className="text-gray-500">Select an organization and member to view timesheets</p>
+          </div>
+        )}
 
-      <GlassModal open={open} title="Request Change" onClose={()=>setOpen(false)}>
-        <div className="grid-2">
-          <div>
-            <div className="label">Date</div>
-            <input className="input" type="date" value={form.date} onChange={(e)=>setForm({...form, date:e.target.value})} />
+        <GlassModal open={open} title="Request Change" onClose={()=>setOpen(false)}>
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <GlassInput type="date" value={form.date} onChange={(e:any)=>setForm({...form, date:e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                <GlassInput type="text" value={form.reason} onChange={(e:any)=>setForm({...form, reason:e.target.value})} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Start</label>
+                <GlassInput type="datetime-local" value={form.new_start} onChange={(e:any)=>setForm({...form, new_start:e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New End</label>
+                <GlassInput type="datetime-local" value={form.new_end} onChange={(e:any)=>setForm({...form, new_end:e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Minutes</label>
+                <GlassInput type="number" value={form.new_minutes} onChange={(e:any)=>setForm({...form, new_minutes:e.target.value})} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <GlassButton variant="secondary" onClick={()=>setOpen(false)}>Cancel</GlassButton>
+              <GlassButton variant="primary" onClick={submit}>Submit Request</GlassButton>
+            </div>
           </div>
-          <div>
-            <div className="label">Reason</div>
-            <input className="input" type="text" value={form.reason} onChange={(e)=>setForm({...form, reason:e.target.value})} />
-          </div>
-        </div>
-        <div className="grid-3" style={{ marginTop:12 }}>
-          <div>
-            <div className="label">New Start</div>
-            <input className="input" type="datetime-local" value={form.new_start} onChange={(e)=>setForm({...form, new_start:e.target.value})} />
-          </div>
-          <div>
-            <div className="label">New End</div>
-            <input className="input" type="datetime-local" value={form.new_end} onChange={(e)=>setForm({...form, new_end:e.target.value})} />
-          </div>
-          <div>
-            <div className="label">New Minutes</div>
-            <input className="input" type="number" value={form.new_minutes} onChange={(e)=>setForm({...form, new_minutes:e.target.value})} />
-          </div>
-        </div>
-        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:12 }}>
-          <GlassButton onClick={submit}>Submit</GlassButton>
-        </div>
-      </GlassModal>
+        </GlassModal>
+      </div>
     </AppShell>
   )
 }

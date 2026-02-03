@@ -14,17 +14,31 @@ export async function POST(req: NextRequest) {
     const sb = supabaseServer()
 
     // Permission Check
-    const actorId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
-    if (!actorId) {
+    let actorId = req.headers.get('x-user-id') || req.cookies.get('current_user_id')?.value
+    const isOrgLogin = req.cookies.get('org_login')?.value === 'true'
+
+    if (!actorId && !isOrgLogin) {
        return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
     }
 
-    const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
-    const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
-    const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
+    if (isOrgLogin) {
+      // Org login - allowed as admin for the org
+      // We don't need strict user role check here as long as orgId matches context,
+      // but here orgId comes from form data.
+      // We should ideally verify orgId against cookie, but upload is just saving a file.
+      // We'll rely on the client knowing the orgId.
+      const cookieOrgId = req.cookies.get('current_org_id')?.value
+      if (orgId !== cookieOrgId) {
+         return NextResponse.json({ error: 'FORBIDDEN_ORG_MISMATCH' }, { status: 403 })
+      }
+    } else {
+      const { data: userRow } = await sb.from('users').select('*, role:roles(name)').eq('id', actorId).eq('org_id', orgId).maybeSingle()
+      const { data: memberRow } = await sb.from('org_memberships').select('role').eq('user_id', actorId).eq('org_id', orgId).maybeSingle()
+      const effectiveRole = (userRow?.role?.name || memberRow?.role || '').toLowerCase()
 
-    if (!effectiveRole || !['admin', 'super_admin', 'owner', 'manager'].includes(effectiveRole)) {
-      return NextResponse.json({ error: 'FORBIDDEN', details: `Role ${effectiveRole} not allowed` }, { status: 403 })
+      if (!effectiveRole || !['admin', 'super_admin', 'owner', 'manager'].includes(effectiveRole)) {
+        return NextResponse.json({ error: 'FORBIDDEN', details: `Role ${effectiveRole} not allowed` }, { status: 403 })
+      }
     }
 
     const ext = file.name.split('.').pop()

@@ -151,7 +151,7 @@ export default function OfflineTestPage() {
             </div>
           </div>
         )}
-        <pre className="mt-4 p-4 bg-black/10 rounded overflow-auto" style={{ maxHeight: 400 }}>{status}</pre>
+        <pre className="mt-4 p-4 bg-gray-100 rounded overflow-auto" style={{ maxHeight: 400 }}>{status}</pre>
         
         <div className="mt-4 text-sm text-gray-600">
           After running, go to <a href="/devices/offline-sync" className="underline text-blue-600">Offline Sync Dashboard</a> to verify.
